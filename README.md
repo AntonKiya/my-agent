@@ -15,10 +15,14 @@ This repository currently contains the step-0 service shell:
 - Structured JSON logging.
 - Trace id context helpers.
 - Lightweight service container.
+- Channel-agnostic event models and queue interfaces.
+- In-memory asyncio queue backend for inbound/outbound events.
+- Telegram inbound webhook route and private text normalizer.
+- Telegram send adapter for outbound text delivery through the Bot API.
 - Background task supervisor for graceful shutdown.
 - Ruff, mypy, pytest, and pytest-asyncio quality gates.
 
-No Telegram, Postgres, Redis, queue, or agent logic is implemented yet.
+No Postgres, Redis, worker, or agent logic is implemented yet.
 
 ## Requirements
 
@@ -68,6 +72,12 @@ curl -L http://127.0.0.1:8000/health
 curl -L http://127.0.0.1:8000/ready
 ```
 
+Telegram webhook:
+
+```text
+POST /webhooks/telegram
+```
+
 ## Configuration
 
 Settings are loaded from environment variables with the `AGENT_SERVICE_` prefix.
@@ -82,6 +92,8 @@ AGENT_SERVICE_HOST=0.0.0.0
 AGENT_SERVICE_PORT=8000
 AGENT_SERVICE_LOG_LEVEL=INFO
 AGENT_SERVICE_GRACEFUL_SHUTDOWN_TIMEOUT_SECONDS=10.0
+AGENT_SERVICE_INBOUND_QUEUE_MAXSIZE=5000
+AGENT_SERVICE_OUTBOUND_QUEUE_MAXSIZE=5000
 ```
 
 Future integration settings are already reserved in `.env.example`:
@@ -125,6 +137,8 @@ uv run pytest
 src/agent_service/
   api/                 HTTP routes such as health/readiness
   observability/       structured logs and trace context helpers
+  channels/            channel-agnostic event models and adapter interfaces
+  messaging/           queue interfaces and in-memory queue backend
   runtime/             lifecycle helpers for background tasks
   app.py               FastAPI app factory and lifespan
   config.py            typed application settings
