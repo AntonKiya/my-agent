@@ -13,7 +13,7 @@ def test_create_app_registers_health_routes() -> None:
 
     assert app.state.settings is settings
     assert app.state.container.settings is settings
-    assert {"/health", "/ready"}.issubset(route_paths)
+    assert {"/health", "/ready", "/webhooks/telegram"}.issubset(route_paths)
 
 
 async def test_app_lifespan_starts_and_stops_container() -> None:

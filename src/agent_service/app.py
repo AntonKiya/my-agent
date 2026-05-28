@@ -5,6 +5,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from agent_service.api.health import router as health_router
+from agent_service.channels.telegram.routes import router as telegram_router
 from agent_service.config import AppSettings, get_settings
 from agent_service.container import AppContainer
 from agent_service.observability.logging import configure_logging
@@ -62,4 +63,5 @@ def create_app(settings: AppSettings | None = None) -> FastAPI:
     app.state.container = container
     app.dependency_overrides[get_settings] = settings_dependency
     app.include_router(health_router)
+    app.include_router(telegram_router)
     return app

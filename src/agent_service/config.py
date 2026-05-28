@@ -23,6 +23,8 @@ class AppSettings(BaseSettings):
     port: int = Field(default=8000, ge=1, le=65535)
     log_level: LogLevel = "INFO"
     graceful_shutdown_timeout_seconds: float = Field(default=10.0, gt=0)
+    inbound_queue_maxsize: int = Field(default=5000, ge=0)
+    outbound_queue_maxsize: int = Field(default=5000, ge=0)
 
     postgres_dsn: str | None = None
     redis_dsn: str | None = None
