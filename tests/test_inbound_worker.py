@@ -1,0 +1,440 @@
+import asyncio
+from collections.abc import Awaitable, Callable
+from dataclasses import dataclass, field
+from uuid import UUID, uuid4
+
+import pytest
+
+from agent_service.agents import (
+    AgentBoundary,
+    AgentContext,
+    AgentRequest,
+    AgentResponse,
+    PydanticAIRunContext,
+)
+from agent_service.channels import InboundEvent, InboundEventStatus
+from agent_service.conversations import AsyncioConversationLockManager, Conversation
+from agent_service.inbound import AgentRetryPolicy, InboundWorker, UnresolvedInboundEventError
+from agent_service.memory import (
+    ConversationMemoryMessage,
+    ConversationMemoryRole,
+    PreparedConversationContext,
+)
+from agent_service.messaging import AsyncioInboundQueue, AsyncioOutboundQueue
+from agent_service.observability.tracing import get_trace_id, reset_trace_id, set_trace_id
+
+
+@dataclass(slots=True)
+class FakeConversationResolver:
+    conversations_by_chat_id: dict[str, Conversation]
+    events: list[InboundEvent] = field(default_factory=list)
+
+    async def resolve(self, event: InboundEvent) -> Conversation:
+        self.events.append(event)
+        return self.conversations_by_chat_id[event.external_chat_id]
+
+
+@dataclass(slots=True)
+class FakeMemoryService:
+    user_messages: list[ConversationMemoryMessage] = field(default_factory=list)
+    assistant_messages: list[ConversationMemoryMessage] = field(default_factory=list)
+
+    async def record_user_message(
+        self,
+        *,
+        conversation: Conversation,
+        event: InboundEvent,
+    ) -> ConversationMemoryMessage:
+        if event.user_id is None:
+            raise ValueError("event must be user-resolved")
+        message = ConversationMemoryMessage(
+            conversation_id=conversation.id,
+            user_id=event.user_id,
+            role=ConversationMemoryRole.USER,
+            text=event.text,
+            inbound_event_id=event.event_id,
+            trace_id=event.trace_id,
+        )
+        self.user_messages.append(message)
+        return message
+
+    async def prepare_agent_context(
+        self,
+        *,
+        conversation: Conversation,
+        latest_user_message: ConversationMemoryMessage,
+    ) -> PreparedConversationContext:
+        return PreparedConversationContext(
+            conversation_id=conversation.id,
+            user_id=conversation.user_id,
+            latest_user_message_id=latest_user_message.id,
+            agent_context=AgentContext(system_prompt_parts=["summary"]),
+            pydantic_ai=PydanticAIRunContext(
+                user_prompt=latest_user_message.text,
+                message_history=[],
+                conversation_id=str(conversation.id),
+                instructions="summary",
+            ),
+        )
+
+    async def record_assistant_message(
+        self,
+        *,
+        conversation: Conversation,
+        response: AgentResponse,
+        trace_id: str | None = None,
+        outbound_event_id: UUID | None = None,
+    ) -> ConversationMemoryMessage:
+        message = ConversationMemoryMessage(
+            conversation_id=conversation.id,
+            user_id=conversation.user_id,
+            role=ConversationMemoryRole.ASSISTANT,
+            text=response.text,
+            trace_id=trace_id or response.trace_id,
+            outbound_event_id=outbound_event_id,
+        )
+        self.assistant_messages.append(message)
+        return message
+
+
+class FailingPrepareMemoryService(FakeMemoryService):
+    async def prepare_agent_context(
+        self,
+        *,
+        conversation: Conversation,
+        latest_user_message: ConversationMemoryMessage,
+    ) -> PreparedConversationContext:
+        raise RuntimeError("context prepare failed")
+
+
+@dataclass(slots=True)
+class FakeAgentBoundary:
+    responses: list[AgentResponse] = field(default_factory=list)
+    errors: list[BaseException] = field(default_factory=list)
+    requests: list[AgentRequest] = field(default_factory=list)
+
+    async def run(self, request: AgentRequest) -> AgentResponse:
+        self.requests.append(request)
+        if self.errors:
+            raise self.errors.pop(0)
+        if self.responses:
+            return self.responses.pop(0)
+        return AgentResponse(text=f"answer: {request.text}", trace_id=request.trace_id)
+
+
+@dataclass(slots=True)
+class TrackingAgentBoundary:
+    entered: asyncio.Event
+    release: asyncio.Event
+    max_active_reached: asyncio.Event | None = None
+    active_count: int = 0
+    max_active_count: int = 0
+    requests: list[AgentRequest] = field(default_factory=list)
+
+    async def run(self, request: AgentRequest) -> AgentResponse:
+        self.requests.append(request)
+        self.active_count += 1
+        self.max_active_count = max(self.max_active_count, self.active_count)
+        if self.max_active_reached is not None and self.max_active_count >= 2:
+            self.max_active_reached.set()
+        self.entered.set()
+        try:
+            await self.release.wait()
+            return AgentResponse(text=f"answer: {request.text}", trace_id=request.trace_id)
+        finally:
+            self.active_count -= 1
+
+
+def conversation(*, user_id: UUID, chat_id: str = "12345") -> Conversation:
+    return Conversation(
+        id=uuid4(),
+        user_id=user_id,
+        channel="telegram",
+        conversation_key=f"telegram:private:{chat_id}",
+        external_chat_id=chat_id,
+    )
+
+
+def inbound_event(
+    *,
+    user_id: UUID | None,
+    chat_id: str = "12345",
+    text: str = "hello",
+) -> InboundEvent:
+    return InboundEvent(
+        channel="telegram",
+        external_user_id="67890",
+        external_chat_id=chat_id,
+        external_message_id="42",
+        idempotency_key=f"telegram:{chat_id}:42",
+        user_id=user_id,
+        text=text,
+        trace_id="trace-1",
+    )
+
+
+def worker(
+    *,
+    conversations_by_chat_id: dict[str, Conversation],
+    agent_boundary: AgentBoundary,
+    memory_service: FakeMemoryService | None = None,
+    retry_policy: AgentRetryPolicy | None = None,
+    sleep: Callable[[float], Awaitable[None]] | None = None,
+) -> tuple[InboundWorker, AsyncioInboundQueue, AsyncioOutboundQueue, FakeMemoryService]:
+    inbound_queue = AsyncioInboundQueue()
+    outbound_queue = AsyncioOutboundQueue()
+    memory = memory_service or FakeMemoryService()
+    return (
+        InboundWorker(
+            inbound_queue=inbound_queue,
+            outbound_queue=outbound_queue,
+            conversation_resolver=FakeConversationResolver(conversations_by_chat_id),
+            memory_service=memory,
+            agent_boundary=agent_boundary,
+            lock_manager=AsyncioConversationLockManager(),
+            retry_policy=retry_policy or AgentRetryPolicy(max_attempts=1),
+            sleep=sleep or asyncio.sleep,
+        ),
+        inbound_queue,
+        outbound_queue,
+        memory,
+    )
+
+
+async def test_inbound_worker_processes_event_to_outbound_queue() -> None:
+    user_id = uuid4()
+    resolved_conversation = conversation(user_id=user_id)
+    agent = FakeAgentBoundary(responses=[AgentResponse(text="answer", metadata={"m": "v"})])
+    inbound_worker, _inbound_queue, outbound_queue, memory = worker(
+        conversations_by_chat_id={"12345": resolved_conversation},
+        agent_boundary=agent,
+    )
+    event = inbound_event(user_id=user_id)
+
+    await inbound_worker.process_event(event)
+
+    outbound = await outbound_queue.consume()
+    assert event.status is InboundEventStatus.COMPLETED
+    assert outbound.user_id == user_id
+    assert outbound.conversation_id == resolved_conversation.id
+    assert outbound.external_chat_id == "12345"
+    assert outbound.text == "answer"
+    assert outbound.metadata == {"m": "v"}
+    assert outbound.trace_id == "trace-1"
+    assert memory.user_messages[0].inbound_event_id == event.event_id
+    assert memory.assistant_messages[0].outbound_event_id == outbound.event_id
+    assert agent.requests[0].conversation_id == resolved_conversation.id
+    assert agent.requests[0].pydantic_ai is not None
+    assert agent.requests[0].pydantic_ai.user_prompt == "hello"
+    assert "external_chat_id" not in agent.requests[0].model_dump()
+    assert "raw_update" not in agent.requests[0].model_dump()
+
+
+async def test_inbound_worker_process_next_consumes_from_inbound_queue() -> None:
+    user_id = uuid4()
+    resolved_conversation = conversation(user_id=user_id)
+    inbound_worker, inbound_queue, outbound_queue, _memory = worker(
+        conversations_by_chat_id={"12345": resolved_conversation},
+        agent_boundary=FakeAgentBoundary(),
+    )
+    event = inbound_event(user_id=user_id)
+
+    await inbound_queue.publish(event)
+    await inbound_worker.process_next()
+
+    outbound = await outbound_queue.consume()
+    assert outbound.text == "answer: hello"
+    assert event.status is InboundEventStatus.COMPLETED
+
+
+async def test_inbound_worker_rejects_unresolved_event() -> None:
+    user_id = uuid4()
+    resolved_conversation = conversation(user_id=user_id)
+    inbound_worker, _inbound_queue, outbound_queue, _memory = worker(
+        conversations_by_chat_id={"12345": resolved_conversation},
+        agent_boundary=FakeAgentBoundary(),
+    )
+    event = inbound_event(user_id=None)
+
+    with pytest.raises(UnresolvedInboundEventError):
+        await inbound_worker.process_event(event)
+
+    assert event.status is InboundEventStatus.DEAD_LETTER
+    assert outbound_queue.is_empty
+
+
+async def test_inbound_worker_creates_trace_id_and_resets_trace_context() -> None:
+    user_id = uuid4()
+    resolved_conversation = conversation(user_id=user_id)
+    agent = FakeAgentBoundary()
+    inbound_worker, _inbound_queue, outbound_queue, _memory = worker(
+        conversations_by_chat_id={"12345": resolved_conversation},
+        agent_boundary=agent,
+    )
+    event = inbound_event(user_id=user_id)
+    event.trace_id = None
+
+    assert get_trace_id() is None
+
+    await inbound_worker.process_event(event)
+
+    outbound = await outbound_queue.consume()
+    assert event.trace_id is not None
+    assert agent.requests[0].trace_id == event.trace_id
+    assert outbound.trace_id == event.trace_id
+    assert get_trace_id() is None
+
+
+async def test_inbound_worker_restores_existing_trace_context() -> None:
+    outer_token = set_trace_id("outer-trace")
+    try:
+        user_id = uuid4()
+        resolved_conversation = conversation(user_id=user_id)
+        agent = FakeAgentBoundary()
+        inbound_worker, _inbound_queue, _outbound_queue, _memory = worker(
+            conversations_by_chat_id={"12345": resolved_conversation},
+            agent_boundary=agent,
+        )
+
+        await inbound_worker.process_event(inbound_event(user_id=user_id))
+
+        assert get_trace_id() == "outer-trace"
+    finally:
+        reset_trace_id(outer_token)
+
+
+async def test_inbound_worker_stops_before_agent_when_context_prepare_fails() -> None:
+    user_id = uuid4()
+    resolved_conversation = conversation(user_id=user_id)
+    agent = FakeAgentBoundary()
+    memory = FailingPrepareMemoryService()
+    inbound_worker, _inbound_queue, outbound_queue, _memory = worker(
+        conversations_by_chat_id={"12345": resolved_conversation},
+        agent_boundary=agent,
+        memory_service=memory,
+    )
+    event = inbound_event(user_id=user_id)
+
+    with pytest.raises(RuntimeError, match="context prepare failed"):
+        await inbound_worker.process_event(event)
+
+    assert event.status is InboundEventStatus.PROCESSING
+    assert len(memory.user_messages) == 1
+    assert memory.assistant_messages == []
+    assert agent.requests == []
+    assert outbound_queue.is_empty
+
+
+async def test_inbound_worker_retries_agent_before_success() -> None:
+    user_id = uuid4()
+    resolved_conversation = conversation(user_id=user_id)
+    delays: list[float] = []
+
+    async def sleep(delay: float) -> None:
+        delays.append(delay)
+
+    agent = FakeAgentBoundary(
+        errors=[RuntimeError("first"), RuntimeError("second")],
+        responses=[AgentResponse(text="recovered")],
+    )
+    inbound_worker, _inbound_queue, outbound_queue, _memory = worker(
+        conversations_by_chat_id={"12345": resolved_conversation},
+        agent_boundary=agent,
+        retry_policy=AgentRetryPolicy(max_attempts=3, backoff_seconds=(0.1, 0.2)),
+        sleep=sleep,
+    )
+    event = inbound_event(user_id=user_id)
+
+    await inbound_worker.process_event(event)
+
+    outbound = await outbound_queue.consume()
+    assert outbound.text == "recovered"
+    assert event.status is InboundEventStatus.COMPLETED
+    assert delays == [0.1, 0.2]
+    assert len(agent.requests) == 3
+
+
+async def test_inbound_worker_publishes_fallback_after_agent_failure() -> None:
+    user_id = uuid4()
+    resolved_conversation = conversation(user_id=user_id)
+    agent = FakeAgentBoundary(errors=[RuntimeError("first"), RuntimeError("second")])
+    inbound_worker, _inbound_queue, outbound_queue, memory = worker(
+        conversations_by_chat_id={"12345": resolved_conversation},
+        agent_boundary=agent,
+        retry_policy=AgentRetryPolicy(max_attempts=2, backoff_seconds=(0,)),
+    )
+    event = inbound_event(user_id=user_id)
+
+    await inbound_worker.process_event(event)
+
+    outbound = await outbound_queue.consume()
+    assert event.status is InboundEventStatus.FALLBACK_SENT
+    assert outbound.text == inbound_worker.fallback_text
+    assert outbound.metadata["fallback"] is True
+    assert outbound.conversation_id == resolved_conversation.id
+    assert memory.assistant_messages == []
+
+
+async def test_inbound_worker_serializes_same_conversation_agent_runs() -> None:
+    user_id = uuid4()
+    resolved_conversation = conversation(user_id=user_id)
+    entered = asyncio.Event()
+    release = asyncio.Event()
+    agent = TrackingAgentBoundary(entered=entered, release=release)
+    inbound_worker, _inbound_queue, _outbound_queue, _memory = worker(
+        conversations_by_chat_id={"12345": resolved_conversation},
+        agent_boundary=agent,
+    )
+
+    first_task = asyncio.create_task(
+        inbound_worker.process_event(inbound_event(user_id=user_id, text="first"))
+    )
+    await asyncio.wait_for(entered.wait(), timeout=0.1)
+    second_task = asyncio.create_task(
+        inbound_worker.process_event(inbound_event(user_id=user_id, text="second"))
+    )
+    await asyncio.sleep(0)
+
+    assert agent.max_active_count == 1
+    assert len(agent.requests) == 1
+
+    release.set()
+    await asyncio.wait_for(asyncio.gather(first_task, second_task), timeout=0.1)
+
+    assert agent.max_active_count == 1
+    assert len(agent.requests) == 2
+
+
+async def test_inbound_worker_allows_different_conversations_in_parallel() -> None:
+    user_id = uuid4()
+    first_conversation = conversation(user_id=user_id, chat_id="111")
+    second_conversation = conversation(user_id=user_id, chat_id="222")
+    entered = asyncio.Event()
+    release = asyncio.Event()
+    max_active_reached = asyncio.Event()
+    agent = TrackingAgentBoundary(
+        entered=entered,
+        release=release,
+        max_active_reached=max_active_reached,
+    )
+    inbound_worker, _inbound_queue, _outbound_queue, _memory = worker(
+        conversations_by_chat_id={
+            "111": first_conversation,
+            "222": second_conversation,
+        },
+        agent_boundary=agent,
+    )
+
+    first_task = asyncio.create_task(
+        inbound_worker.process_event(inbound_event(user_id=user_id, chat_id="111"))
+    )
+    second_task = asyncio.create_task(
+        inbound_worker.process_event(inbound_event(user_id=user_id, chat_id="222"))
+    )
+
+    await asyncio.wait_for(max_active_reached.wait(), timeout=0.1)
+
+    release.set()
+    await asyncio.wait_for(asyncio.gather(first_task, second_task), timeout=0.1)
+
+    assert agent.max_active_count == 2
