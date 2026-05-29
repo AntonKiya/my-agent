@@ -8,6 +8,7 @@ def test_postgres_pool_settings_have_safe_defaults() -> None:
     settings = AppSettings(environment="test")
 
     assert settings.postgres_dsn is None
+    assert settings.telegram_bot_token is None
     assert settings.postgres_pool_min_size == 1
     assert settings.postgres_pool_max_size == 10
     assert settings.postgres_command_timeout_seconds == 30.0

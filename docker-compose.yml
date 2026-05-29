@@ -1,0 +1,36 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    container_name: agent-service-postgres
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-agent_service}
+      POSTGRES_USER: ${POSTGRES_USER:-agent_service}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-agent_service_local_password}
+      POSTGRES_TEST_DB: ${POSTGRES_TEST_DB:-agent_service_test}
+      POSTGRES_TEST_USER: ${POSTGRES_TEST_USER:-agent_service_test}
+      POSTGRES_TEST_PASSWORD: ${POSTGRES_TEST_PASSWORD:-agent_service_test_local_password}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./docker/postgres/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    command:
+      - "postgres"
+      - "-c"
+      - "max_connections=200"
+      - "-c"
+      - "shared_buffers=256MB"
+      - "-c"
+      - "effective_cache_size=768MB"
+      - "-c"
+      - "work_mem=8MB"
+      - "-c"
+      - "maintenance_work_mem=128MB"
+
+volumes:
+  postgres_data:

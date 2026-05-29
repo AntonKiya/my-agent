@@ -1,7 +1,7 @@
 from functools import lru_cache
 from typing import Literal, Self
 
-from pydantic import Field, SecretStr, model_validator
+from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 Environment = Literal["local", "dev", "staging", "prod", "test"]
@@ -33,6 +33,19 @@ class AppSettings(BaseSettings):
     redis_dsn: str | None = None
     telegram_bot_token: SecretStr | None = None
     logfire_token: SecretStr | None = None
+
+    @field_validator(
+        "postgres_dsn",
+        "redis_dsn",
+        "telegram_bot_token",
+        "logfire_token",
+        mode="before",
+    )
+    @classmethod
+    def empty_optional_secret_or_dsn_must_be_none(cls, value: object) -> object:
+        if value == "":
+            return None
+        return value
 
     @model_validator(mode="after")
     def postgres_pool_min_size_must_not_exceed_max_size(self) -> Self:

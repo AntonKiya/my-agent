@@ -24,9 +24,11 @@ This repository currently contains the service foundation:
 - User identity domain models and bundled Postgres schema migrations.
 - Runtime Postgres pool wiring for `PostgresUserStore`, `UserResolver`, and inbound intake
   when `AGENT_SERVICE_POSTGRES_DSN` is configured.
+- Docker Compose Postgres service for local development and integration tests.
+- Explicit database migration runner command.
 - Ruff, mypy, pyright, pytest, and pytest-asyncio quality gates.
 
-No Redis, worker, agent logic, or automatic migration runner is implemented yet.
+No Redis, worker, or agent logic is implemented yet.
 
 ## Requirements
 
@@ -48,6 +50,40 @@ cp .env.example .env
 ```
 
 Real secrets must stay in local environment variables or secret storage, not in git.
+
+For local Docker Postgres, keep these values aligned with the Postgres DSNs:
+
+```text
+POSTGRES_DB=agent_service
+POSTGRES_USER=agent_service
+POSTGRES_PASSWORD=agent_service_local_password
+POSTGRES_TEST_DB=agent_service_test
+POSTGRES_TEST_USER=agent_service_test
+POSTGRES_TEST_PASSWORD=agent_service_test_local_password
+AGENT_SERVICE_POSTGRES_DSN=postgresql://agent_service:agent_service_local_password@127.0.0.1:5432/agent_service
+AGENT_SERVICE_TEST_POSTGRES_DSN=postgresql://agent_service_test:agent_service_test_local_password@127.0.0.1:5432/agent_service_test
+```
+
+Start local Postgres:
+
+```bash
+docker compose up -d postgres
+```
+
+Apply migrations:
+
+```bash
+uv run agent-service-db-migrate
+```
+
+Local Docker uses one application database and one isolated integration-test database:
+
+- `agent_service` / `agent_service` for the running application.
+- `agent_service_test` / `agent_service_test` for integration tests.
+
+The application uses `AGENT_SERVICE_POSTGRES_DSN`. Integration tests use only
+`AGENT_SERVICE_TEST_POSTGRES_DSN`, so test data and credentials are isolated from the app database.
+The Docker init script creates only the test role and test database on first Postgres initialization.
 
 ## Run
 
@@ -106,7 +142,14 @@ AGENT_SERVICE_POSTGRES_COMMAND_TIMEOUT_SECONDS=30.0
 Integration settings:
 
 ```text
-AGENT_SERVICE_POSTGRES_DSN=
+POSTGRES_DB=agent_service
+POSTGRES_USER=agent_service
+POSTGRES_PASSWORD=agent_service_local_password
+POSTGRES_TEST_DB=agent_service_test
+POSTGRES_TEST_USER=agent_service_test
+POSTGRES_TEST_PASSWORD=agent_service_test_local_password
+AGENT_SERVICE_POSTGRES_DSN=postgresql://agent_service:agent_service_local_password@127.0.0.1:5432/agent_service
+AGENT_SERVICE_TEST_POSTGRES_DSN=postgresql://agent_service_test:agent_service_test_local_password@127.0.0.1:5432/agent_service_test
 AGENT_SERVICE_REDIS_DSN=
 AGENT_SERVICE_TELEGRAM_BOT_TOKEN=
 AGENT_SERVICE_LOGFIRE_TOKEN=
@@ -139,8 +182,16 @@ Current tables:
 - `channel_identities`
 
 The schema enforces `UNIQUE(channel, external_user_id)` for stable external identity separation.
-These migrations are not applied automatically yet; create/apply the schema before running with a
-real `AGENT_SERVICE_POSTGRES_DSN`.
+Migrations are applied by an explicit command:
+
+```bash
+uv run agent-service-db-migrate
+```
+
+The migration runner records applied migrations in `agent_service_schema_migrations`, uses a
+Postgres advisory lock, validates migration checksums, and runs migrations in a transaction. The
+application does not apply migrations automatically during startup; run migrations before starting
+the service with a real `AGENT_SERVICE_POSTGRES_DSN`.
 
 ## Quality Gate
 
@@ -167,6 +218,13 @@ Tests:
 
 ```bash
 uv run pytest
+```
+
+Integration tests that need Postgres are skipped unless `AGENT_SERVICE_TEST_POSTGRES_DSN` is set.
+With the local Docker database running:
+
+```bash
+AGENT_SERVICE_TEST_POSTGRES_DSN=postgresql://agent_service_test:agent_service_test_local_password@127.0.0.1:5432/agent_service_test uv run pytest tests/test_postgres_integration.py
 ```
 
 ## User Identity Invariants
