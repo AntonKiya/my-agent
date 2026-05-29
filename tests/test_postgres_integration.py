@@ -6,6 +6,14 @@ from typing import Protocol, cast
 import asyncpg
 import pytest
 
+from agent_service.conversations import (
+    ConversationLookup,
+    ObservedConversation,
+    PostgresConversationStore,
+)
+from agent_service.conversations import (
+    PostgresPool as ConversationPostgresPool,
+)
 from agent_service.database import migrate_database
 from agent_service.users import (
     ChannelIdentityLookup,
@@ -18,8 +26,7 @@ pytestmark = pytest.mark.integration
 
 
 class AsyncClosable(Protocol):
-    async def close(self) -> None:
-        ...
+    async def close(self) -> None: ...
 
 
 def postgres_dsn() -> str:
@@ -33,7 +40,9 @@ def postgres_dsn() -> str:
 async def clean_user_tables(dsn: str) -> None:
     connection = await asyncpg.connect(dsn=dsn)
     try:
-        await connection.execute("TRUNCATE channel_identities, users RESTART IDENTITY CASCADE")
+        await connection.execute(
+            "TRUNCATE conversations, channel_identities, users RESTART IDENTITY CASCADE"
+        )
     finally:
         await connection.close()
 
@@ -48,7 +57,8 @@ async def test_postgres_migrations_and_user_store_roundtrip() -> None:
     )
     pool = cast(PostgresPool, pool_object)
     try:
-        store = PostgresUserStore(pool)
+        user_store = PostgresUserStore(pool)
+        conversation_store = PostgresConversationStore(cast(ConversationPostgresPool, pool_object))
         observed = ObservedChannelIdentity(
             channel="telegram",
             external_user_id="67890",
@@ -58,8 +68,8 @@ async def test_postgres_migrations_and_user_store_roundtrip() -> None:
             observed_at=datetime(2026, 5, 29, 12, 0, tzinfo=UTC),
         )
 
-        created = await store.get_or_create_active_user_with_identity(identity=observed)
-        loaded = await store.get_by_channel_identity(
+        created = await user_store.get_or_create_active_user_with_identity(identity=observed)
+        loaded = await user_store.get_by_channel_identity(
             lookup=ChannelIdentityLookup(
                 channel="telegram",
                 external_user_id="67890",
@@ -71,5 +81,23 @@ async def test_postgres_migrations_and_user_store_roundtrip() -> None:
         assert loaded.identity.external_user_id == "67890"
         assert loaded.identity.username == "handle"
         assert loaded.identity.metadata == {"first_name": "Anton"}
+
+        conversation = await conversation_store.get_or_create_conversation(
+            conversation=ObservedConversation(
+                user_id=created.user.id,
+                channel="telegram",
+                conversation_key="telegram:private:12345",
+                external_chat_id="12345",
+                observed_at=datetime(2026, 5, 29, 12, 1, tzinfo=UTC),
+            )
+        )
+        loaded_conversation = await conversation_store.get_by_key(
+            lookup=ConversationLookup(conversation_key="telegram:private:12345")
+        )
+
+        assert loaded_conversation is not None
+        assert loaded_conversation.id == conversation.id
+        assert loaded_conversation.user_id == created.user.id
+        assert loaded_conversation.conversation_key == "telegram:private:12345"
     finally:
         await cast(AsyncClosable, pool_object).close()

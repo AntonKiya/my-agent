@@ -25,6 +25,9 @@ class AppSettings(BaseSettings):
     graceful_shutdown_timeout_seconds: float = Field(default=10.0, gt=0)
     inbound_queue_maxsize: int = Field(default=5000, ge=0)
     outbound_queue_maxsize: int = Field(default=5000, ge=0)
+    inbound_worker_count: int = Field(default=8, ge=0)
+    agent_retry_max_attempts: int = Field(default=3, ge=1)
+    agent_retry_backoff_seconds: tuple[float, ...] = (1.0, 5.0, 15.0)
 
     postgres_dsn: str | None = None
     postgres_pool_min_size: int = Field(default=1, ge=0)
@@ -52,6 +55,16 @@ class AppSettings(BaseSettings):
         if self.postgres_pool_min_size > self.postgres_pool_max_size:
             raise ValueError("postgres_pool_min_size must be less than or equal to max size")
         return self
+
+    @field_validator("agent_retry_backoff_seconds")
+    @classmethod
+    def agent_retry_backoff_seconds_must_not_be_negative(
+        cls,
+        value: tuple[float, ...],
+    ) -> tuple[float, ...]:
+        if any(delay < 0 for delay in value):
+            raise ValueError("agent_retry_backoff_seconds must not contain negative values")
+        return value
 
 
 @lru_cache(maxsize=1)
