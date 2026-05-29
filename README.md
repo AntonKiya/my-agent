@@ -6,7 +6,7 @@ boundaries should live behind explicit interfaces.
 
 ## Current Scope
 
-This repository currently contains the step-0 service shell:
+This repository currently contains the service foundation:
 
 - Python package with `src` layout.
 - FastAPI ASGI application factory.
@@ -17,12 +17,16 @@ This repository currently contains the step-0 service shell:
 - Lightweight service container.
 - Channel-agnostic event models and queue interfaces.
 - In-memory asyncio queue backend for inbound/outbound events.
+- Inbound intake service that resolves users before queue publication.
 - Telegram inbound webhook route and private text normalizer.
 - Telegram send adapter for outbound text delivery through the Bot API.
 - Background task supervisor for graceful shutdown.
-- Ruff, mypy, pytest, and pytest-asyncio quality gates.
+- User identity domain models and bundled Postgres schema migrations.
+- Runtime Postgres pool wiring for `PostgresUserStore`, `UserResolver`, and inbound intake
+  when `AGENT_SERVICE_POSTGRES_DSN` is configured.
+- Ruff, mypy, pyright, pytest, and pytest-asyncio quality gates.
 
-No Postgres, Redis, worker, or agent logic is implemented yet.
+No Redis, worker, agent logic, or automatic migration runner is implemented yet.
 
 ## Requirements
 
@@ -94,9 +98,12 @@ AGENT_SERVICE_LOG_LEVEL=INFO
 AGENT_SERVICE_GRACEFUL_SHUTDOWN_TIMEOUT_SECONDS=10.0
 AGENT_SERVICE_INBOUND_QUEUE_MAXSIZE=5000
 AGENT_SERVICE_OUTBOUND_QUEUE_MAXSIZE=5000
+AGENT_SERVICE_POSTGRES_POOL_MIN_SIZE=1
+AGENT_SERVICE_POSTGRES_POOL_MAX_SIZE=10
+AGENT_SERVICE_POSTGRES_COMMAND_TIMEOUT_SECONDS=30.0
 ```
 
-Future integration settings are already reserved in `.env.example`:
+Integration settings:
 
 ```text
 AGENT_SERVICE_POSTGRES_DSN=
@@ -104,6 +111,36 @@ AGENT_SERVICE_REDIS_DSN=
 AGENT_SERVICE_TELEGRAM_BOT_TOKEN=
 AGENT_SERVICE_LOGFIRE_TOKEN=
 ```
+
+`AGENT_SERVICE_POSTGRES_DSN` enables runtime user resolution. Without it, supported inbound
+webhooks return `503` instead of publishing unresolved events into the inbound queue.
+
+## Inbound Flow
+
+```text
+Telegram webhook
+→ Telegram normalizer
+→ InboundIntakeService
+→ UserResolver
+→ PostgresUserStore
+→ In-Memory Inbound Queue
+```
+
+The Telegram route never publishes directly to the inbound queue. Queue publication is allowed
+only after user resolution succeeds and the event contains an internal `user_id`.
+
+## Database
+
+Bundled SQL migrations live in `src/agent_service/database/migrations`.
+
+Current tables:
+
+- `users`
+- `channel_identities`
+
+The schema enforces `UNIQUE(channel, external_user_id)` for stable external identity separation.
+These migrations are not applied automatically yet; create/apply the schema before running with a
+real `AGENT_SERVICE_POSTGRES_DSN`.
 
 ## Quality Gate
 
@@ -123,6 +160,7 @@ Type check:
 
 ```bash
 uv run mypy src tests
+uv run pyright src tests
 ```
 
 Tests:
@@ -131,6 +169,17 @@ Tests:
 uv run pytest
 ```
 
+## User Identity Invariants
+
+- Stable identity lookup is always `(channel, external_user_id)`.
+- `username` is mutable metadata and must never identify or merge users.
+- Inbound queue publication requires a resolved internal `user_id`.
+- `blocked` and `pending` users do not reach the inbound queue.
+- `UNIQUE(channel, external_user_id)` protects the Postgres boundary from duplicate identities.
+- First-touch user creation must be race-safe; competing creates resolve to one identity.
+- Channel-specific metadata may be updated on each successful resolve, but it must not change who
+  the user is.
+
 ## Project Layout
 
 ```text
@@ -138,7 +187,10 @@ src/agent_service/
   api/                 HTTP routes such as health/readiness
   observability/       structured logs and trace context helpers
   channels/            channel-agnostic event models and adapter interfaces
+  inbound/             user-resolution intake before inbound queue publication
+  users/               user identity domain models and storage interfaces
   messaging/           queue interfaces and in-memory queue backend
+  database/            bundled SQL migrations and database helpers
   runtime/             lifecycle helpers for background tasks
   app.py               FastAPI app factory and lifespan
   config.py            typed application settings

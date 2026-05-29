@@ -1,7 +1,7 @@
 from functools import lru_cache
-from typing import Literal
+from typing import Literal, Self
 
-from pydantic import Field, SecretStr
+from pydantic import Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 Environment = Literal["local", "dev", "staging", "prod", "test"]
@@ -27,9 +27,18 @@ class AppSettings(BaseSettings):
     outbound_queue_maxsize: int = Field(default=5000, ge=0)
 
     postgres_dsn: str | None = None
+    postgres_pool_min_size: int = Field(default=1, ge=0)
+    postgres_pool_max_size: int = Field(default=10, ge=1)
+    postgres_command_timeout_seconds: float = Field(default=30.0, gt=0)
     redis_dsn: str | None = None
     telegram_bot_token: SecretStr | None = None
     logfire_token: SecretStr | None = None
+
+    @model_validator(mode="after")
+    def postgres_pool_min_size_must_not_exceed_max_size(self) -> Self:
+        if self.postgres_pool_min_size > self.postgres_pool_max_size:
+            raise ValueError("postgres_pool_min_size must be less than or equal to max size")
+        return self
 
 
 @lru_cache(maxsize=1)

@@ -9,9 +9,11 @@ QueueEventT = TypeVar("QueueEventT")
 class EventQueue(Protocol[QueueEventT]):
     async def publish(self, event: QueueEventT) -> None:
         """Publish an event without exposing the queue backend to callers."""
+        ...
 
     async def consume(self) -> QueueEventT:
         """Consume the next available event from the queue backend."""
+        ...
 
 
 @runtime_checkable
