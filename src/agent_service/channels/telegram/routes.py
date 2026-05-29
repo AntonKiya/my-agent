@@ -1,6 +1,6 @@
 from typing import Any, Literal, cast
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
 from agent_service.container import AppContainer
@@ -26,5 +26,11 @@ async def telegram_webhook(
         return TelegramWebhookResponse(status="accepted", published=False)
 
     container = cast(AppContainer, request.app.state.container)
-    await container.inbound_queue.publish(event)
-    return TelegramWebhookResponse(status="accepted", published=True)
+    if container.inbound_intake_service is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Inbound intake service is not configured",
+        )
+
+    result = await container.inbound_intake_service.accept(event)
+    return TelegramWebhookResponse(status="accepted", published=result.published)
