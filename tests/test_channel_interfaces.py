@@ -10,7 +10,7 @@ from agent_service.channels import (
     InboundEvent,
     OutboundEvent,
 )
-from agent_service.messaging import InboundQueue, OutboundQueue
+from agent_service.messaging import InboundQueue, OutboundQueue, QueueStats
 
 
 class FakeNormalizer:
@@ -63,6 +63,15 @@ class FakeInboundQueue:
     async def consume(self) -> InboundEvent:
         return self._events.pop(0)
 
+    @property
+    def stats(self) -> QueueStats:
+        return QueueStats(
+            size=len(self._events),
+            maxsize=0,
+            is_empty=not self._events,
+            is_full=False,
+        )
+
 
 class FakeOutboundQueue:
     def __init__(self) -> None:
@@ -73,6 +82,15 @@ class FakeOutboundQueue:
 
     async def consume(self) -> OutboundEvent:
         return self._events.pop(0)
+
+    @property
+    def stats(self) -> QueueStats:
+        return QueueStats(
+            size=len(self._events),
+            maxsize=0,
+            is_empty=not self._events,
+            is_full=False,
+        )
 
 
 async def test_channel_normalizer_protocol_accepts_transport_payload() -> None:

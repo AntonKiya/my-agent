@@ -25,22 +25,39 @@ This repository currently contains the service foundation:
 - Conversation domain models, Postgres storage, and resolver.
 - Per-conversation async lock manager for ordered processing inside one conversation.
 - Agent boundary contracts and Pydantic AI-oriented run context shape.
-- Conversation memory service contracts for Postgres history and Redis working snapshots.
+- Conversation memory service implementation for Postgres history and Redis working snapshots.
 - Inbound worker orchestration from inbound queue to outbound queue.
 - Runtime Postgres pool wiring for `PostgresUserStore`, `UserResolver`, `PostgresConversationStore`,
   `ConversationResolver`, and inbound intake when `AGENT_SERVICE_POSTGRES_DSN` is configured.
 - Guarded inbound worker runtime wiring through the task supervisor.
-- Docker Compose Postgres service for local development and integration tests.
+- Docker Compose Postgres and Redis services for local development and integration tests.
 - Explicit database migration runner command.
 - Ruff, mypy, pyright, pytest, and pytest-asyncio quality gates.
 
-The agent implementation, production conversation memory backend, Redis snapshot backend, and
-delivery worker are not implemented yet. Their contracts and runtime boundaries are present.
+The agent implementation, delivery worker, and real compaction/summarization implementation are not
+implemented yet. Their contracts and runtime boundaries are present.
+
+## Implemented Guarantees
+
+- Channel adapters do not call the agent directly.
+- Inbound queue publication happens only after user resolution succeeds.
+- Stable user identity is based on `(channel, external_user_id)`, not username.
+- Conversations use internal UUIDs for processing and derived `conversation_key` values for lookup.
+- One conversation is processed sequentially under a per-conversation lock.
+- Different conversations can be processed concurrently by async worker tasks.
+- User and assistant messages are persisted in Postgres with monotonic per-conversation sequence.
+- Redis stores only hot working context snapshots; Postgres remains the source of truth.
+- Redis snapshots are validated against Postgres `message_sequence` before use.
+- Pydantic AI receives clean `user_prompt`, real `ModelMessage` history, and no raw transport update.
+- Tool calls/results can be included in active context but are rejected from compaction input.
+- Bounded inbound queues apply backpressure and return overload instead of silently dropping events.
+- Worker loops survive single-event failures and continue processing the next queued event.
 
 ## Requirements
 
 - Python 3.12+
 - uv
+- Docker Compose for local Postgres and Redis
 
 ## Setup
 
@@ -58,7 +75,7 @@ cp .env.example .env
 
 Real secrets must stay in local environment variables or secret storage, not in git.
 
-For local Docker Postgres, keep these values aligned with the Postgres DSNs:
+For local Docker Postgres and Redis, keep these values aligned with the DSNs:
 
 ```text
 POSTGRES_DB=agent_service
@@ -69,12 +86,13 @@ POSTGRES_TEST_USER=agent_service_test
 POSTGRES_TEST_PASSWORD=agent_service_test_local_password
 AGENT_SERVICE_POSTGRES_DSN=postgresql://agent_service:agent_service_local_password@127.0.0.1:5432/agent_service
 AGENT_SERVICE_TEST_POSTGRES_DSN=postgresql://agent_service_test:agent_service_test_local_password@127.0.0.1:5432/agent_service_test
+AGENT_SERVICE_REDIS_DSN=redis://127.0.0.1:6379/0
 ```
 
-Start local Postgres:
+Start local Postgres and Redis:
 
 ```bash
-docker compose up -d postgres
+docker compose up -d postgres redis
 ```
 
 Apply migrations:
@@ -141,12 +159,15 @@ AGENT_SERVICE_LOG_LEVEL=INFO
 AGENT_SERVICE_GRACEFUL_SHUTDOWN_TIMEOUT_SECONDS=10.0
 AGENT_SERVICE_INBOUND_QUEUE_MAXSIZE=5000
 AGENT_SERVICE_OUTBOUND_QUEUE_MAXSIZE=5000
+AGENT_SERVICE_INBOUND_PUBLISH_TIMEOUT_SECONDS=1.0
 AGENT_SERVICE_INBOUND_WORKER_COUNT=8
+AGENT_SERVICE_INBOUND_WORKER_ERROR_BACKOFF_SECONDS=0.1
 AGENT_SERVICE_AGENT_RETRY_MAX_ATTEMPTS=3
 AGENT_SERVICE_AGENT_RETRY_BACKOFF_SECONDS='[1.0,5.0,15.0]'
 AGENT_SERVICE_POSTGRES_POOL_MIN_SIZE=1
 AGENT_SERVICE_POSTGRES_POOL_MAX_SIZE=10
 AGENT_SERVICE_POSTGRES_COMMAND_TIMEOUT_SECONDS=30.0
+AGENT_SERVICE_REDIS_CONTEXT_SNAPSHOT_TTL_SECONDS=86400
 ```
 
 Integration settings:
@@ -160,7 +181,7 @@ POSTGRES_TEST_USER=agent_service_test
 POSTGRES_TEST_PASSWORD=agent_service_test_local_password
 AGENT_SERVICE_POSTGRES_DSN=postgresql://agent_service:agent_service_local_password@127.0.0.1:5432/agent_service
 AGENT_SERVICE_TEST_POSTGRES_DSN=postgresql://agent_service_test:agent_service_test_local_password@127.0.0.1:5432/agent_service_test
-AGENT_SERVICE_REDIS_DSN=
+AGENT_SERVICE_REDIS_DSN=redis://127.0.0.1:6379/0
 AGENT_SERVICE_TELEGRAM_BOT_TOKEN=
 AGENT_SERVICE_LOGFIRE_TOKEN=
 ```
@@ -169,8 +190,13 @@ AGENT_SERVICE_LOGFIRE_TOKEN=
 it, supported inbound webhooks return `503` instead of publishing unresolved events into the inbound
 queue.
 
+`AGENT_SERVICE_REDIS_DSN` enables Redis working context snapshots. When configured, the container
+creates a Redis client on startup, pings it, and wires `RedisConversationContextSnapshotStore` into
+`DefaultConversationMemoryService`. If Redis is not configured, context still works from Postgres
+history, but without the hot snapshot cache.
+
 Inbound workers are started only when the container has both a `ConversationMemoryService` and an
-`AgentBoundary`. Until production implementations are wired, the service can accept and enqueue
+`AgentBoundary`. Until an agent boundary implementation is wired, the service can accept and enqueue
 resolved inbound events but does not start agent processing tasks.
 
 ## Inbound Flow
@@ -204,6 +230,15 @@ processed sequentially; different conversations may be processed concurrently by
 tasks. Agent failures are retried according to `AGENT_SERVICE_AGENT_RETRY_*`; after final failure,
 the worker publishes a fallback outbound event instead of sending directly.
 
+Inbound queues are bounded by `AGENT_SERVICE_INBOUND_QUEUE_MAXSIZE`. The intake layer publishes with
+`AGENT_SERVICE_INBOUND_PUBLISH_TIMEOUT_SECONDS`; if the queue stays full past that timeout, the
+event is not silently dropped. Telegram receives `503`, allowing the transport to retry instead of
+holding the webhook request indefinitely.
+
+Worker loops are resilient to single-event failures. `run_forever()` logs unexpected event
+processing errors, waits `AGENT_SERVICE_INBOUND_WORKER_ERROR_BACKOFF_SECONDS`, and continues with
+the next queued event. Cancellation still propagates normally during shutdown.
+
 ## Agent and Memory Boundaries
 
 Channels never pass raw transport payloads to the agent. The agent layer receives an `AgentRequest`
@@ -220,8 +255,28 @@ record_assistant_message()
 
 The prepared context includes both a channel-neutral `AgentContext` and a `PydanticAIRunContext`
 with fields aligned to Pydantic AI `Agent.run(...)`: `user_prompt`, `message_history`,
-`conversation_id`, and `instructions`. Real Postgres history storage, Redis working snapshots, and
-compression are future implementations behind this interface.
+`conversation_id`, and `instructions`. `message_history` contains real
+`pydantic_ai.messages.ModelMessage` objects, not transport payloads or ad hoc dicts.
+
+`DefaultConversationMemoryService` combines Postgres message history with an optional Redis working
+snapshot. It writes the user message before the agent run, prepares context, then writes the
+assistant message after a successful response. `AgentBoundary` does not write history directly.
+
+Redis snapshots are never trusted only by key existence. Before a snapshot is used, the service reads
+the current Postgres `message_sequence` for that conversation and compares it to
+`snapshot.last_seen_sequence`. If the values differ, or if the snapshot belongs to another user,
+conversation, version, or does not contain the latest user message, the snapshot is deleted and
+rebuilt from recent Postgres history. This keeps the freshness check cheap while preserving Postgres
+as the source of truth.
+
+Tool calls and tool results are included in active context and Pydantic AI message history, but are
+modeled as separate roles so future summarization can exclude them from compacted summaries.
+
+Compaction currently exists as an interface and stub, not as a real summarization implementation.
+`ConversationCompactionRequest` accepts only `user` and `assistant` messages; `tool_call` and
+`tool_result` messages are intentionally rejected from compaction input. `NoopConversationCompactor`
+preserves the previous summary and does not advance `last_compacted_sequence`, so wiring the
+boundary cannot silently alter context behavior before a real summarizer is implemented.
 
 ## Database
 
@@ -232,6 +287,7 @@ Current tables:
 - `users`
 - `channel_identities`
 - `conversations`
+- `conversation_messages`
 
 The schema enforces `UNIQUE(channel, external_user_id)` for stable external identity separation.
 The conversations schema enforces `UNIQUE(conversation_key)` for idempotent conversation creation.
@@ -243,6 +299,14 @@ telegram:private:{external_chat_id}
 
 Internally, processing uses `conversation.id` as the stable UUID. The derived `conversation_key` is
 only for lookup and idempotent creation.
+
+Message history is stored in `conversation_messages`. Ordering is represented by
+`conversation_messages.sequence`, which is unique per conversation. Tool calls and tool results are
+stored as message roles so they can be passed into active context while future summarization can
+exclude them from compacted summaries.
+
+Redis working context snapshots use keys shaped as `conversation_context:{conversation_id}` with a
+24-hour default TTL. Redis is a hot cache only; Postgres remains the source of truth.
 
 Migrations are applied by an explicit command:
 
@@ -288,6 +352,10 @@ With the local Docker database running:
 ```bash
 AGENT_SERVICE_TEST_POSTGRES_DSN=postgresql://agent_service_test:agent_service_test_local_password@127.0.0.1:5432/agent_service_test uv run pytest tests/test_postgres_integration.py
 ```
+
+The test suite covers user identity separation, conversation ownership/order, Postgres message
+sequence assignment, Redis snapshot validation, Pydantic AI context conversion, compaction
+invariants, queue backpressure, worker resilience, and Telegram webhook overload behavior.
 
 ## User Identity Invariants
 

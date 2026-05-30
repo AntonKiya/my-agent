@@ -66,6 +66,8 @@ async def test_inbound_intake_publishes_only_resolved_event_with_user_id() -> No
     assert result.status is InboundIntakeStatus.PUBLISHED
     assert result.published
     assert result.user_resolution_status is UserResolutionStatus.RESOLVED
+    assert result.queue_size == 1
+    assert result.queue_maxsize == 0
     assert resolver.events == [event]
     published_event = await queue.consume()
     assert published_event == resolved_event
@@ -115,3 +117,43 @@ async def test_inbound_intake_rejects_impossible_resolved_result_without_event()
         await service.accept(inbound_event())
 
     assert queue.is_empty
+
+
+async def test_inbound_intake_returns_overloaded_when_publish_times_out() -> None:
+    event = inbound_event()
+    stored = user_with_identity()
+    resolved_event = event.model_copy(update={"user_id": stored.user.id})
+    queue = AsyncioInboundQueue(maxsize=1)
+    await queue.publish(inbound_event().model_copy(update={"text": "already queued"}))
+    service = InboundIntakeService(
+        user_resolver=FakeUserResolver(
+            UserResolutionResult(
+                status=UserResolutionStatus.RESOLVED,
+                user=stored.user,
+                identity=stored.identity,
+                event=resolved_event,
+            )
+        ),
+        inbound_queue=queue,
+        publish_timeout_seconds=0.001,
+    )
+
+    result = await service.accept(event)
+
+    assert result.status is InboundIntakeStatus.OVERLOADED
+    assert not result.published
+    assert result.reason == "inbound queue is overloaded"
+    assert result.queue_size == 1
+    assert result.queue_maxsize == 1
+    assert queue.is_full
+
+
+def test_inbound_intake_rejects_invalid_publish_timeout() -> None:
+    with pytest.raises(ValueError):
+        InboundIntakeService(
+            user_resolver=FakeUserResolver(
+                UserResolutionResult(status=UserResolutionStatus.BLOCKED)
+            ),
+            inbound_queue=AsyncioInboundQueue(),
+            publish_timeout_seconds=0,
+        )

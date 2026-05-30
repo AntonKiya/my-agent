@@ -4,6 +4,7 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
 from agent_service.container import AppContainer
+from agent_service.inbound import InboundIntakeStatus
 
 from .normalizer import TelegramInboundNormalizer
 
@@ -33,4 +34,9 @@ async def telegram_webhook(
         )
 
     result = await container.inbound_intake_service.accept(event)
+    if result.status is InboundIntakeStatus.OVERLOADED:
+        raise HTTPException(
+            status_code=503,
+            detail="Inbound queue is overloaded",
+        )
     return TelegramWebhookResponse(status="accepted", published=result.published)

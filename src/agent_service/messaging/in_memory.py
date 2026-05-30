@@ -2,7 +2,7 @@ import asyncio
 from dataclasses import dataclass, field
 
 from agent_service.channels.models import InboundEvent, OutboundEvent
-from agent_service.messaging.interfaces import EventQueue, InboundQueue, OutboundQueue
+from agent_service.messaging.interfaces import EventQueue, InboundQueue, OutboundQueue, QueueStats
 
 
 @dataclass(slots=True)
@@ -26,6 +26,15 @@ class AsyncioEventQueue[QueueEventT](EventQueue[QueueEventT]):
     @property
     def is_full(self) -> bool:
         return self._queue.full()
+
+    @property
+    def stats(self) -> QueueStats:
+        return QueueStats(
+            size=self.size,
+            maxsize=self.maxsize,
+            is_empty=self.is_empty,
+            is_full=self.is_full,
+        )
 
     async def publish(self, event: QueueEventT) -> None:
         await self._queue.put(event)

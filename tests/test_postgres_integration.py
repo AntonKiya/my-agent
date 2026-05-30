@@ -41,7 +41,8 @@ async def clean_user_tables(dsn: str) -> None:
     connection = await asyncpg.connect(dsn=dsn)
     try:
         await connection.execute(
-            "TRUNCATE conversations, channel_identities, users RESTART IDENTITY CASCADE"
+            "TRUNCATE conversation_messages, conversations, channel_identities, users "
+            "RESTART IDENTITY CASCADE"
         )
     finally:
         await connection.close()

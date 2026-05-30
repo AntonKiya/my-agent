@@ -24,6 +24,18 @@ class AcceptingInboundIntake:
         )
 
 
+class OverloadedInboundIntake:
+    async def accept(self, event: InboundEvent) -> InboundIntakeResult:
+        return InboundIntakeResult(
+            status=InboundIntakeStatus.OVERLOADED,
+            published=False,
+            user_resolution_status=UserResolutionStatus.RESOLVED,
+            reason="inbound queue is overloaded",
+            queue_size=1,
+            queue_maxsize=1,
+        )
+
+
 def private_text_update() -> dict[str, object]:
     return {
         "update_id": 100,
@@ -100,4 +112,17 @@ async def test_telegram_webhook_requires_inbound_intake_for_supported_updates() 
         response = await client.post("/webhooks/telegram", json=private_text_update())
 
     assert response.status_code == 503
+    assert app.state.container.inbound_queue.is_empty
+
+
+async def test_telegram_webhook_returns_503_when_inbound_queue_is_overloaded() -> None:
+    app = create_app(AppSettings(environment="test"))
+    app.state.container.inbound_intake_service = OverloadedInboundIntake()
+    transport = httpx.ASGITransport(app=app)
+
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.post("/webhooks/telegram", json=private_text_update())
+
+    assert response.status_code == 503
+    assert response.json()["detail"] == "Inbound queue is overloaded"
     assert app.state.container.inbound_queue.is_empty

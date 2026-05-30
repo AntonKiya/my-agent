@@ -108,6 +108,26 @@ class FailingPrepareMemoryService(FakeMemoryService):
 
 
 @dataclass(slots=True)
+class FlakyPrepareMemoryService(FakeMemoryService):
+    failures_remaining: int = 1
+
+    async def prepare_agent_context(
+        self,
+        *,
+        conversation: Conversation,
+        latest_user_message: ConversationMemoryMessage,
+    ) -> PreparedConversationContext:
+        if self.failures_remaining:
+            self.failures_remaining -= 1
+            raise RuntimeError("transient context prepare failed")
+        return await FakeMemoryService.prepare_agent_context(
+            self,
+            conversation=conversation,
+            latest_user_message=latest_user_message,
+        )
+
+
+@dataclass(slots=True)
 class FakeAgentBoundary:
     responses: list[AgentResponse] = field(default_factory=list)
     errors: list[BaseException] = field(default_factory=list)
@@ -323,6 +343,54 @@ async def test_inbound_worker_stops_before_agent_when_context_prepare_fails() ->
     assert memory.assistant_messages == []
     assert agent.requests == []
     assert outbound_queue.is_empty
+
+
+async def test_inbound_worker_run_forever_continues_after_event_error() -> None:
+    user_id = uuid4()
+    resolved_conversation = conversation(user_id=user_id)
+    agent = FakeAgentBoundary()
+    memory = FlakyPrepareMemoryService()
+    inbound_worker, inbound_queue, outbound_queue, _memory = worker(
+        conversations_by_chat_id={"12345": resolved_conversation},
+        agent_boundary=agent,
+        memory_service=memory,
+        sleep=lambda _delay: asyncio.sleep(0),
+    )
+    first = inbound_event(user_id=user_id, text="first")
+    second = inbound_event(user_id=user_id, text="second")
+
+    await inbound_queue.publish(first)
+    await inbound_queue.publish(second)
+    task = asyncio.create_task(inbound_worker.run_forever())
+    try:
+        outbound = await asyncio.wait_for(outbound_queue.consume(), timeout=0.1)
+    finally:
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+    assert first.status is InboundEventStatus.PROCESSING
+    assert second.status is InboundEventStatus.COMPLETED
+    assert outbound.text == "answer: second"
+    assert len(agent.requests) == 1
+
+
+def test_inbound_worker_rejects_negative_error_backoff() -> None:
+    user_id = uuid4()
+    resolved_conversation = conversation(user_id=user_id)
+    inbound_queue = AsyncioInboundQueue()
+    outbound_queue = AsyncioOutboundQueue()
+
+    with pytest.raises(ValueError):
+        InboundWorker(
+            inbound_queue=inbound_queue,
+            outbound_queue=outbound_queue,
+            conversation_resolver=FakeConversationResolver({"12345": resolved_conversation}),
+            memory_service=FakeMemoryService(),
+            agent_boundary=FakeAgentBoundary(),
+            lock_manager=AsyncioConversationLockManager(),
+            error_backoff_seconds=-1,
+        )
 
 
 async def test_inbound_worker_retries_agent_before_success() -> None:

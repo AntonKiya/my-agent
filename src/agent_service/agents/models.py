@@ -4,11 +4,12 @@ from typing import Any
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic_ai.messages import ModelMessage
 
 from agent_service.channels.models import Attachment, ChannelName
 
 AgentMetadata = dict[str, Any]
-PydanticAIMessage = dict[str, Any]
+PydanticAIMessage = ModelMessage
 
 
 def utc_now() -> datetime:
@@ -22,6 +23,8 @@ class AgentModel(BaseModel):
 class AgentContextRole(StrEnum):
     USER = "user"
     ASSISTANT = "assistant"
+    TOOL_CALL = "tool_call"
+    TOOL_RESULT = "tool_result"
 
 
 class AgentToolStatus(StrEnum):
