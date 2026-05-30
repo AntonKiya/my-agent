@@ -21,14 +21,21 @@ This repository currently contains the service foundation:
 - Telegram inbound webhook route and private text normalizer.
 - Telegram send adapter for outbound text delivery through the Bot API.
 - Background task supervisor for graceful shutdown.
-- User identity domain models and bundled Postgres schema migrations.
-- Runtime Postgres pool wiring for `PostgresUserStore`, `UserResolver`, and inbound intake
-  when `AGENT_SERVICE_POSTGRES_DSN` is configured.
+- User identity domain models and Postgres storage.
+- Conversation domain models, Postgres storage, and resolver.
+- Per-conversation async lock manager for ordered processing inside one conversation.
+- Agent boundary contracts and Pydantic AI-oriented run context shape.
+- Conversation memory service contracts for Postgres history and Redis working snapshots.
+- Inbound worker orchestration from inbound queue to outbound queue.
+- Runtime Postgres pool wiring for `PostgresUserStore`, `UserResolver`, `PostgresConversationStore`,
+  `ConversationResolver`, and inbound intake when `AGENT_SERVICE_POSTGRES_DSN` is configured.
+- Guarded inbound worker runtime wiring through the task supervisor.
 - Docker Compose Postgres service for local development and integration tests.
 - Explicit database migration runner command.
 - Ruff, mypy, pyright, pytest, and pytest-asyncio quality gates.
 
-No Redis, worker, or agent logic is implemented yet.
+The agent implementation, production conversation memory backend, Redis snapshot backend, and
+delivery worker are not implemented yet. Their contracts and runtime boundaries are present.
 
 ## Requirements
 
@@ -134,6 +141,9 @@ AGENT_SERVICE_LOG_LEVEL=INFO
 AGENT_SERVICE_GRACEFUL_SHUTDOWN_TIMEOUT_SECONDS=10.0
 AGENT_SERVICE_INBOUND_QUEUE_MAXSIZE=5000
 AGENT_SERVICE_OUTBOUND_QUEUE_MAXSIZE=5000
+AGENT_SERVICE_INBOUND_WORKER_COUNT=8
+AGENT_SERVICE_AGENT_RETRY_MAX_ATTEMPTS=3
+AGENT_SERVICE_AGENT_RETRY_BACKOFF_SECONDS='[1.0,5.0,15.0]'
 AGENT_SERVICE_POSTGRES_POOL_MIN_SIZE=1
 AGENT_SERVICE_POSTGRES_POOL_MAX_SIZE=10
 AGENT_SERVICE_POSTGRES_COMMAND_TIMEOUT_SECONDS=30.0
@@ -155,8 +165,13 @@ AGENT_SERVICE_TELEGRAM_BOT_TOKEN=
 AGENT_SERVICE_LOGFIRE_TOKEN=
 ```
 
-`AGENT_SERVICE_POSTGRES_DSN` enables runtime user resolution. Without it, supported inbound
-webhooks return `503` instead of publishing unresolved events into the inbound queue.
+`AGENT_SERVICE_POSTGRES_DSN` enables runtime user resolution and conversation resolution. Without
+it, supported inbound webhooks return `503` instead of publishing unresolved events into the inbound
+queue.
+
+Inbound workers are started only when the container has both a `ConversationMemoryService` and an
+`AgentBoundary`. Until production implementations are wired, the service can accept and enqueue
+resolved inbound events but does not start agent processing tasks.
 
 ## Inbound Flow
 
@@ -167,10 +182,46 @@ Telegram webhook
 → UserResolver
 → PostgresUserStore
 → In-Memory Inbound Queue
+→ InboundWorker
+→ ConversationResolver
+→ PostgresConversationStore
+→ ConversationLockManager
+→ ConversationMemoryService.record_user_message()
+→ ConversationMemoryService.prepare_agent_context()
+→ AgentBoundary.run()
+→ ConversationMemoryService.record_assistant_message()
+→ In-Memory Outbound Queue
 ```
 
 The Telegram route never publishes directly to the inbound queue. Queue publication is allowed
 only after user resolution succeeds and the event contains an internal `user_id`.
+
+The inbound worker does not call Telegram or any delivery adapter. It only creates an `OutboundEvent`
+and publishes it to the outbound queue. Delivery is intentionally a separate worker boundary.
+
+`InboundWorker` uses a lock keyed by internal `conversation.id`. Messages in one conversation are
+processed sequentially; different conversations may be processed concurrently by separate worker
+tasks. Agent failures are retried according to `AGENT_SERVICE_AGENT_RETRY_*`; after final failure,
+the worker publishes a fallback outbound event instead of sending directly.
+
+## Agent and Memory Boundaries
+
+Channels never pass raw transport payloads to the agent. The agent layer receives an `AgentRequest`
+with internal identifiers, text/attachments, prepared context, metadata, and trace id. It does not
+receive Telegram updates or delivery-specific fields.
+
+`ConversationMemoryService` is a contract with three operations:
+
+```text
+record_user_message()
+prepare_agent_context()
+record_assistant_message()
+```
+
+The prepared context includes both a channel-neutral `AgentContext` and a `PydanticAIRunContext`
+with fields aligned to Pydantic AI `Agent.run(...)`: `user_prompt`, `message_history`,
+`conversation_id`, and `instructions`. Real Postgres history storage, Redis working snapshots, and
+compression are future implementations behind this interface.
 
 ## Database
 
@@ -180,8 +231,19 @@ Current tables:
 
 - `users`
 - `channel_identities`
+- `conversations`
 
 The schema enforces `UNIQUE(channel, external_user_id)` for stable external identity separation.
+The conversations schema enforces `UNIQUE(conversation_key)` for idempotent conversation creation.
+For Telegram private chats, the derived key is:
+
+```text
+telegram:private:{external_chat_id}
+```
+
+Internally, processing uses `conversation.id` as the stable UUID. The derived `conversation_key` is
+only for lookup and idempotent creation.
+
 Migrations are applied by an explicit command:
 
 ```bash
@@ -238,6 +300,17 @@ AGENT_SERVICE_TEST_POSTGRES_DSN=postgresql://agent_service_test:agent_service_te
 - Channel-specific metadata may be updated on each successful resolve, but it must not change who
   the user is.
 
+## Conversation Invariants
+
+- `conversation.id` is the internal identifier used by workers and the agent boundary.
+- `conversation_key` is a derived lookup key, unique in Postgres.
+- Existing `conversation_key` rows must belong to the same `user_id`; otherwise storage raises an
+  ownership error instead of mixing user data.
+- One conversation is processed under one lock at a time.
+- Different conversations can be processed concurrently.
+- Agent requests must not include raw Telegram updates or transport delivery fields.
+- Fallback responses are emitted as outbound events; delivery remains outside the inbound worker.
+
 ## Project Layout
 
 ```text
@@ -245,8 +318,11 @@ src/agent_service/
   api/                 HTTP routes such as health/readiness
   observability/       structured logs and trace context helpers
   channels/            channel-agnostic event models and adapter interfaces
-  inbound/             user-resolution intake before inbound queue publication
+  inbound/             user-resolution intake and inbound worker orchestration
   users/               user identity domain models and storage interfaces
+  conversations/       conversation models, resolver, storage, and locks
+  agents/              agent boundary contracts and request/response models
+  memory/              conversation memory service contracts and context models
   messaging/           queue interfaces and in-memory queue backend
   database/            bundled SQL migrations and database helpers
   runtime/             lifecycle helpers for background tasks
