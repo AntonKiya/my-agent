@@ -9,6 +9,7 @@ from agent_service.messaging import (
     AsyncioOutboundQueue,
     InboundQueue,
     OutboundQueue,
+    QueueStats,
 )
 
 
@@ -42,6 +43,11 @@ async def test_asyncio_inbound_queue_publishes_and_consumes_fifo() -> None:
     await queue.publish(second)
 
     assert isinstance(queue, InboundQueue)
+    assert isinstance(queue.stats, QueueStats)
+    assert queue.stats.size == 2
+    assert queue.stats.maxsize == 2
+    assert not queue.stats.is_empty
+    assert queue.stats.is_full
     assert queue.size == 2
     assert await queue.consume() == first
     assert await queue.consume() == second

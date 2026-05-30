@@ -15,7 +15,13 @@ from agent_service.config import AppSettings
 from agent_service.container import AppContainer
 from agent_service.conversations import Conversation, ConversationResolverProtocol
 from agent_service.inbound import InboundIntake
-from agent_service.memory import ConversationMemoryMessage, PreparedConversationContext
+from agent_service.memory import (
+    ConversationContextSnapshotStore,
+    ConversationMemoryMessage,
+    ConversationMemoryStore,
+    DefaultConversationMemoryService,
+    PreparedConversationContext,
+)
 from agent_service.messaging import InboundQueue, OutboundQueue
 from agent_service.users import PostgresConnection
 
@@ -29,6 +35,37 @@ class FakeManagedPostgresPool:
 
     def acquire(self) -> AbstractAsyncContextManager[PostgresConnection]:
         raise NotImplementedError
+
+
+class FakeManagedRedisClient:
+    def __init__(self, *, ping_error: BaseException | None = None) -> None:
+        self.closed = False
+        self.pinged = False
+        self.ping_error = ping_error
+
+    async def get(self, name: str) -> bytes | str | None:
+        return None
+
+    async def set(
+        self,
+        name: str,
+        value: str,
+        *,
+        ex: int | None = None,
+    ) -> object:
+        return True
+
+    async def delete(self, *names: str) -> object:
+        return len(names)
+
+    async def ping(self) -> object:
+        self.pinged = True
+        if self.ping_error is not None:
+            raise self.ping_error
+        return True
+
+    async def aclose(self) -> None:
+        self.closed = True
 
 
 class FakeAgentBoundary:
@@ -74,6 +111,8 @@ async def test_container_tracks_lifecycle_state() -> None:
     assert isinstance(container.outbound_queue, OutboundQueue)
     assert container.inbound_intake_service is None
     assert container.conversation_resolver is None
+    assert container.conversation_memory_store is None
+    assert container.conversation_snapshot_store is None
     assert container.memory_service is None
     assert container.agent_boundary is None
     assert container.task_supervisor.task_count == 0
@@ -133,6 +172,9 @@ async def test_container_wires_postgres_user_intake_when_dsn_is_configured(
     assert container._postgres_pool is fake_pool
     assert isinstance(container.inbound_intake_service, InboundIntake)
     assert isinstance(container.conversation_resolver, ConversationResolverProtocol)
+    assert isinstance(container.conversation_memory_store, ConversationMemoryStore)
+    assert container.conversation_snapshot_store is None
+    assert isinstance(container.memory_service, DefaultConversationMemoryService)
     assert container.task_supervisor.task_count == 0
     assert create_pool_kwargs == {
         "dsn": "postgresql://agent:secret@localhost:5432/agent",
@@ -147,6 +189,99 @@ async def test_container_wires_postgres_user_intake_when_dsn_is_configured(
     assert container._postgres_pool is None
     assert container.inbound_intake_service is None
     assert container.conversation_resolver is None
+    assert container.conversation_memory_store is None
+    assert container.conversation_snapshot_store is None
+
+
+async def test_container_wires_redis_snapshot_store_when_dsn_is_configured(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake_client = FakeManagedRedisClient()
+    redis_kwargs: dict[str, object] = {}
+
+    def fake_from_url(url: str, **kwargs: object) -> FakeManagedRedisClient:
+        redis_kwargs.update({"url": url, **kwargs})
+        return fake_client
+
+    monkeypatch.setattr("agent_service.container.redis.from_url", fake_from_url)
+    settings = AppSettings(
+        environment="test",
+        redis_dsn="redis://127.0.0.1:6379/0",
+        redis_context_snapshot_ttl_seconds=60,
+    )
+    container = AppContainer(settings=settings)
+
+    await container.start()
+
+    assert container.started
+    assert fake_client.pinged
+    assert isinstance(container.conversation_snapshot_store, ConversationContextSnapshotStore)
+    assert redis_kwargs == {
+        "url": "redis://127.0.0.1:6379/0",
+        "decode_responses": True,
+        "socket_connect_timeout": 5.0,
+        "socket_timeout": 5.0,
+    }
+
+    await container.stop()
+
+    assert fake_client.closed
+    assert container._redis_client is None
+    assert container.conversation_snapshot_store is None
+
+
+async def test_container_passes_redis_snapshot_store_to_memory_service(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake_pool = FakeManagedPostgresPool()
+    fake_client = FakeManagedRedisClient()
+
+    async def fake_create_pool(**kwargs: object) -> FakeManagedPostgresPool:
+        return fake_pool
+
+    def fake_from_url(url: str, **kwargs: object) -> FakeManagedRedisClient:
+        return fake_client
+
+    monkeypatch.setattr("agent_service.container.asyncpg.create_pool", fake_create_pool)
+    monkeypatch.setattr("agent_service.container.redis.from_url", fake_from_url)
+    settings = AppSettings(
+        environment="test",
+        postgres_dsn="postgresql://agent:secret@localhost:5432/agent",
+        redis_dsn="redis://127.0.0.1:6379/0",
+    )
+    container = AppContainer(settings=settings)
+
+    await container.start()
+
+    assert isinstance(container.memory_service, DefaultConversationMemoryService)
+    assert container.memory_service.snapshot_store is container.conversation_snapshot_store
+
+    await container.stop()
+
+
+async def test_container_closes_redis_client_when_ping_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake_client = FakeManagedRedisClient(ping_error=RuntimeError("redis down"))
+
+    def fake_from_url(url: str, **kwargs: object) -> FakeManagedRedisClient:
+        return fake_client
+
+    monkeypatch.setattr("agent_service.container.redis.from_url", fake_from_url)
+    container = AppContainer(
+        settings=AppSettings(
+            environment="test",
+            redis_dsn="redis://127.0.0.1:6379/0",
+        )
+    )
+
+    with pytest.raises(RuntimeError, match="redis down"):
+        await container.start()
+
+    assert fake_client.closed
+    assert not container.started
+    assert container._redis_client is None
+    assert container.conversation_snapshot_store is None
 
 
 async def test_container_starts_configured_inbound_worker_tasks(

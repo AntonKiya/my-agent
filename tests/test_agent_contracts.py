@@ -3,6 +3,7 @@ from uuid import uuid4
 
 import pytest
 from pydantic import ValidationError
+from pydantic_ai.messages import ModelRequest, UserPromptPart
 
 from agent_service.agents import (
     AgentBoundary,
@@ -37,12 +38,7 @@ def test_agent_request_contains_only_channel_agnostic_payload() -> None:
         text="hello",
         pydantic_ai=PydanticAIRunContext(
             user_prompt="hello",
-            message_history=[
-                {
-                    "kind": "request",
-                    "parts": [{"part_kind": "user-prompt", "content": "previous"}],
-                }
-            ],
+            message_history=[ModelRequest(parts=[UserPromptPart(content="previous")])],
             conversation_id="conversation-1",
             instructions="summary: user prefers concise answers",
         ),

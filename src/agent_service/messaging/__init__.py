@@ -3,7 +3,7 @@ from agent_service.messaging.in_memory import (
     AsyncioInboundQueue,
     AsyncioOutboundQueue,
 )
-from agent_service.messaging.interfaces import EventQueue, InboundQueue, OutboundQueue
+from agent_service.messaging.interfaces import EventQueue, InboundQueue, OutboundQueue, QueueStats
 
 __all__ = [
     "AsyncioEventQueue",
@@ -12,4 +12,5 @@ __all__ = [
     "EventQueue",
     "InboundQueue",
     "OutboundQueue",
+    "QueueStats",
 ]

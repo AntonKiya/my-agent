@@ -8,6 +8,7 @@ from agent_service.users.models import UserResolutionStatus
 class InboundIntakeStatus(StrEnum):
     PUBLISHED = "published"
     REJECTED = "rejected"
+    OVERLOADED = "overloaded"
 
 
 class InboundIntakeResult(BaseModel):
@@ -17,3 +18,5 @@ class InboundIntakeResult(BaseModel):
     published: bool
     user_resolution_status: UserResolutionStatus
     reason: str | None = None
+    queue_size: int | None = None
+    queue_maxsize: int | None = None

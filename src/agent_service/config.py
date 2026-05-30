@@ -25,7 +25,9 @@ class AppSettings(BaseSettings):
     graceful_shutdown_timeout_seconds: float = Field(default=10.0, gt=0)
     inbound_queue_maxsize: int = Field(default=5000, ge=0)
     outbound_queue_maxsize: int = Field(default=5000, ge=0)
+    inbound_publish_timeout_seconds: float = Field(default=1.0, gt=0)
     inbound_worker_count: int = Field(default=8, ge=0)
+    inbound_worker_error_backoff_seconds: float = Field(default=0.1, ge=0)
     agent_retry_max_attempts: int = Field(default=3, ge=1)
     agent_retry_backoff_seconds: tuple[float, ...] = (1.0, 5.0, 15.0)
 
@@ -34,6 +36,7 @@ class AppSettings(BaseSettings):
     postgres_pool_max_size: int = Field(default=10, ge=1)
     postgres_command_timeout_seconds: float = Field(default=30.0, gt=0)
     redis_dsn: str | None = None
+    redis_context_snapshot_ttl_seconds: int = Field(default=24 * 60 * 60, gt=0)
     telegram_bot_token: SecretStr | None = None
     logfire_token: SecretStr | None = None
 

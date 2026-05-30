@@ -3,6 +3,7 @@ from uuid import UUID, uuid4
 
 import pytest
 from pydantic import ValidationError
+from pydantic_ai.messages import ModelResponse, TextPart
 
 from agent_service.agents import (
     AgentContext,
@@ -155,6 +156,23 @@ def test_conversation_memory_message_defaults_are_isolated() -> None:
     assert second.metadata == {}
 
 
+def test_conversation_memory_message_supports_tool_roles() -> None:
+    message = ConversationMemoryMessage(
+        conversation_id=uuid4(),
+        user_id=uuid4(),
+        sequence=3,
+        role=ConversationMemoryRole.TOOL_CALL,
+        tool_name="search",
+        tool_call_id="call-1",
+        metadata={"args": {"query": "hello"}},
+    )
+
+    assert message.role is ConversationMemoryRole.TOOL_CALL
+    assert message.sequence == 3
+    assert message.tool_name == "search"
+    assert message.tool_call_id == "call-1"
+
+
 def test_context_snapshot_models_redis_working_state_shape() -> None:
     conversation_id = uuid4()
     user_id = uuid4()
@@ -173,6 +191,8 @@ def test_context_snapshot_models_redis_working_state_shape() -> None:
         recent_messages=[message],
         last_compacted_message_id=message.id,
         last_seen_message_id=message.id,
+        last_compacted_sequence=1,
+        last_seen_sequence=1,
         version=2,
         token_count=100,
     )
@@ -181,6 +201,8 @@ def test_context_snapshot_models_redis_working_state_shape() -> None:
     assert snapshot.recent_messages == [message]
     assert snapshot.last_compacted_message_id == message.id
     assert snapshot.last_seen_message_id == message.id
+    assert snapshot.last_compacted_sequence == 1
+    assert snapshot.last_seen_sequence == 1
     assert snapshot.version == 2
     assert snapshot.updated_at.tzinfo is UTC
 
@@ -197,12 +219,7 @@ def test_prepared_context_exposes_agent_and_pydantic_ai_shapes() -> None:
         agent_context=AgentContext(system_prompt_parts=["summary"]),
         pydantic_ai=PydanticAIRunContext(
             user_prompt="hello",
-            message_history=[
-                {
-                    "kind": "response",
-                    "parts": [{"part_kind": "text", "content": "previous answer"}],
-                }
-            ],
+            message_history=[ModelResponse(parts=[TextPart(content="previous answer")])],
             conversation_id=str(conversation_id),
             instructions="summary",
         ),

@@ -48,11 +48,26 @@ class InboundWorker:
     lock_manager: ConversationLockManager
     retry_policy: AgentRetryPolicy = field(default_factory=AgentRetryPolicy)
     fallback_text: str = DEFAULT_FALLBACK_TEXT
+    error_backoff_seconds: float = 0.1
     sleep: SleepCallable = field(default=asyncio.sleep, repr=False)
+
+    def __post_init__(self) -> None:
+        if self.error_backoff_seconds < 0:
+            raise ValueError("Inbound worker error backoff must be greater than or equal to zero")
 
     async def run_forever(self) -> None:
         while True:
-            await self.process_next()
+            try:
+                await self.process_next()
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                logger.exception(
+                    "Inbound worker iteration failed",
+                    extra={"event": "inbound_worker_iteration_failed"},
+                )
+                if self.error_backoff_seconds > 0:
+                    await self.sleep(self.error_backoff_seconds)
 
     async def process_next(self) -> None:
         event = await self.inbound_queue.consume()
