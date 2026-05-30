@@ -1,4 +1,5 @@
 import asyncio
+import logging
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from uuid import UUID, uuid4
@@ -16,11 +17,20 @@ from agent_service.channels import InboundEvent, InboundEventStatus
 from agent_service.conversations import AsyncioConversationLockManager, Conversation
 from agent_service.inbound import AgentRetryPolicy, InboundWorker, UnresolvedInboundEventError
 from agent_service.memory import (
+    ConversationCompactionDecision,
+    ConversationCompactionPolicy,
+    ConversationCompactionRequest,
+    ConversationCompactionResult,
     ConversationMemoryMessage,
     ConversationMemoryRole,
+    ConversationSummary,
     PreparedConversationContext,
 )
-from agent_service.messaging import AsyncioInboundQueue, AsyncioOutboundQueue
+from agent_service.messaging import (
+    AsyncioCompactionQueue,
+    AsyncioInboundQueue,
+    AsyncioOutboundQueue,
+)
 from agent_service.observability.tracing import get_trace_id, reset_trace_id, set_trace_id
 
 
@@ -38,6 +48,7 @@ class FakeConversationResolver:
 class FakeMemoryService:
     user_messages: list[ConversationMemoryMessage] = field(default_factory=list)
     assistant_messages: list[ConversationMemoryMessage] = field(default_factory=list)
+    compaction_decision: ConversationCompactionDecision | None = None
 
     async def record_user_message(
         self,
@@ -95,6 +106,41 @@ class FakeMemoryService:
         )
         self.assistant_messages.append(message)
         return message
+
+    async def prepare_compaction_request(
+        self,
+        *,
+        conversation: Conversation,
+        compact_through_sequence: int | None = None,
+    ) -> ConversationCompactionRequest:
+        raise NotImplementedError
+
+    async def evaluate_compaction(
+        self,
+        *,
+        conversation: Conversation,
+        policy: object,
+    ) -> ConversationCompactionDecision:
+        if self.compaction_decision is None:
+            return ConversationCompactionDecision(
+                should_compact=False,
+                reason="test_disabled",
+                estimated_input_tokens=0,
+                usable_input_budget_tokens=1,
+                trigger_tokens=1,
+                recent_tail_budget_tokens=1,
+            )
+        return self.compaction_decision
+
+    async def record_compaction_result(
+        self,
+        *,
+        conversation: Conversation,
+        request: ConversationCompactionRequest,
+        result: ConversationCompactionResult,
+        trace_id: str | None = None,
+    ) -> ConversationSummary:
+        raise NotImplementedError
 
 
 class FailingPrepareMemoryService(FakeMemoryService):
@@ -198,6 +244,8 @@ def worker(
     conversations_by_chat_id: dict[str, Conversation],
     agent_boundary: AgentBoundary,
     memory_service: FakeMemoryService | None = None,
+    compaction_queue: AsyncioCompactionQueue | None = None,
+    compaction_policy: ConversationCompactionPolicy | None = None,
     retry_policy: AgentRetryPolicy | None = None,
     sleep: Callable[[float], Awaitable[None]] | None = None,
 ) -> tuple[InboundWorker, AsyncioInboundQueue, AsyncioOutboundQueue, FakeMemoryService]:
@@ -213,6 +261,8 @@ def worker(
             agent_boundary=agent_boundary,
             lock_manager=AsyncioConversationLockManager(),
             retry_policy=retry_policy or AgentRetryPolicy(max_attempts=1),
+            compaction_queue=compaction_queue,
+            compaction_policy=compaction_policy,
             sleep=sleep or asyncio.sleep,
         ),
         inbound_queue,
@@ -248,6 +298,68 @@ async def test_inbound_worker_processes_event_to_outbound_queue() -> None:
     assert agent.requests[0].pydantic_ai.user_prompt == "hello"
     assert "external_chat_id" not in agent.requests[0].model_dump()
     assert "raw_update" not in agent.requests[0].model_dump()
+
+
+async def test_inbound_worker_emits_safe_observability_events(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    caplog.set_level(logging.INFO, logger="agent_service.inbound.worker")
+    user_id = uuid4()
+    resolved_conversation = conversation(user_id=user_id)
+    sensitive_text = "sensitive user message"
+    inbound_worker, _inbound_queue, _outbound_queue, _memory = worker(
+        conversations_by_chat_id={"12345": resolved_conversation},
+        agent_boundary=FakeAgentBoundary(),
+    )
+
+    await inbound_worker.process_event(inbound_event(user_id=user_id, text=sensitive_text))
+
+    events = {getattr(record, "event", None): record for record in caplog.records}
+    assert "agent_run_completed" in events
+    assert "outbound_event_published" in events
+    assert "inbound_event_processed" in events
+    for record in events.values():
+        assert sensitive_text not in record.getMessage()
+        assert not hasattr(record, "text")
+        assert not hasattr(record, "raw_update")
+        assert not hasattr(record, "prompt")
+    assert events["inbound_event_processed"].__dict__["user_id"] == str(user_id)
+
+
+async def test_inbound_worker_schedules_compaction_after_successful_agent_run() -> None:
+    user_id = uuid4()
+    resolved_conversation = conversation(user_id=user_id)
+    compaction_queue = AsyncioCompactionQueue()
+    memory = FakeMemoryService(
+        compaction_decision=ConversationCompactionDecision(
+            should_compact=True,
+            reason="trigger_reached",
+            estimated_input_tokens=90,
+            usable_input_budget_tokens=100,
+            trigger_tokens=80,
+            recent_tail_budget_tokens=30,
+            compact_through_sequence=7,
+            keep_from_sequence=8,
+            compactable_token_count=60,
+            retained_tail_token_count=30,
+        )
+    )
+    inbound_worker, _inbound_queue, _outbound_queue, _memory = worker(
+        conversations_by_chat_id={"12345": resolved_conversation},
+        agent_boundary=FakeAgentBoundary(),
+        memory_service=memory,
+        compaction_queue=compaction_queue,
+        compaction_policy=ConversationCompactionPolicy(enabled=True),
+    )
+
+    await inbound_worker.process_event(inbound_event(user_id=user_id))
+
+    job = await compaction_queue.consume()
+    assert job.conversation == resolved_conversation
+    assert job.compact_through_sequence == 7
+    assert job.reason == "trigger_reached"
+    assert job.metadata["keep_from_sequence"] == 8
+    assert job.metadata["retained_tail_token_count"] == 30
 
 
 async def test_inbound_worker_process_next_consumes_from_inbound_queue() -> None:

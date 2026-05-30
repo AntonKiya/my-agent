@@ -4,6 +4,7 @@ import logging
 import pytest
 
 from agent_service.config import AppSettings
+from agent_service.observability.events import elapsed_ms, log_event, start_timer
 from agent_service.observability.logging import configure_logging
 from agent_service.observability.tracing import (
     create_trace_id,
@@ -62,3 +63,34 @@ def test_configure_logging_outputs_json_with_trace_id(
     assert payload["message"] == "Observed event"
     assert payload["event"] == "test_event"
     assert payload["trace_id"] == trace_id
+
+
+def test_log_event_omits_none_fields_and_preserves_safe_metadata(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    settings = AppSettings(environment="test", log_level="INFO")
+    configure_logging(settings)
+
+    log_event(
+        logging.getLogger("agent_service.tests"),
+        logging.INFO,
+        "Observed structured event",
+        event="structured_event",
+        conversation_id="conversation-1",
+        user_id=None,
+        duration_ms=1.25,
+    )
+
+    output = capsys.readouterr().out.strip()
+    payload = json.loads(output)
+
+    assert payload["event"] == "structured_event"
+    assert payload["conversation_id"] == "conversation-1"
+    assert payload["duration_ms"] == 1.25
+    assert "user_id" not in payload
+
+
+def test_elapsed_ms_returns_non_negative_duration() -> None:
+    started_at = start_timer()
+
+    assert elapsed_ms(started_at) >= 0

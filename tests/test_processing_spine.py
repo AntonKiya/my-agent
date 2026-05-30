@@ -7,8 +7,12 @@ from agent_service.channels import InboundEvent
 from agent_service.conversations import AsyncioConversationLockManager, Conversation
 from agent_service.inbound import AgentRetryPolicy, InboundWorker
 from agent_service.memory import (
+    ConversationCompactionDecision,
+    ConversationCompactionRequest,
+    ConversationCompactionResult,
     ConversationMemoryMessage,
     ConversationMemoryRole,
+    ConversationSummary,
     PreparedConversationContext,
 )
 from agent_service.messaging import AsyncioInboundQueue, AsyncioOutboundQueue
@@ -81,6 +85,32 @@ class RecordingMemoryService:
         )
         self.assistant_messages.append(message)
         return message
+
+    async def prepare_compaction_request(
+        self,
+        *,
+        conversation: Conversation,
+        compact_through_sequence: int | None = None,
+    ) -> ConversationCompactionRequest:
+        raise NotImplementedError
+
+    async def evaluate_compaction(
+        self,
+        *,
+        conversation: Conversation,
+        policy: object,
+    ) -> ConversationCompactionDecision:
+        raise NotImplementedError
+
+    async def record_compaction_result(
+        self,
+        *,
+        conversation: Conversation,
+        request: ConversationCompactionRequest,
+        result: ConversationCompactionResult,
+        trace_id: str | None = None,
+    ) -> ConversationSummary:
+        raise NotImplementedError
 
 
 @dataclass(slots=True)

@@ -15,10 +15,15 @@ from agent_service.agents import (
 from agent_service.channels import InboundEvent
 from agent_service.conversations import Conversation
 from agent_service.memory import (
+    ConversationCompactionDecision,
+    ConversationCompactionRequest,
+    ConversationCompactionResult,
     ConversationContextSnapshot,
     ConversationMemoryMessage,
     ConversationMemoryRole,
     ConversationMemoryService,
+    ConversationSummary,
+    ConversationSummaryStatus,
     PreparedConversationContext,
 )
 
@@ -107,6 +112,32 @@ class FakeConversationMemoryService:
         )
         self.assistant_messages.append(message)
         return message
+
+    async def prepare_compaction_request(
+        self,
+        *,
+        conversation: Conversation,
+        compact_through_sequence: int | None = None,
+    ) -> ConversationCompactionRequest:
+        raise NotImplementedError
+
+    async def evaluate_compaction(
+        self,
+        *,
+        conversation: Conversation,
+        policy: object,
+    ) -> ConversationCompactionDecision:
+        raise NotImplementedError
+
+    async def record_compaction_result(
+        self,
+        *,
+        conversation: Conversation,
+        request: ConversationCompactionRequest,
+        result: ConversationCompactionResult,
+        trace_id: str | None = None,
+    ) -> ConversationSummary:
+        raise NotImplementedError
 
 
 def conversation() -> Conversation:
@@ -205,6 +236,53 @@ def test_context_snapshot_models_redis_working_state_shape() -> None:
     assert snapshot.last_seen_sequence == 1
     assert snapshot.version == 2
     assert snapshot.updated_at.tzinfo is UTC
+
+
+def test_conversation_summary_models_compaction_state() -> None:
+    conversation_id = uuid4()
+    user_id = uuid4()
+    last_message_id = uuid4()
+    summary = ConversationSummary(
+        conversation_id=conversation_id,
+        user_id=user_id,
+        from_sequence=1,
+        to_sequence=10,
+        previous_summary="earlier context",
+        summary="User is building a Telegram-first agent service.",
+        compacted_message_ids=[last_message_id],
+        last_compacted_message_id=last_message_id,
+        input_token_count=500,
+        output_token_count=80,
+        model="test-model",
+        trace_id="trace-1",
+        metadata={"reason": "threshold"},
+    )
+
+    assert summary.status is ConversationSummaryStatus.COMPLETED
+    assert summary.to_sequence == 10
+    assert summary.compacted_message_ids == [last_message_id]
+    assert summary.created_at.tzinfo is UTC
+
+
+def test_conversation_summary_rejects_invalid_completed_state() -> None:
+    with pytest.raises(ValidationError):
+        ConversationSummary(
+            conversation_id=uuid4(),
+            user_id=uuid4(),
+            from_sequence=3,
+            to_sequence=2,
+            summary="bad bounds",
+            last_compacted_message_id=uuid4(),
+        )
+
+    with pytest.raises(ValidationError):
+        ConversationSummary(
+            conversation_id=uuid4(),
+            user_id=uuid4(),
+            from_sequence=1,
+            to_sequence=2,
+            status=ConversationSummaryStatus.COMPLETED,
+        )
 
 
 def test_prepared_context_exposes_agent_and_pydantic_ai_shapes() -> None:

@@ -9,10 +9,13 @@ from agent_service.agents import AgentResponse, AgentToolInfo, AgentToolStatus, 
 from agent_service.channels import InboundEvent
 from agent_service.conversations import Conversation
 from agent_service.memory import (
+    ConversationCompactionPolicy,
+    ConversationCompactionResult,
     ConversationContextSnapshot,
     ConversationMemoryMessage,
     ConversationMemoryRole,
     ConversationMemoryServiceError,
+    ConversationSummary,
     DefaultConversationMemoryService,
 )
 
@@ -22,6 +25,7 @@ class FakeMemoryStore:
     messages: dict[UUID, list[ConversationMemoryMessage]] = field(default_factory=dict)
     append_calls: list[ConversationMemoryMessage] = field(default_factory=list)
     recent_calls: list[tuple[UUID, int]] = field(default_factory=list)
+    after_sequence_calls: list[tuple[UUID, UUID, int, int]] = field(default_factory=list)
     sequence_calls: list[tuple[UUID, UUID]] = field(default_factory=list)
 
     async def append_message(
@@ -46,6 +50,23 @@ class FakeMemoryStore:
     ) -> list[ConversationMemoryMessage]:
         self.recent_calls.append((conversation_id, limit))
         return self.messages.get(conversation_id, [])[-limit:]
+
+    async def list_messages_after_sequence(
+        self,
+        *,
+        conversation_id: UUID,
+        user_id: UUID,
+        after_sequence: int,
+        limit: int,
+    ) -> list[ConversationMemoryMessage]:
+        self.after_sequence_calls.append((conversation_id, user_id, after_sequence, limit))
+        return [
+            message
+            for message in self.messages.get(conversation_id, [])
+            if message.user_id == user_id
+            and message.sequence is not None
+            and message.sequence > after_sequence
+        ][-limit:]
 
     async def current_message_sequence(
         self,
@@ -94,6 +115,50 @@ class FakeSnapshotStore:
         self.delete_calls.append(conversation_id)
 
 
+@dataclass(slots=True)
+class FakeSummaryStore:
+    summaries: list[ConversationSummary] = field(default_factory=list)
+
+    async def append_summary(
+        self,
+        *,
+        summary: ConversationSummary,
+    ) -> ConversationSummary:
+        self.summaries.append(summary)
+        return summary
+
+    async def get_latest_completed_summary(
+        self,
+        *,
+        conversation_id: UUID,
+        user_id: UUID,
+    ) -> ConversationSummary | None:
+        matching = [
+            summary
+            for summary in self.summaries
+            if summary.conversation_id == conversation_id and summary.user_id == user_id
+        ]
+        if not matching:
+            return None
+        return max(matching, key=lambda summary: summary.to_sequence)
+
+    async def get_completed_summary_by_sequence(
+        self,
+        *,
+        conversation_id: UUID,
+        user_id: UUID,
+        to_sequence: int,
+    ) -> ConversationSummary | None:
+        for summary in self.summaries:
+            if (
+                summary.conversation_id == conversation_id
+                and summary.user_id == user_id
+                and summary.to_sequence == to_sequence
+            ):
+                return summary
+        return None
+
+
 def conversation() -> Conversation:
     return Conversation(
         id=uuid4(),
@@ -136,6 +201,28 @@ def memory_message(
     )
 
 
+def conversation_summary(
+    *,
+    resolved_conversation: Conversation,
+    to_sequence: int,
+    summary: str = "compressed context",
+    output_token_count: int = 11,
+    last_compacted_message_id: UUID | None = None,
+) -> ConversationSummary:
+    compacted_message_id = last_compacted_message_id or uuid4()
+    return ConversationSummary(
+        conversation_id=resolved_conversation.id,
+        user_id=resolved_conversation.user_id,
+        from_sequence=1,
+        to_sequence=to_sequence,
+        summary=summary,
+        compacted_message_ids=[compacted_message_id],
+        last_compacted_message_id=compacted_message_id,
+        output_token_count=output_token_count,
+        created_at=datetime(2026, 5, 30, 12, 30, tzinfo=UTC),
+    )
+
+
 async def test_memory_service_records_user_message_and_extends_fresh_snapshot() -> None:
     resolved_conversation = conversation()
     first_message = memory_message(
@@ -173,6 +260,45 @@ async def test_memory_service_records_user_message_and_extends_fresh_snapshot() 
         first_message.id,
         stored.id,
     ]
+
+
+async def test_memory_service_extends_compacted_snapshot_without_losing_summary_tokens() -> None:
+    resolved_conversation = conversation()
+    compacted = memory_message(
+        resolved_conversation=resolved_conversation,
+        role=ConversationMemoryRole.ASSISTANT,
+        sequence=2,
+        text="compacted",
+    )
+    snapshot_store = FakeSnapshotStore(
+        snapshots={
+            resolved_conversation.id: ConversationContextSnapshot(
+                conversation_id=resolved_conversation.id,
+                user_id=resolved_conversation.user_id,
+                summary="compressed old context",
+                recent_messages=[],
+                last_compacted_message_id=compacted.id,
+                last_seen_message_id=compacted.id,
+                last_compacted_sequence=2,
+                last_seen_sequence=2,
+                token_count=11,
+                metadata={"latest_summary_token_count": 11},
+            )
+        }
+    )
+    memory_store = FakeMemoryStore(messages={resolved_conversation.id: [compacted]})
+    service = DefaultConversationMemoryService(memory_store, snapshot_store)
+
+    stored = await service.record_user_message(
+        conversation=resolved_conversation,
+        event=inbound_event(resolved_conversation=resolved_conversation),
+    )
+
+    saved_snapshot = snapshot_store.save_calls[-1]
+    assert saved_snapshot.summary == "compressed old context"
+    assert saved_snapshot.recent_messages == [stored]
+    assert saved_snapshot.last_seen_sequence == 3
+    assert saved_snapshot.token_count == 11
 
 
 async def test_memory_service_uses_fresh_snapshot_without_reloading_history() -> None:
@@ -265,6 +391,102 @@ async def test_memory_service_rebuilds_and_replaces_stale_snapshot() -> None:
     assert prepared.snapshot == snapshot_store.save_calls[-1]
     assert prepared.metadata["snapshot_source"] == "postgres"
     assert prepared.pydantic_ai.user_prompt == "latest"
+
+
+async def test_memory_service_rebuilds_snapshot_from_latest_summary_and_recent_tail() -> None:
+    resolved_conversation = conversation()
+    compacted = memory_message(
+        resolved_conversation=resolved_conversation,
+        role=ConversationMemoryRole.ASSISTANT,
+        sequence=2,
+        text="old compacted answer",
+    )
+    compacted.token_count = 30
+    recent = memory_message(
+        resolved_conversation=resolved_conversation,
+        role=ConversationMemoryRole.USER,
+        sequence=3,
+        text="latest",
+    )
+    recent.token_count = 7
+    memory_store = FakeMemoryStore(messages={resolved_conversation.id: [compacted, recent]})
+    snapshot_store = FakeSnapshotStore()
+    summary_store = FakeSummaryStore(
+        summaries=[
+            conversation_summary(
+                resolved_conversation=resolved_conversation,
+                to_sequence=2,
+                summary="compressed old context",
+                output_token_count=11,
+                last_compacted_message_id=compacted.id,
+            )
+        ]
+    )
+    service = DefaultConversationMemoryService(
+        memory_store,
+        snapshot_store,
+        compaction_store=summary_store,
+    )
+
+    prepared = await service.prepare_agent_context(
+        conversation=resolved_conversation,
+        latest_user_message=recent,
+    )
+
+    assert memory_store.recent_calls == []
+    assert memory_store.after_sequence_calls == [
+        (resolved_conversation.id, resolved_conversation.user_id, 2, 100)
+    ]
+    assert prepared.snapshot is not None
+    assert prepared.snapshot.summary == "compressed old context"
+    assert prepared.snapshot.recent_messages == [recent]
+    assert prepared.snapshot.last_compacted_message_id == compacted.id
+    assert prepared.snapshot.last_compacted_sequence == 2
+    assert prepared.snapshot.last_seen_message_id == recent.id
+    assert prepared.snapshot.last_seen_sequence == 3
+    assert prepared.snapshot.token_count == 18
+    assert prepared.agent_context.system_prompt_parts == ["compressed old context"]
+    assert prepared.pydantic_ai.instructions == "compressed old context"
+
+
+async def test_memory_service_rebuilds_snapshot_when_summary_covers_current_sequence() -> None:
+    resolved_conversation = conversation()
+    compacted = memory_message(
+        resolved_conversation=resolved_conversation,
+        role=ConversationMemoryRole.ASSISTANT,
+        sequence=2,
+        text="old compacted answer",
+    )
+    memory_store = FakeMemoryStore(messages={resolved_conversation.id: [compacted]})
+    snapshot_store = FakeSnapshotStore()
+    summary_store = FakeSummaryStore(
+        summaries=[
+            conversation_summary(
+                resolved_conversation=resolved_conversation,
+                to_sequence=2,
+                output_token_count=9,
+                last_compacted_message_id=compacted.id,
+            )
+        ]
+    )
+    service = DefaultConversationMemoryService(
+        memory_store,
+        snapshot_store,
+        compaction_store=summary_store,
+    )
+
+    decision = await service.evaluate_compaction(
+        conversation=resolved_conversation,
+        policy=ConversationCompactionPolicy(enabled=True),
+    )
+
+    saved_snapshot = snapshot_store.save_calls[-1]
+    assert not decision.should_compact
+    assert saved_snapshot.recent_messages == []
+    assert saved_snapshot.last_seen_message_id == compacted.id
+    assert saved_snapshot.last_seen_sequence == 2
+    assert saved_snapshot.last_compacted_sequence == 2
+    assert saved_snapshot.token_count == 9
 
 
 async def test_memory_service_rejects_latest_message_from_another_user() -> None:
@@ -368,3 +590,325 @@ async def test_memory_service_records_assistant_message_with_usage_and_tool_info
     assert stored.metadata["model"] == "test"
     assert stored.metadata["usage"]["output_tokens"] == 5
     assert stored.metadata["tool_info"][0]["tool_name"] == "search"
+
+
+async def test_memory_service_prepares_compaction_request_from_memory_state() -> None:
+    resolved_conversation = conversation()
+    previous_summary = "User is building an agent service."
+    first = memory_message(
+        resolved_conversation=resolved_conversation,
+        role=ConversationMemoryRole.USER,
+        sequence=1,
+        text="first",
+    )
+    already_compacted = memory_message(
+        resolved_conversation=resolved_conversation,
+        role=ConversationMemoryRole.ASSISTANT,
+        sequence=2,
+        text="already compacted",
+    )
+    tool_result = ConversationMemoryMessage(
+        conversation_id=resolved_conversation.id,
+        user_id=resolved_conversation.user_id,
+        sequence=3,
+        role=ConversationMemoryRole.TOOL_RESULT,
+        text="tool output",
+        tool_name="search",
+        tool_call_id="call-1",
+    )
+    second = memory_message(
+        resolved_conversation=resolved_conversation,
+        role=ConversationMemoryRole.USER,
+        sequence=4,
+        text="second",
+    )
+    memory_store = FakeMemoryStore(
+        messages={resolved_conversation.id: [first, already_compacted, tool_result, second]}
+    )
+    snapshot_store = FakeSnapshotStore(
+        snapshots={
+            resolved_conversation.id: ConversationContextSnapshot(
+                conversation_id=resolved_conversation.id,
+                user_id=resolved_conversation.user_id,
+                summary=previous_summary,
+                recent_messages=[first, already_compacted, tool_result, second],
+                last_compacted_message_id=already_compacted.id,
+                last_seen_message_id=second.id,
+                last_compacted_sequence=2,
+                last_seen_sequence=4,
+            )
+        }
+    )
+    service = DefaultConversationMemoryService(memory_store, snapshot_store)
+
+    request = await service.prepare_compaction_request(conversation=resolved_conversation)
+
+    assert request.previous_summary == previous_summary
+    assert request.last_compacted_sequence == 2
+    assert request.messages == [second]
+    assert request.metadata["last_seen_sequence"] == 4
+
+
+async def test_memory_service_records_compaction_result_and_updates_hot_snapshot() -> None:
+    resolved_conversation = conversation()
+    first = memory_message(
+        resolved_conversation=resolved_conversation,
+        role=ConversationMemoryRole.USER,
+        sequence=1,
+        text="first",
+    )
+    first.token_count = 10
+    second = memory_message(
+        resolved_conversation=resolved_conversation,
+        role=ConversationMemoryRole.ASSISTANT,
+        sequence=2,
+        text="second",
+    )
+    second.token_count = 12
+    recent = memory_message(
+        resolved_conversation=resolved_conversation,
+        role=ConversationMemoryRole.USER,
+        sequence=3,
+        text="recent",
+    )
+    recent.token_count = 5
+    memory_store = FakeMemoryStore(messages={resolved_conversation.id: [first, second, recent]})
+    snapshot_store = FakeSnapshotStore(
+        snapshots={
+            resolved_conversation.id: ConversationContextSnapshot(
+                conversation_id=resolved_conversation.id,
+                user_id=resolved_conversation.user_id,
+                recent_messages=[first, second, recent],
+                last_seen_message_id=recent.id,
+                last_seen_sequence=3,
+                token_count=27,
+            )
+        }
+    )
+    compaction_store = FakeSummaryStore()
+    service = DefaultConversationMemoryService(
+        memory_store,
+        snapshot_store,
+        compaction_store=compaction_store,
+    )
+    request = await service.prepare_compaction_request(conversation=resolved_conversation)
+    result = ConversationCompactionResult(
+        conversation_id=resolved_conversation.id,
+        user_id=resolved_conversation.user_id,
+        summary="first two messages compressed",
+        compacted_message_ids=[first.id, second.id],
+        last_compacted_message_id=second.id,
+        last_compacted_sequence=2,
+        token_count=8,
+        metadata={"model": "summary-model"},
+        created_at=datetime(2026, 5, 30, 12, 30, tzinfo=UTC),
+    )
+
+    summary = await service.record_compaction_result(
+        conversation=resolved_conversation,
+        request=request,
+        result=result,
+        trace_id="trace-summary",
+    )
+
+    assert compaction_store.summaries == [summary]
+    assert summary.from_sequence == 1
+    assert summary.to_sequence == 2
+    assert summary.input_token_count == 22
+    assert summary.output_token_count == 8
+    assert summary.model == "summary-model"
+    assert summary.trace_id == "trace-summary"
+    saved_snapshot = snapshot_store.save_calls[-1]
+    assert saved_snapshot.summary == "first two messages compressed"
+    assert saved_snapshot.recent_messages == [recent]
+    assert saved_snapshot.last_compacted_message_id == second.id
+    assert saved_snapshot.last_compacted_sequence == 2
+    assert saved_snapshot.last_seen_message_id == recent.id
+    assert saved_snapshot.last_seen_sequence == 3
+    assert saved_snapshot.token_count == 13
+    assert saved_snapshot.metadata["latest_summary_id"] == str(summary.id)
+
+
+async def test_memory_service_record_compaction_result_is_idempotent_by_sequence() -> None:
+    resolved_conversation = conversation()
+    first = memory_message(
+        resolved_conversation=resolved_conversation,
+        role=ConversationMemoryRole.USER,
+        sequence=1,
+        text="first",
+    )
+    second = memory_message(
+        resolved_conversation=resolved_conversation,
+        role=ConversationMemoryRole.ASSISTANT,
+        sequence=2,
+        text="second",
+    )
+    recent = memory_message(
+        resolved_conversation=resolved_conversation,
+        role=ConversationMemoryRole.USER,
+        sequence=3,
+        text="recent",
+    )
+    existing = conversation_summary(
+        resolved_conversation=resolved_conversation,
+        to_sequence=2,
+        summary="already compacted",
+        output_token_count=6,
+        last_compacted_message_id=second.id,
+    )
+    compaction_store = FakeSummaryStore(summaries=[existing])
+    snapshot_store = FakeSnapshotStore(
+        snapshots={
+            resolved_conversation.id: ConversationContextSnapshot(
+                conversation_id=resolved_conversation.id,
+                user_id=resolved_conversation.user_id,
+                recent_messages=[first, second, recent],
+                last_seen_message_id=recent.id,
+                last_seen_sequence=3,
+            )
+        }
+    )
+    service = DefaultConversationMemoryService(
+        FakeMemoryStore(messages={resolved_conversation.id: [first, second, recent]}),
+        snapshot_store,
+        compaction_store=compaction_store,
+    )
+    request = await service.prepare_compaction_request(conversation=resolved_conversation)
+    result = ConversationCompactionResult(
+        conversation_id=resolved_conversation.id,
+        user_id=resolved_conversation.user_id,
+        summary="duplicate compacted",
+        compacted_message_ids=[first.id, second.id],
+        last_compacted_message_id=second.id,
+        last_compacted_sequence=2,
+        token_count=8,
+    )
+
+    summary = await service.record_compaction_result(
+        conversation=resolved_conversation,
+        request=request,
+        result=result,
+    )
+
+    assert summary == existing
+    assert compaction_store.summaries == [existing]
+    saved_snapshot = snapshot_store.save_calls[-1]
+    assert saved_snapshot.summary == "already compacted"
+    assert saved_snapshot.recent_messages == [recent]
+    assert saved_snapshot.last_compacted_sequence == 2
+
+
+async def test_memory_service_evaluates_compaction_policy_from_fresh_snapshot() -> None:
+    resolved_conversation = conversation()
+    messages = [
+        memory_message(
+            resolved_conversation=resolved_conversation,
+            role=ConversationMemoryRole.USER,
+            sequence=1,
+            text="old",
+        ),
+        memory_message(
+            resolved_conversation=resolved_conversation,
+            role=ConversationMemoryRole.ASSISTANT,
+            sequence=2,
+            text="answer",
+        ),
+    ]
+    messages[0].token_count = 45
+    messages[1].token_count = 45
+    memory_store = FakeMemoryStore(messages={resolved_conversation.id: messages})
+    snapshot_store = FakeSnapshotStore(
+        snapshots={
+            resolved_conversation.id: ConversationContextSnapshot(
+                conversation_id=resolved_conversation.id,
+                user_id=resolved_conversation.user_id,
+                recent_messages=messages,
+                last_seen_message_id=messages[-1].id,
+                last_seen_sequence=2,
+                token_count=90,
+            )
+        }
+    )
+    service = DefaultConversationMemoryService(memory_store, snapshot_store)
+    policy = ConversationCompactionPolicy(
+        enabled=True,
+        context_window_tokens=100,
+        reserved_output_tokens=0,
+        trigger_fraction=0.80,
+        recent_tail_fraction=0.30,
+    )
+
+    decision = await service.evaluate_compaction(
+        conversation=resolved_conversation,
+        policy=policy,
+    )
+
+    assert decision.should_compact
+    assert decision.compact_through_sequence == 1
+
+
+async def test_memory_service_rejects_compaction_result_from_another_user() -> None:
+    resolved_conversation = conversation()
+    service = DefaultConversationMemoryService(
+        FakeMemoryStore(),
+        FakeSnapshotStore(),
+        compaction_store=FakeSummaryStore(),
+    )
+    message = memory_message(
+        resolved_conversation=resolved_conversation,
+        role=ConversationMemoryRole.USER,
+        sequence=1,
+    )
+    request = await service.prepare_compaction_request(conversation=resolved_conversation)
+    request = request.model_copy(update={"messages": [message]})
+    result = ConversationCompactionResult(
+        conversation_id=resolved_conversation.id,
+        user_id=uuid4(),
+        summary="wrong user",
+        compacted_message_ids=[message.id],
+        last_compacted_message_id=message.id,
+        last_compacted_sequence=1,
+    )
+
+    with pytest.raises(ConversationMemoryServiceError):
+        await service.record_compaction_result(
+            conversation=resolved_conversation,
+            request=request,
+            result=result,
+        )
+
+
+async def test_memory_service_rejects_wrong_user_before_idempotency_lookup() -> None:
+    resolved_conversation = conversation()
+    message = memory_message(
+        resolved_conversation=resolved_conversation,
+        role=ConversationMemoryRole.USER,
+        sequence=1,
+    )
+    existing = conversation_summary(
+        resolved_conversation=resolved_conversation,
+        to_sequence=1,
+        last_compacted_message_id=message.id,
+    )
+    service = DefaultConversationMemoryService(
+        FakeMemoryStore(messages={resolved_conversation.id: [message]}),
+        FakeSnapshotStore(),
+        compaction_store=FakeSummaryStore(summaries=[existing]),
+    )
+    request = await service.prepare_compaction_request(conversation=resolved_conversation)
+    request = request.model_copy(update={"messages": [message]})
+    result = ConversationCompactionResult(
+        conversation_id=resolved_conversation.id,
+        user_id=uuid4(),
+        summary="wrong user",
+        compacted_message_ids=[message.id],
+        last_compacted_message_id=message.id,
+        last_compacted_sequence=1,
+    )
+
+    with pytest.raises(ConversationMemoryServiceError):
+        await service.record_compaction_result(
+            conversation=resolved_conversation,
+            request=request,
+            result=result,
+        )
