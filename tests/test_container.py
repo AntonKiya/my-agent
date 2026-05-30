@@ -16,13 +16,19 @@ from agent_service.container import AppContainer
 from agent_service.conversations import Conversation, ConversationResolverProtocol
 from agent_service.inbound import InboundIntake
 from agent_service.memory import (
+    ConversationCompactionDecision,
+    ConversationCompactionPolicy,
+    ConversationCompactionRequest,
+    ConversationCompactionResult,
+    ConversationCompactionStore,
     ConversationContextSnapshotStore,
     ConversationMemoryMessage,
     ConversationMemoryStore,
+    ConversationSummary,
     DefaultConversationMemoryService,
     PreparedConversationContext,
 )
-from agent_service.messaging import InboundQueue, OutboundQueue
+from agent_service.messaging import CompactionQueue, InboundQueue, OutboundQueue
 from agent_service.users import PostgresConnection
 
 
@@ -73,6 +79,20 @@ class FakeAgentBoundary:
         return AgentResponse(text=request.text or "ok", trace_id=request.trace_id)
 
 
+class FakeCompactor:
+    async def compact(
+        self,
+        *,
+        request: ConversationCompactionRequest,
+    ) -> ConversationCompactionResult:
+        return ConversationCompactionResult(
+            conversation_id=request.conversation_id,
+            user_id=request.user_id,
+            summary=request.previous_summary or "summary",
+            last_compacted_sequence=request.last_compacted_sequence,
+        )
+
+
 class FakeMemoryService:
     async def record_user_message(
         self,
@@ -100,6 +120,32 @@ class FakeMemoryService:
     ) -> ConversationMemoryMessage:
         raise NotImplementedError
 
+    async def prepare_compaction_request(
+        self,
+        *,
+        conversation: Conversation,
+        compact_through_sequence: int | None = None,
+    ) -> ConversationCompactionRequest:
+        raise NotImplementedError
+
+    async def evaluate_compaction(
+        self,
+        *,
+        conversation: Conversation,
+        policy: object,
+    ) -> ConversationCompactionDecision:
+        raise NotImplementedError
+
+    async def record_compaction_result(
+        self,
+        *,
+        conversation: Conversation,
+        request: ConversationCompactionRequest,
+        result: ConversationCompactionResult,
+        trace_id: str | None = None,
+    ) -> ConversationSummary:
+        raise NotImplementedError
+
 
 async def test_container_tracks_lifecycle_state() -> None:
     settings = AppSettings(environment="test", graceful_shutdown_timeout_seconds=0.25)
@@ -109,10 +155,15 @@ async def test_container_tracks_lifecycle_state() -> None:
     assert container.task_supervisor.shutdown_timeout_seconds == 0.25
     assert isinstance(container.inbound_queue, InboundQueue)
     assert isinstance(container.outbound_queue, OutboundQueue)
+    assert isinstance(container.compaction_queue, CompactionQueue)
     assert container.inbound_intake_service is None
     assert container.conversation_resolver is None
     assert container.conversation_memory_store is None
     assert container.conversation_snapshot_store is None
+    assert container.conversation_compaction_store is None
+    assert isinstance(container.conversation_compaction_policy, ConversationCompactionPolicy)
+    assert not container.conversation_compaction_policy.enabled
+    assert container.conversation_compactor is None
     assert container.memory_service is None
     assert container.agent_boundary is None
     assert container.task_supervisor.task_count == 0
@@ -173,6 +224,7 @@ async def test_container_wires_postgres_user_intake_when_dsn_is_configured(
     assert isinstance(container.inbound_intake_service, InboundIntake)
     assert isinstance(container.conversation_resolver, ConversationResolverProtocol)
     assert isinstance(container.conversation_memory_store, ConversationMemoryStore)
+    assert isinstance(container.conversation_compaction_store, ConversationCompactionStore)
     assert container.conversation_snapshot_store is None
     assert isinstance(container.memory_service, DefaultConversationMemoryService)
     assert container.task_supervisor.task_count == 0
@@ -190,6 +242,7 @@ async def test_container_wires_postgres_user_intake_when_dsn_is_configured(
     assert container.inbound_intake_service is None
     assert container.conversation_resolver is None
     assert container.conversation_memory_store is None
+    assert container.conversation_compaction_store is None
     assert container.conversation_snapshot_store is None
 
 
@@ -248,6 +301,11 @@ async def test_container_passes_redis_snapshot_store_to_memory_service(
         environment="test",
         postgres_dsn="postgresql://agent:secret@localhost:5432/agent",
         redis_dsn="redis://127.0.0.1:6379/0",
+        memory_compaction_enabled=True,
+        memory_model_context_window_tokens=100_000,
+        memory_reserved_output_tokens=8_000,
+        memory_compaction_trigger_fraction=0.75,
+        memory_recent_tail_fraction=0.25,
     )
     container = AppContainer(settings=settings)
 
@@ -255,6 +313,12 @@ async def test_container_passes_redis_snapshot_store_to_memory_service(
 
     assert isinstance(container.memory_service, DefaultConversationMemoryService)
     assert container.memory_service.snapshot_store is container.conversation_snapshot_store
+    assert container.memory_service.compaction_store is container.conversation_compaction_store
+    assert container.conversation_compaction_policy.enabled
+    assert container.conversation_compaction_policy.context_window_tokens == 100_000
+    assert container.conversation_compaction_policy.reserved_output_tokens == 8_000
+    assert container.conversation_compaction_policy.trigger_fraction == 0.75
+    assert container.conversation_compaction_policy.recent_tail_fraction == 0.25
 
     await container.stop()
 
@@ -307,6 +371,37 @@ async def test_container_starts_configured_inbound_worker_tasks(
 
     assert container.started
     assert container.task_supervisor.task_count == 3
+
+    await container.stop()
+
+    assert container.task_supervisor.task_count == 0
+    assert fake_pool.closed
+
+
+async def test_container_starts_configured_compaction_worker_tasks(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake_pool = FakeManagedPostgresPool()
+
+    async def fake_create_pool(**kwargs: object) -> FakeManagedPostgresPool:
+        return fake_pool
+
+    monkeypatch.setattr("agent_service.container.asyncpg.create_pool", fake_create_pool)
+    settings = AppSettings(
+        environment="test",
+        postgres_dsn="postgresql://agent:secret@localhost:5432/agent",
+        inbound_worker_count=0,
+        memory_compaction_enabled=True,
+        memory_compaction_worker_count=2,
+        graceful_shutdown_timeout_seconds=0.1,
+    )
+    container = AppContainer(settings=settings)
+    container.conversation_compactor = FakeCompactor()
+
+    await container.start()
+
+    assert container.started
+    assert container.task_supervisor.task_count == 2
 
     await container.stop()
 

@@ -3,6 +3,7 @@ from typing import Protocol, TypeVar, runtime_checkable
 from pydantic import BaseModel, ConfigDict, Field
 
 from agent_service.channels.models import InboundEvent, OutboundEvent
+from agent_service.memory.models import ConversationCompactionJob
 
 QueueEventT = TypeVar("QueueEventT")
 
@@ -39,4 +40,9 @@ class InboundQueue(EventQueue[InboundEvent], Protocol):
 
 @runtime_checkable
 class OutboundQueue(EventQueue[OutboundEvent], Protocol):
+    pass
+
+
+@runtime_checkable
+class CompactionQueue(EventQueue[ConversationCompactionJob], Protocol):
     pass

@@ -2,7 +2,14 @@ import asyncio
 from dataclasses import dataclass, field
 
 from agent_service.channels.models import InboundEvent, OutboundEvent
-from agent_service.messaging.interfaces import EventQueue, InboundQueue, OutboundQueue, QueueStats
+from agent_service.memory.models import ConversationCompactionJob
+from agent_service.messaging.interfaces import (
+    CompactionQueue,
+    EventQueue,
+    InboundQueue,
+    OutboundQueue,
+    QueueStats,
+)
 
 
 @dataclass(slots=True)
@@ -48,4 +55,8 @@ class AsyncioInboundQueue(AsyncioEventQueue[InboundEvent], InboundQueue):
 
 
 class AsyncioOutboundQueue(AsyncioEventQueue[OutboundEvent], OutboundQueue):
+    pass
+
+
+class AsyncioCompactionQueue(AsyncioEventQueue[ConversationCompactionJob], CompactionQueue):
     pass

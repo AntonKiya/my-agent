@@ -27,17 +27,24 @@ from agent_service.inbound import (
     InboundWorker,
 )
 from agent_service.memory import (
+    ConversationCompactionPolicy,
+    ConversationCompactionStore,
+    ConversationCompactionWorker,
+    ConversationCompactor,
     ConversationContextSnapshotStore,
     ConversationMemoryService,
     ConversationMemoryStore,
     DefaultConversationMemoryService,
+    PostgresConversationCompactionStore,
     PostgresConversationMemoryStore,
     RedisConversationContextSnapshotStore,
 )
 from agent_service.memory import PostgresPool as MemoryPostgresPool
 from agent_service.messaging import (
+    AsyncioCompactionQueue,
     AsyncioInboundQueue,
     AsyncioOutboundQueue,
+    CompactionQueue,
     InboundQueue,
     OutboundQueue,
 )
@@ -81,11 +88,15 @@ class AppContainer:
     task_supervisor: TaskSupervisor = field(init=False)
     inbound_queue: InboundQueue = field(init=False)
     outbound_queue: OutboundQueue = field(init=False)
+    compaction_queue: CompactionQueue = field(init=False)
     inbound_intake_service: InboundIntake | None = field(init=False)
     conversation_resolver: ConversationResolverProtocol | None = field(init=False)
     conversation_lock_manager: ConversationLockManager = field(init=False)
     conversation_memory_store: ConversationMemoryStore | None = field(init=False)
     conversation_snapshot_store: ConversationContextSnapshotStore | None = field(init=False)
+    conversation_compaction_store: ConversationCompactionStore | None = field(init=False)
+    conversation_compaction_policy: ConversationCompactionPolicy = field(init=False)
+    conversation_compactor: ConversationCompactor | None = field(init=False)
     memory_service: ConversationMemoryService | None = field(init=False)
     agent_boundary: AgentBoundary | None = field(init=False)
     channel_adapters: ChannelAdapterRegistry = field(init=False)
@@ -105,11 +116,23 @@ class AppContainer:
         self.outbound_queue = AsyncioOutboundQueue(
             maxsize=self.settings.outbound_queue_maxsize,
         )
+        self.compaction_queue = AsyncioCompactionQueue(
+            maxsize=self.settings.memory_compaction_queue_maxsize,
+        )
         self.inbound_intake_service = None
         self.conversation_resolver = None
         self.conversation_lock_manager = AsyncioConversationLockManager()
         self.conversation_memory_store = None
         self.conversation_snapshot_store = None
+        self.conversation_compaction_store = None
+        self.conversation_compaction_policy = ConversationCompactionPolicy(
+            enabled=self.settings.memory_compaction_enabled,
+            context_window_tokens=self.settings.memory_model_context_window_tokens,
+            reserved_output_tokens=self.settings.memory_reserved_output_tokens,
+            trigger_fraction=self.settings.memory_compaction_trigger_fraction,
+            recent_tail_fraction=self.settings.memory_recent_tail_fraction,
+        )
+        self.conversation_compactor = None
         self.memory_service = None
         self.agent_boundary = None
         self.channel_adapters = InMemoryChannelAdapterRegistry()
@@ -129,6 +152,7 @@ class AppContainer:
             await self._start_redis_dependencies()
             await self._start_postgres_dependencies()
             self._start_inbound_workers()
+            self._start_compaction_workers()
             self._started = True
         except BaseException:
             await self.stop()
@@ -144,6 +168,7 @@ class AppContainer:
             self.inbound_intake_service = None
             self.conversation_resolver = None
             self.conversation_memory_store = None
+            self.conversation_compaction_store = None
             self.memory_service = None
         if self._redis_client is not None:
             await self._redis_client.aclose()
@@ -190,9 +215,13 @@ class AppContainer:
         self.conversation_memory_store = PostgresConversationMemoryStore(
             cast(MemoryPostgresPool, self._postgres_pool)
         )
+        self.conversation_compaction_store = PostgresConversationCompactionStore(
+            cast(MemoryPostgresPool, self._postgres_pool)
+        )
         self.memory_service = DefaultConversationMemoryService(
             memory_store=self.conversation_memory_store,
             snapshot_store=self.conversation_snapshot_store,
+            compaction_store=self.conversation_compaction_store,
         )
 
     def _start_inbound_workers(self) -> None:
@@ -217,11 +246,50 @@ class AppContainer:
                 lock_manager=self.conversation_lock_manager,
                 retry_policy=retry_policy,
                 error_backoff_seconds=self.settings.inbound_worker_error_backoff_seconds,
+                compaction_queue=(
+                    self.compaction_queue if self._compaction_processing_enabled() else None
+                ),
+                compaction_policy=(
+                    self.conversation_compaction_policy
+                    if self._compaction_processing_enabled()
+                    else None
+                ),
+                compaction_publish_timeout_seconds=(
+                    self.settings.memory_compaction_publish_timeout_seconds
+                ),
             )
             self.task_supervisor.create_task(
                 worker.run_forever(),
                 name=f"inbound-worker-{index + 1}",
             )
+
+    def _start_compaction_workers(self) -> None:
+        if not self._compaction_processing_enabled():
+            return
+        if self.memory_service is None or self.conversation_compactor is None:
+            return
+
+        for index in range(self.settings.memory_compaction_worker_count):
+            worker = ConversationCompactionWorker(
+                compaction_queue=self.compaction_queue,
+                memory_service=self.memory_service,
+                compactor=self.conversation_compactor,
+                lock_manager=self.conversation_lock_manager,
+                error_backoff_seconds=(
+                    self.settings.memory_compaction_worker_error_backoff_seconds
+                ),
+            )
+            self.task_supervisor.create_task(
+                worker.run_forever(),
+                name=f"compaction-worker-{index + 1}",
+            )
+
+    def _compaction_processing_enabled(self) -> bool:
+        return (
+            self.conversation_compaction_policy.enabled
+            and self.settings.memory_compaction_worker_count > 0
+            and self.conversation_compactor is not None
+        )
 
 
 async def _create_managed_postgres_pool(settings: AppSettings) -> ManagedPostgresPool:

@@ -4,6 +4,7 @@ from typing import Protocol, runtime_checkable
 
 from agent_service.channels.models import InboundEvent
 from agent_service.messaging import InboundQueue
+from agent_service.observability.events import elapsed_ms, log_event, start_timer
 from agent_service.users import UserResolutionError, UserResolutionResult, UserResolutionStatus
 
 from .models import InboundIntakeResult, InboundIntakeStatus
@@ -40,6 +41,7 @@ class InboundIntakeService(InboundIntake):
         self._publish_timeout_seconds = publish_timeout_seconds
 
     async def accept(self, event: InboundEvent) -> InboundIntakeResult:
+        started_at = start_timer()
         resolution = await self._user_resolver.resolve(event)
 
         if resolution.status is UserResolutionStatus.RESOLVED:
@@ -57,6 +59,7 @@ class InboundIntakeService(InboundIntake):
                         "queue_size": queue_stats.size,
                         "queue_maxsize": queue_stats.maxsize,
                         "publish_timeout_seconds": self._publish_timeout_seconds,
+                        "duration_ms": elapsed_ms(started_at),
                     },
                 )
                 return InboundIntakeResult(
@@ -67,6 +70,18 @@ class InboundIntakeService(InboundIntake):
                     queue_size=queue_stats.size,
                     queue_maxsize=queue_stats.maxsize,
                 )
+            log_event(
+                logger,
+                logging.INFO,
+                "Inbound event published",
+                event="inbound_event_published",
+                inbound_event_id=str(resolution.event.event_id),
+                channel=resolution.event.channel,
+                user_id=str(resolution.event.user_id),
+                queue_size=queue_stats.size,
+                queue_maxsize=queue_stats.maxsize,
+                duration_ms=elapsed_ms(started_at),
+            )
             return InboundIntakeResult(
                 status=InboundIntakeStatus.PUBLISHED,
                 published=True,
@@ -75,6 +90,16 @@ class InboundIntakeService(InboundIntake):
                 queue_maxsize=queue_stats.maxsize,
             )
 
+        log_event(
+            logger,
+            logging.INFO,
+            "Inbound event rejected",
+            event="inbound_event_rejected",
+            inbound_event_id=str(event.event_id),
+            channel=event.channel,
+            user_resolution_status=resolution.status.value,
+            duration_ms=elapsed_ms(started_at),
+        )
         return InboundIntakeResult(
             status=InboundIntakeStatus.REJECTED,
             published=False,

@@ -5,6 +5,7 @@ import pytest
 from pydantic import ValidationError
 
 from agent_service.memory import (
+    ConversationCompactionPolicy,
     ConversationCompactionRequest,
     ConversationCompactor,
     ConversationContextSnapshot,
@@ -23,6 +24,7 @@ def memory_message(
     user_id: UUID,
     sequence: int,
     text: str | None = "hello",
+    token_count: int | None = None,
 ) -> ConversationMemoryMessage:
     return ConversationMemoryMessage(
         conversation_id=conversation_id,
@@ -40,6 +42,7 @@ def memory_message(
             if role in {ConversationMemoryRole.TOOL_CALL, ConversationMemoryRole.TOOL_RESULT}
             else None
         ),
+        token_count=token_count,
         created_at=datetime(2026, 5, 30, 12, sequence, tzinfo=UTC),
     )
 
@@ -87,6 +90,39 @@ def test_compaction_request_rejects_out_of_order_messages() -> None:
         )
 
 
+def test_compaction_request_rejects_messages_from_another_user_or_conversation() -> None:
+    conversation_id = uuid4()
+    user_id = uuid4()
+
+    with pytest.raises(ValidationError):
+        ConversationCompactionRequest(
+            conversation_id=conversation_id,
+            user_id=user_id,
+            messages=[
+                memory_message(
+                    role=ConversationMemoryRole.USER,
+                    conversation_id=uuid4(),
+                    user_id=user_id,
+                    sequence=1,
+                )
+            ],
+        )
+
+    with pytest.raises(ValidationError):
+        ConversationCompactionRequest(
+            conversation_id=conversation_id,
+            user_id=user_id,
+            messages=[
+                memory_message(
+                    role=ConversationMemoryRole.USER,
+                    conversation_id=conversation_id,
+                    user_id=uuid4(),
+                    sequence=1,
+                )
+            ],
+        )
+
+
 def test_compaction_request_from_snapshot_excludes_tool_messages() -> None:
     conversation_id = uuid4()
     user_id = uuid4()
@@ -130,6 +166,148 @@ def test_compaction_request_from_snapshot_excludes_tool_messages() -> None:
     assert request.last_compacted_sequence == 1
     assert request.metadata["snapshot_version"] == 2
     assert request.metadata["last_seen_sequence"] == 4
+
+
+def test_compaction_request_from_snapshot_can_limit_compacted_prefix() -> None:
+    conversation_id = uuid4()
+    user_id = uuid4()
+    first = memory_message(
+        role=ConversationMemoryRole.USER,
+        conversation_id=conversation_id,
+        user_id=user_id,
+        sequence=2,
+    )
+    second = memory_message(
+        role=ConversationMemoryRole.ASSISTANT,
+        conversation_id=conversation_id,
+        user_id=user_id,
+        sequence=3,
+    )
+    recent = memory_message(
+        role=ConversationMemoryRole.USER,
+        conversation_id=conversation_id,
+        user_id=user_id,
+        sequence=4,
+    )
+    snapshot = ConversationContextSnapshot(
+        conversation_id=conversation_id,
+        user_id=user_id,
+        recent_messages=[first, second, recent],
+        last_compacted_sequence=1,
+        last_seen_message_id=recent.id,
+        last_seen_sequence=4,
+    )
+
+    request = compaction_request_from_snapshot(snapshot, compact_through_sequence=3)
+
+    assert request.messages == [first, second]
+
+
+def test_compaction_policy_uses_token_trigger_and_retains_recent_tail_by_tokens() -> None:
+    conversation_id = uuid4()
+    user_id = uuid4()
+    messages = [
+        memory_message(
+            role=ConversationMemoryRole.USER,
+            conversation_id=conversation_id,
+            user_id=user_id,
+            sequence=1,
+            token_count=20,
+        ),
+        memory_message(
+            role=ConversationMemoryRole.ASSISTANT,
+            conversation_id=conversation_id,
+            user_id=user_id,
+            sequence=2,
+            token_count=20,
+        ),
+        memory_message(
+            role=ConversationMemoryRole.USER,
+            conversation_id=conversation_id,
+            user_id=user_id,
+            sequence=3,
+            token_count=25,
+        ),
+        memory_message(
+            role=ConversationMemoryRole.ASSISTANT,
+            conversation_id=conversation_id,
+            user_id=user_id,
+            sequence=4,
+            token_count=25,
+        ),
+    ]
+    snapshot = ConversationContextSnapshot(
+        conversation_id=conversation_id,
+        user_id=user_id,
+        recent_messages=messages,
+        last_seen_message_id=messages[-1].id,
+        last_seen_sequence=4,
+        token_count=90,
+    )
+    policy = ConversationCompactionPolicy(
+        enabled=True,
+        context_window_tokens=100,
+        reserved_output_tokens=0,
+        trigger_fraction=0.80,
+        recent_tail_fraction=0.30,
+    )
+
+    decision = policy.decide(snapshot=snapshot)
+
+    assert decision.should_compact
+    assert decision.reason == "trigger_reached"
+    assert decision.trigger_tokens == 80
+    assert decision.recent_tail_budget_tokens == 30
+    assert decision.compact_through_sequence == 3
+    assert decision.keep_from_sequence == 4
+    assert decision.compactable_token_count == 65
+    assert decision.retained_tail_token_count == 25
+
+
+def test_compaction_policy_does_not_trigger_below_token_threshold() -> None:
+    conversation_id = uuid4()
+    user_id = uuid4()
+    message = memory_message(
+        role=ConversationMemoryRole.USER,
+        conversation_id=conversation_id,
+        user_id=user_id,
+        sequence=1,
+        token_count=10,
+    )
+    snapshot = ConversationContextSnapshot(
+        conversation_id=conversation_id,
+        user_id=user_id,
+        recent_messages=[message],
+        last_seen_message_id=message.id,
+        last_seen_sequence=1,
+        token_count=79,
+    )
+    policy = ConversationCompactionPolicy(
+        enabled=True,
+        context_window_tokens=100,
+        reserved_output_tokens=0,
+        trigger_fraction=0.80,
+        recent_tail_fraction=0.30,
+    )
+
+    decision = policy.decide(snapshot=snapshot)
+
+    assert not decision.should_compact
+    assert decision.reason == "below_trigger"
+
+
+def test_compaction_policy_rejects_invalid_budget_settings() -> None:
+    with pytest.raises(ValueError):
+        ConversationCompactionPolicy(
+            context_window_tokens=100,
+            reserved_output_tokens=100,
+        )
+
+    with pytest.raises(ValueError):
+        ConversationCompactionPolicy(
+            trigger_fraction=0.30,
+            recent_tail_fraction=0.30,
+        )
 
 
 async def test_noop_compactor_preserves_previous_summary_without_compacting() -> None:

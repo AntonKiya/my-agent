@@ -13,6 +13,7 @@ This repository currently contains the service foundation:
 - Typed settings loaded from environment variables.
 - Health and readiness endpoints.
 - Structured JSON logging.
+- Log-based observability events with trace ids, safe metadata, and operation durations.
 - Trace id context helpers.
 - Lightweight service container.
 - Channel-agnostic event models and queue interfaces.
@@ -26,6 +27,11 @@ This repository currently contains the service foundation:
 - Per-conversation async lock manager for ordered processing inside one conversation.
 - Agent boundary contracts and Pydantic AI-oriented run context shape.
 - Conversation memory service implementation for Postgres history and Redis working snapshots.
+- Persistent `conversation_summaries` state model and Postgres compaction store contract.
+- Explicit separation between memory state ownership and the external conversation compactor boundary.
+- In-memory compaction queue and compaction worker that run under the same per-conversation lock.
+- Pydantic AI conversation compactor contract with structured summary output and fixed rendered
+  summary format.
 - Inbound worker orchestration from inbound queue to outbound queue.
 - Runtime Postgres pool wiring for `PostgresUserStore`, `UserResolver`, `PostgresConversationStore`,
   `ConversationResolver`, and inbound intake when `AGENT_SERVICE_POSTGRES_DSN` is configured.
@@ -35,7 +41,8 @@ This repository currently contains the service foundation:
 - Ruff, mypy, pyright, pytest, and pytest-asyncio quality gates.
 
 The agent implementation, delivery worker, and real compaction/summarization implementation are not
-implemented yet. Their contracts and runtime boundaries are present.
+implemented yet. Their contracts, runtime boundaries, and persistent summary state foundation are
+present.
 
 ## Implemented Guarantees
 
@@ -48,6 +55,20 @@ implemented yet. Their contracts and runtime boundaries are present.
 - User and assistant messages are persisted in Postgres with monotonic per-conversation sequence.
 - Redis stores only hot working context snapshots; Postgres remains the source of truth.
 - Redis snapshots are validated against Postgres `message_sequence` before use.
+- Redis snapshot rebuilds restore the latest completed Postgres summary plus recent messages after
+  `last_compacted_sequence`.
+- Conversation summaries are modeled as per-conversation, per-user, sequence-bounded state.
+- The Postgres compaction store enforces conversation/user ownership before summary persistence.
+- Completed compaction is idempotent by `(conversation_id, user_id, to_sequence)`: duplicate jobs
+  return the existing summary instead of creating a second completed summary.
+- Compaction policy is token-budget based: trigger threshold and retained recent tail are computed
+  from manually configured model context limits.
+- Conversation memory prepares safe compaction requests and records compaction results; compactors do
+  not own Postgres, Redis, or active context snapshots.
+- Compaction prompts receive only user/assistant messages; tool calls and tool results are filtered
+  out before model input.
+- Compaction is scheduled only after a successful agent run and persisted assistant message, so
+  multi-tool agent runs complete before memory compression is considered.
 - Pydantic AI receives clean `user_prompt`, real `ModelMessage` history, and no raw transport update.
 - Tool calls/results can be included in active context but are rejected from compaction input.
 - Bounded inbound queues apply backpressure and return overload instead of silently dropping events.
@@ -168,6 +189,16 @@ AGENT_SERVICE_POSTGRES_POOL_MIN_SIZE=1
 AGENT_SERVICE_POSTGRES_POOL_MAX_SIZE=10
 AGENT_SERVICE_POSTGRES_COMMAND_TIMEOUT_SECONDS=30.0
 AGENT_SERVICE_REDIS_CONTEXT_SNAPSHOT_TTL_SECONDS=86400
+AGENT_SERVICE_MEMORY_COMPACTION_ENABLED=false
+AGENT_SERVICE_MEMORY_MODEL_CONTEXT_WINDOW_TOKENS=196600
+AGENT_SERVICE_MEMORY_RESERVED_OUTPUT_TOKENS=16384
+AGENT_SERVICE_MEMORY_COMPACTION_TRIGGER_FRACTION=0.80
+AGENT_SERVICE_MEMORY_RECENT_TAIL_FRACTION=0.30
+AGENT_SERVICE_MEMORY_COMPACTION_QUEUE_MAXSIZE=1000
+AGENT_SERVICE_MEMORY_COMPACTION_WORKER_COUNT=0
+AGENT_SERVICE_MEMORY_COMPACTION_WORKER_ERROR_BACKOFF_SECONDS=0.1
+AGENT_SERVICE_MEMORY_COMPACTION_PUBLISH_TIMEOUT_SECONDS=0.1
+AGENT_SERVICE_MEMORY_COMPACTION_TARGET_SUMMARY_TOKENS=1000
 ```
 
 Integration settings:
@@ -199,6 +230,10 @@ Inbound workers are started only when the container has both a `ConversationMemo
 `AgentBoundary`. Until an agent boundary implementation is wired, the service can accept and enqueue
 resolved inbound events but does not start agent processing tasks.
 
+Compaction workers are started only when compaction is enabled, worker count is greater than zero,
+and a real `ConversationCompactor` implementation is wired. Until then, the policy and queue
+contracts are present but compaction processing is inert.
+
 ## Inbound Flow
 
 ```text
@@ -217,6 +252,13 @@ Telegram webhook
 → AgentBoundary.run()
 → ConversationMemoryService.record_assistant_message()
 → In-Memory Outbound Queue
+→ optional ConversationCompactionPolicy decision
+→ optional In-Memory Compaction Queue
+→ ConversationCompactionWorker
+→ ConversationLockManager
+→ ConversationMemoryService.prepare_compaction_request()
+→ ConversationCompactor.compact()
+→ ConversationMemoryService.record_compaction_result()
 ```
 
 The Telegram route never publishes directly to the inbound queue. Queue publication is allowed
@@ -330,14 +372,14 @@ uv run ruff format .
 Lint:
 
 ```bash
-uv run ruff check .
+uv run ruff check src tests
 ```
 
 Type check:
 
 ```bash
 uv run mypy src tests
-uv run pyright src tests
+uv run pyright
 ```
 
 Tests:
@@ -355,7 +397,25 @@ AGENT_SERVICE_TEST_POSTGRES_DSN=postgresql://agent_service_test:agent_service_te
 
 The test suite covers user identity separation, conversation ownership/order, Postgres message
 sequence assignment, Redis snapshot validation, Pydantic AI context conversion, compaction
-invariants, queue backpressure, worker resilience, and Telegram webhook overload behavior.
+invariants and idempotency, safe structured observability events, queue backpressure, worker
+resilience, and Telegram webhook overload behavior.
+
+## Observability
+
+The current observability layer intentionally uses standard Python logging, not Logfire. Logs are
+JSON-formatted and include the active `trace_id` from context when one is available.
+
+Workers emit structured, low-PII events around the important runtime boundaries:
+
+- inbound intake publish, reject, and overload;
+- inbound event processing success/failure;
+- agent run success and retry scheduling;
+- outbound/fallback event publication;
+- compaction scheduling, skip, completion, and failure.
+
+Observability fields should stay safe and operational: internal ids, channel, status, attempt,
+queue size, token counts, sequence boundaries, and `duration_ms`. Raw Telegram updates, message
+text, tool payloads, and full prompts should not be logged through these events.
 
 ## User Identity Invariants
 

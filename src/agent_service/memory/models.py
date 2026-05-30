@@ -7,6 +7,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from agent_service.agents import AgentContext, PydanticAIRunContext
 from agent_service.channels.models import Attachment
+from agent_service.conversations import Conversation
 
 MemoryMetadata = dict[str, Any]
 
@@ -24,6 +25,12 @@ class ConversationMemoryRole(StrEnum):
     ASSISTANT = "assistant"
     TOOL_CALL = "tool_call"
     TOOL_RESULT = "tool_result"
+
+
+class ConversationSummaryStatus(StrEnum):
+    COMPLETED = "completed"
+    FAILED_RETRYABLE = "failed_retryable"
+    DEAD_LETTER = "dead_letter"
 
 
 class ConversationMemoryMessage(MemoryModel):
@@ -98,6 +105,59 @@ class ConversationCompactionResult(MemoryModel):
     token_count: int = Field(default=0, ge=0)
     metadata: MemoryMetadata = Field(default_factory=dict)
     created_at: datetime = Field(default_factory=utc_now)
+
+
+class ConversationCompactionDecision(MemoryModel):
+    should_compact: bool
+    reason: str
+    estimated_input_tokens: int = Field(ge=0)
+    usable_input_budget_tokens: int = Field(gt=0)
+    trigger_tokens: int = Field(gt=0)
+    recent_tail_budget_tokens: int = Field(gt=0)
+    compact_through_sequence: int | None = Field(default=None, gt=0)
+    keep_from_sequence: int | None = Field(default=None, gt=0)
+    compactable_token_count: int = Field(default=0, ge=0)
+    retained_tail_token_count: int = Field(default=0, ge=0)
+
+
+class ConversationCompactionJob(MemoryModel):
+    event_id: UUID = Field(default_factory=uuid4)
+    conversation: Conversation
+    compact_through_sequence: int = Field(gt=0)
+    reason: str
+    trace_id: str | None = None
+    metadata: MemoryMetadata = Field(default_factory=dict)
+    created_at: datetime = Field(default_factory=utc_now)
+
+
+class ConversationSummary(MemoryModel):
+    id: UUID = Field(default_factory=uuid4)
+    conversation_id: UUID
+    user_id: UUID
+    from_sequence: int = Field(gt=0)
+    to_sequence: int = Field(gt=0)
+    previous_summary: str | None = None
+    summary: str | None = None
+    compacted_message_ids: list[UUID] = Field(default_factory=list)
+    last_compacted_message_id: UUID | None = None
+    input_token_count: int = Field(default=0, ge=0)
+    output_token_count: int = Field(default=0, ge=0)
+    model: str | None = None
+    status: ConversationSummaryStatus = ConversationSummaryStatus.COMPLETED
+    trace_id: str | None = None
+    metadata: MemoryMetadata = Field(default_factory=dict)
+    created_at: datetime = Field(default_factory=utc_now)
+
+    @model_validator(mode="after")
+    def summary_bounds_must_be_consistent(self) -> "ConversationSummary":
+        if self.to_sequence < self.from_sequence:
+            raise ValueError("Conversation summary to_sequence must be >= from_sequence")
+        if self.status is ConversationSummaryStatus.COMPLETED:
+            if not self.summary:
+                raise ValueError("Completed conversation summary must include summary text")
+            if self.last_compacted_message_id is None:
+                raise ValueError("Completed conversation summary must include compacted message id")
+        return self
 
 
 class PreparedConversationContext(MemoryModel):

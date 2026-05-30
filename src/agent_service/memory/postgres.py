@@ -10,6 +10,8 @@ from agent_service.memory.interfaces import ConversationMemoryStore
 from agent_service.memory.models import (
     ConversationMemoryMessage,
     ConversationMemoryRole,
+    ConversationSummary,
+    ConversationSummaryStatus,
     MemoryMetadata,
 )
 
@@ -68,11 +70,166 @@ FROM (
 ORDER BY sequence ASC
 """
 
+MESSAGES_AFTER_SEQUENCE_SQL = """
+SELECT
+    id,
+    conversation_id,
+    user_id,
+    sequence,
+    role,
+    text,
+    attachments,
+    tool_name,
+    tool_call_id,
+    inbound_event_id,
+    outbound_event_id,
+    trace_id,
+    token_count,
+    metadata,
+    created_at
+FROM (
+    SELECT *
+    FROM conversation_messages
+    WHERE conversation_id = $1
+      AND user_id = $2
+      AND sequence > $3
+    ORDER BY sequence DESC
+    LIMIT $4
+) AS recent_after_sequence
+ORDER BY sequence ASC
+"""
+
 CURRENT_MESSAGE_SEQUENCE_SQL = """
 SELECT message_sequence
 FROM conversations
 WHERE id = $1
   AND user_id = $2
+"""
+
+INSERT_SUMMARY_SQL = """
+WITH inserted AS (
+    INSERT INTO conversation_summaries (
+        id,
+        conversation_id,
+        user_id,
+        from_sequence,
+        to_sequence,
+        previous_summary,
+        summary,
+        compacted_message_ids,
+        last_compacted_message_id,
+        input_token_count,
+        output_token_count,
+        model,
+        status,
+        trace_id,
+        metadata,
+        created_at
+    )
+    SELECT
+        $1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9, $10, $11, $12, $13, $14, $15::jsonb, $16
+    FROM conversations
+    WHERE id = $2
+      AND user_id = $3
+    ON CONFLICT (conversation_id, to_sequence)
+        WHERE status = 'completed'
+        DO NOTHING
+    RETURNING
+        id,
+        conversation_id,
+        user_id,
+        from_sequence,
+        to_sequence,
+        previous_summary,
+        summary,
+        compacted_message_ids,
+        last_compacted_message_id,
+        input_token_count,
+        output_token_count,
+        model,
+        status,
+        trace_id,
+        metadata,
+        created_at
+)
+SELECT *
+FROM inserted
+UNION ALL
+SELECT
+    id,
+    conversation_id,
+    user_id,
+    from_sequence,
+    to_sequence,
+    previous_summary,
+    summary,
+    compacted_message_ids,
+    last_compacted_message_id,
+    input_token_count,
+    output_token_count,
+    model,
+    status,
+    trace_id,
+    metadata,
+    created_at
+FROM conversation_summaries
+WHERE conversation_id = $2
+  AND user_id = $3
+  AND to_sequence = $5
+  AND status = 'completed'
+LIMIT 1
+"""
+
+LATEST_COMPLETED_SUMMARY_SQL = """
+SELECT
+    id,
+    conversation_id,
+    user_id,
+    from_sequence,
+    to_sequence,
+    previous_summary,
+    summary,
+    compacted_message_ids,
+    last_compacted_message_id,
+    input_token_count,
+    output_token_count,
+    model,
+    status,
+    trace_id,
+    metadata,
+    created_at
+FROM conversation_summaries
+WHERE conversation_id = $1
+  AND user_id = $2
+  AND status = 'completed'
+ORDER BY to_sequence DESC, created_at DESC
+LIMIT 1
+"""
+
+COMPLETED_SUMMARY_BY_SEQUENCE_SQL = """
+SELECT
+    id,
+    conversation_id,
+    user_id,
+    from_sequence,
+    to_sequence,
+    previous_summary,
+    summary,
+    compacted_message_ids,
+    last_compacted_message_id,
+    input_token_count,
+    output_token_count,
+    model,
+    status,
+    trace_id,
+    metadata,
+    created_at
+FROM conversation_summaries
+WHERE conversation_id = $1
+  AND user_id = $2
+  AND to_sequence = $3
+  AND status = 'completed'
+LIMIT 1
 """
 
 
@@ -149,6 +306,28 @@ class PostgresConversationMemoryStore(ConversationMemoryStore):
             rows = await connection.fetch(RECENT_MESSAGES_SQL, conversation_id, limit)
         return [_message_from_row(row) for row in rows]
 
+    async def list_messages_after_sequence(
+        self,
+        *,
+        conversation_id: UUID,
+        user_id: UUID,
+        after_sequence: int,
+        limit: int,
+    ) -> list[ConversationMemoryMessage]:
+        if after_sequence < 0:
+            raise ValueError("After sequence must be greater than or equal to zero")
+        if limit < 1:
+            raise ValueError("Recent message limit must be greater than zero")
+        async with self._pool.acquire() as connection:
+            rows = await connection.fetch(
+                MESSAGES_AFTER_SEQUENCE_SQL,
+                conversation_id,
+                user_id,
+                after_sequence,
+                limit,
+            )
+        return [_message_from_row(row) for row in rows]
+
     async def current_message_sequence(
         self,
         *,
@@ -186,6 +365,76 @@ class PostgresConversationMemoryStore(ConversationMemoryStore):
         raise PostgresMemoryError("Postgres message_sequence value has unexpected type")
 
 
+class PostgresConversationCompactionStore:
+    def __init__(self, pool: PostgresPool) -> None:
+        self._pool = pool
+
+    async def append_summary(
+        self,
+        *,
+        summary: ConversationSummary,
+    ) -> ConversationSummary:
+        async with self._pool.acquire() as connection:
+            row = await connection.fetchrow(
+                INSERT_SUMMARY_SQL,
+                summary.id,
+                summary.conversation_id,
+                summary.user_id,
+                summary.from_sequence,
+                summary.to_sequence,
+                summary.previous_summary,
+                summary.summary,
+                _uuids_jsonb(summary.compacted_message_ids),
+                summary.last_compacted_message_id,
+                summary.input_token_count,
+                summary.output_token_count,
+                summary.model,
+                summary.status.value,
+                summary.trace_id,
+                _jsonb(summary.metadata),
+                summary.created_at,
+            )
+        if row is None:
+            raise PostgresMemoryError("Conversation was not found for summary append")
+        return _summary_from_row(row)
+
+    async def get_latest_completed_summary(
+        self,
+        *,
+        conversation_id: UUID,
+        user_id: UUID,
+    ) -> ConversationSummary | None:
+        async with self._pool.acquire() as connection:
+            row = await connection.fetchrow(
+                LATEST_COMPLETED_SUMMARY_SQL,
+                conversation_id,
+                user_id,
+            )
+        if row is None:
+            return None
+        return _summary_from_row(row)
+
+    async def get_completed_summary_by_sequence(
+        self,
+        *,
+        conversation_id: UUID,
+        user_id: UUID,
+        to_sequence: int,
+    ) -> ConversationSummary | None:
+        if to_sequence < 1:
+            raise ValueError("Summary to_sequence must be greater than zero")
+        async with self._pool.acquire() as connection:
+            row = await connection.fetchrow(
+                COMPLETED_SUMMARY_BY_SEQUENCE_SQL,
+                conversation_id,
+                user_id,
+                to_sequence,
+            )
+        if row is None:
+            return None
+        return _summary_from_row(row)
+
+
 def _message_from_row(row: Mapping[str, object]) -> ConversationMemoryMessage:
     return ConversationMemoryMessage(
         id=_uuid(row["id"]),
@@ -201,6 +450,27 @@ def _message_from_row(row: Mapping[str, object]) -> ConversationMemoryMessage:
         outbound_event_id=_optional_uuid(row["outbound_event_id"]),
         trace_id=_optional_str(row["trace_id"]),
         token_count=_optional_int(row["token_count"]),
+        metadata=_metadata(row["metadata"]),
+        created_at=_datetime(row["created_at"]),
+    )
+
+
+def _summary_from_row(row: Mapping[str, object]) -> ConversationSummary:
+    return ConversationSummary(
+        id=_uuid(row["id"]),
+        conversation_id=_uuid(row["conversation_id"]),
+        user_id=_uuid(row["user_id"]),
+        from_sequence=_int(row["from_sequence"]),
+        to_sequence=_int(row["to_sequence"]),
+        previous_summary=_optional_str(row["previous_summary"]),
+        summary=_optional_str(row["summary"]),
+        compacted_message_ids=_uuid_list(row["compacted_message_ids"]),
+        last_compacted_message_id=_optional_uuid(row["last_compacted_message_id"]),
+        input_token_count=_int(row["input_token_count"]),
+        output_token_count=_int(row["output_token_count"]),
+        model=_optional_str(row["model"]),
+        status=ConversationSummaryStatus(str(row["status"])),
+        trace_id=_optional_str(row["trace_id"]),
         metadata=_metadata(row["metadata"]),
         created_at=_datetime(row["created_at"]),
     )
@@ -226,6 +496,20 @@ def _attachments(value: object) -> list[Attachment]:
 
 def _jsonb(metadata: MemoryMetadata) -> str:
     return json.dumps(metadata, separators=(",", ":"), sort_keys=True)
+
+
+def _uuids_jsonb(values: list[UUID]) -> str:
+    return json.dumps([str(value) for value in values], separators=(",", ":"), sort_keys=True)
+
+
+def _uuid_list(value: object) -> list[UUID]:
+    if isinstance(value, str):
+        decoded = json.loads(value)
+    else:
+        decoded = value
+    if not isinstance(decoded, list):
+        raise PostgresMemoryError("Postgres UUID list value must be a JSON array")
+    return [_uuid(item) for item in decoded]
 
 
 def _metadata(value: object) -> MemoryMetadata:

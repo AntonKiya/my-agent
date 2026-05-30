@@ -8,6 +8,7 @@ def test_users_migration_defines_identity_tables_and_constraints() -> None:
         "0001_users.sql",
         "0002_conversations.sql",
         "0003_conversation_messages.sql",
+        "0004_conversation_summaries.sql",
     ]
 
     sql = migrations[0].sql
@@ -35,7 +36,7 @@ def test_conversations_migration_defines_conversation_table_and_constraints() ->
 def test_migrations_are_loaded_in_version_order() -> None:
     migrations = load_sql_migrations()
 
-    assert tuple(migration.version for migration in migrations) == ("0001", "0002", "0003")
+    assert tuple(migration.version for migration in migrations) == ("0001", "0002", "0003", "0004")
 
 
 def test_conversation_messages_migration_defines_history_table_and_indexes() -> None:
@@ -56,3 +57,29 @@ def test_conversation_messages_migration_defines_history_table_and_indexes() -> 
     assert "conversation_messages_conversation_sequence_idx" in sql
     assert "conversation_messages_tool_call_id_idx" in sql
     assert "token_count integer CHECK (token_count IS NULL OR token_count >= 0)" in sql
+
+
+def test_conversation_summaries_migration_defines_compaction_state_table() -> None:
+    migrations = load_sql_migrations()
+
+    sql = migrations[3].sql
+    assert "conversations_id_user_id_unique" in sql
+    assert "CREATE TABLE IF NOT EXISTS conversation_summaries" in sql
+    assert "conversation_id uuid NOT NULL REFERENCES conversations(id) ON DELETE RESTRICT" in sql
+    assert "user_id uuid NOT NULL REFERENCES users(id) ON DELETE RESTRICT" in sql
+    assert "from_sequence bigint NOT NULL CHECK (from_sequence > 0)" in sql
+    assert "to_sequence bigint NOT NULL CHECK (to_sequence >= from_sequence)" in sql
+    assert "compacted_message_ids jsonb NOT NULL DEFAULT '[]'::jsonb" in sql
+    assert (
+        "last_compacted_message_id uuid REFERENCES conversation_messages(id) ON DELETE RESTRICT"
+        in sql
+    )
+    assert (
+        "status text NOT NULL CHECK (status IN ('completed', 'failed_retryable', 'dead_letter'))"
+        in sql
+    )
+    assert "FOREIGN KEY (conversation_id, user_id)" in sql
+    assert "REFERENCES conversations(id, user_id)" in sql
+    assert "conversation_summaries_completed_to_sequence_unique" in sql
+    assert "WHERE status = 'completed'" in sql
+    assert "conversation_summaries_latest_completed_idx" in sql

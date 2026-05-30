@@ -233,6 +233,36 @@ async def test_postgres_memory_store_lists_recent_messages_in_sequence_order() -
     assert messages[1].role is ConversationMemoryRole.TOOL_RESULT
 
 
+async def test_postgres_memory_store_lists_messages_after_sequence() -> None:
+    conversation_id = uuid4()
+    user_id = uuid4()
+    connection = FakeConnection(
+        fetch_results=[
+            [
+                message_row(
+                    conversation_id=conversation_id,
+                    user_id=user_id,
+                    sequence=5,
+                    role="assistant",
+                    text="after summary",
+                )
+            ]
+        ]
+    )
+    store = PostgresConversationMemoryStore(FakePool(connection))
+
+    messages = await store.list_messages_after_sequence(
+        conversation_id=conversation_id,
+        user_id=user_id,
+        after_sequence=4,
+        limit=10,
+    )
+
+    assert connection.fetch_calls[0][1] == (conversation_id, user_id, 4, 10)
+    assert [message.sequence for message in messages] == [5]
+    assert messages[0].role is ConversationMemoryRole.ASSISTANT
+
+
 async def test_postgres_memory_store_reads_current_message_sequence() -> None:
     conversation_id = uuid4()
     user_id = uuid4()
@@ -260,3 +290,19 @@ async def test_postgres_memory_store_rejects_invalid_recent_limit() -> None:
 
     with pytest.raises(ValueError):
         await store.list_recent_messages(conversation_id=uuid4(), limit=0)
+
+    with pytest.raises(ValueError):
+        await store.list_messages_after_sequence(
+            conversation_id=uuid4(),
+            user_id=uuid4(),
+            after_sequence=0,
+            limit=0,
+        )
+
+    with pytest.raises(ValueError):
+        await store.list_messages_after_sequence(
+            conversation_id=uuid4(),
+            user_id=uuid4(),
+            after_sequence=-1,
+            limit=1,
+        )

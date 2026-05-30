@@ -4,9 +4,13 @@ from uuid import uuid4
 import pytest
 
 from agent_service.channels import InboundEvent, OutboundEvent
+from agent_service.conversations import Conversation
+from agent_service.memory import ConversationCompactionJob
 from agent_service.messaging import (
+    AsyncioCompactionQueue,
     AsyncioInboundQueue,
     AsyncioOutboundQueue,
+    CompactionQueue,
     InboundQueue,
     OutboundQueue,
     QueueStats,
@@ -31,6 +35,19 @@ def make_outbound_event(text: str = "response") -> OutboundEvent:
         conversation_id=uuid4(),
         external_chat_id="456",
         text=text,
+    )
+
+
+def make_compaction_job() -> ConversationCompactionJob:
+    return ConversationCompactionJob(
+        conversation=Conversation(
+            user_id=uuid4(),
+            channel="telegram",
+            conversation_key="telegram:private:456",
+            external_chat_id="456",
+        ),
+        compact_through_sequence=10,
+        reason="trigger_reached",
     )
 
 
@@ -66,6 +83,16 @@ async def test_asyncio_outbound_queue_is_separate_from_inbound_queue() -> None:
     assert isinstance(outbound_queue, OutboundQueue)
     assert await inbound_queue.consume() == inbound_event
     assert await outbound_queue.consume() == outbound_event
+
+
+async def test_asyncio_compaction_queue_is_separate_from_channel_queues() -> None:
+    compaction_queue = AsyncioCompactionQueue()
+    job = make_compaction_job()
+
+    await compaction_queue.publish(job)
+
+    assert isinstance(compaction_queue, CompactionQueue)
+    assert await compaction_queue.consume() == job
 
 
 async def test_asyncio_queue_publish_waits_when_bounded_queue_is_full() -> None:

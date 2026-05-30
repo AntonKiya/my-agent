@@ -37,6 +37,16 @@ class AppSettings(BaseSettings):
     postgres_command_timeout_seconds: float = Field(default=30.0, gt=0)
     redis_dsn: str | None = None
     redis_context_snapshot_ttl_seconds: int = Field(default=24 * 60 * 60, gt=0)
+    memory_compaction_enabled: bool = False
+    memory_model_context_window_tokens: int = Field(default=196_600, gt=0)
+    memory_reserved_output_tokens: int = Field(default=16_384, ge=0)
+    memory_compaction_trigger_fraction: float = Field(default=0.80, gt=0, lt=1)
+    memory_recent_tail_fraction: float = Field(default=0.30, gt=0, lt=1)
+    memory_compaction_queue_maxsize: int = Field(default=1000, ge=0)
+    memory_compaction_worker_count: int = Field(default=0, ge=0)
+    memory_compaction_worker_error_backoff_seconds: float = Field(default=0.1, ge=0)
+    memory_compaction_publish_timeout_seconds: float = Field(default=0.1, ge=0)
+    memory_compaction_target_summary_tokens: int = Field(default=1000, gt=0, le=1200)
     telegram_bot_token: SecretStr | None = None
     logfire_token: SecretStr | None = None
 
@@ -57,6 +67,14 @@ class AppSettings(BaseSettings):
     def postgres_pool_min_size_must_not_exceed_max_size(self) -> Self:
         if self.postgres_pool_min_size > self.postgres_pool_max_size:
             raise ValueError("postgres_pool_min_size must be less than or equal to max size")
+        if self.memory_reserved_output_tokens >= self.memory_model_context_window_tokens:
+            raise ValueError(
+                "memory_reserved_output_tokens must be less than model context window"
+            )
+        if self.memory_recent_tail_fraction >= self.memory_compaction_trigger_fraction:
+            raise ValueError(
+                "memory_recent_tail_fraction must be less than compaction trigger fraction"
+            )
         return self
 
     @field_validator("agent_retry_backoff_seconds")
