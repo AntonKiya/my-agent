@@ -26,6 +26,11 @@ This repository currently contains the service foundation:
 - Conversation domain models, Postgres storage, and resolver.
 - Per-conversation async lock manager for ordered processing inside one conversation.
 - Agent boundary contracts and Pydantic AI-oriented run context shape.
+- Pydantic AI agent boundary implementation with OpenRouter model factory, run timeout, safe text
+  output normalization, and usage mapping.
+- Explicit service-facing agent boundary safety contract: raw transport metadata is not passed into
+  Pydantic AI run metadata, attachment inputs are rejected for the text-only MVP, and empty or
+  non-text model outputs are rejected before an `AgentResponse` is emitted.
 - Conversation memory service implementation for Postgres history and Redis working snapshots.
 - Persistent `conversation_summaries` state model and Postgres compaction store contract.
 - Explicit separation between memory state ownership and the external conversation compactor boundary.
@@ -35,14 +40,15 @@ This repository currently contains the service foundation:
 - Inbound worker orchestration from inbound queue to outbound queue.
 - Runtime Postgres pool wiring for `PostgresUserStore`, `UserResolver`, `PostgresConversationStore`,
   `ConversationResolver`, and inbound intake when `AGENT_SERVICE_POSTGRES_DSN` is configured.
+- Runtime OpenRouter agent boundary wiring when `AGENT_SERVICE_AGENT_PROVIDER`,
+  `AGENT_SERVICE_AGENT_MODEL`, and `AGENT_SERVICE_OPENROUTER_API_KEY` are configured.
 - Guarded inbound worker runtime wiring through the task supervisor.
 - Docker Compose Postgres and Redis services for local development and integration tests.
 - Explicit database migration runner command.
 - Ruff, mypy, pyright, pytest, and pytest-asyncio quality gates.
 
-The agent implementation, delivery worker, and real compaction/summarization implementation are not
-implemented yet. Their contracts, runtime boundaries, and persistent summary state foundation are
-present.
+The delivery worker and real compaction/summarization implementation are not implemented yet. Their
+contracts, runtime boundaries, and persistent summary state foundation are present.
 
 ## Implemented Guarantees
 
@@ -185,6 +191,9 @@ AGENT_SERVICE_INBOUND_WORKER_COUNT=8
 AGENT_SERVICE_INBOUND_WORKER_ERROR_BACKOFF_SECONDS=0.1
 AGENT_SERVICE_AGENT_RETRY_MAX_ATTEMPTS=3
 AGENT_SERVICE_AGENT_RETRY_BACKOFF_SECONDS='[1.0,5.0,15.0]'
+AGENT_SERVICE_AGENT_PROVIDER=
+AGENT_SERVICE_AGENT_MODEL=
+AGENT_SERVICE_AGENT_TIMEOUT_SECONDS=60.0
 AGENT_SERVICE_POSTGRES_POOL_MIN_SIZE=1
 AGENT_SERVICE_POSTGRES_POOL_MAX_SIZE=10
 AGENT_SERVICE_POSTGRES_COMMAND_TIMEOUT_SECONDS=30.0
@@ -199,6 +208,7 @@ AGENT_SERVICE_MEMORY_COMPACTION_WORKER_COUNT=0
 AGENT_SERVICE_MEMORY_COMPACTION_WORKER_ERROR_BACKOFF_SECONDS=0.1
 AGENT_SERVICE_MEMORY_COMPACTION_PUBLISH_TIMEOUT_SECONDS=0.1
 AGENT_SERVICE_MEMORY_COMPACTION_TARGET_SUMMARY_TOKENS=1000
+AGENT_SERVICE_MEMORY_COMPACTION_MODEL=
 ```
 
 Integration settings:
@@ -214,6 +224,7 @@ AGENT_SERVICE_POSTGRES_DSN=postgresql://agent_service:agent_service_local_passwo
 AGENT_SERVICE_TEST_POSTGRES_DSN=postgresql://agent_service_test:agent_service_test_local_password@127.0.0.1:5432/agent_service_test
 AGENT_SERVICE_REDIS_DSN=redis://127.0.0.1:6379/0
 AGENT_SERVICE_TELEGRAM_BOT_TOKEN=
+AGENT_SERVICE_OPENROUTER_API_KEY=
 AGENT_SERVICE_LOGFIRE_TOKEN=
 ```
 
@@ -221,14 +232,21 @@ AGENT_SERVICE_LOGFIRE_TOKEN=
 it, supported inbound webhooks return `503` instead of publishing unresolved events into the inbound
 queue.
 
+`AGENT_SERVICE_AGENT_PROVIDER=openrouter` selects OpenRouter-backed agent configuration. The
+container creates a managed `PydanticAIAgentBoundary` only when `AGENT_SERVICE_AGENT_MODEL` and
+`AGENT_SERVICE_OPENROUTER_API_KEY` are also configured. Without the full agent configuration, inbound
+webhooks can still resolve users and publish events, but inbound workers will not start because
+there is no agent boundary. `AGENT_SERVICE_MEMORY_COMPACTION_MODEL` is intentionally separate from
+the main chat model so conversation summarization can use a cheaper or more specialized model later.
+
 `AGENT_SERVICE_REDIS_DSN` enables Redis working context snapshots. When configured, the container
 creates a Redis client on startup, pings it, and wires `RedisConversationContextSnapshotStore` into
 `DefaultConversationMemoryService`. If Redis is not configured, context still works from Postgres
 history, but without the hot snapshot cache.
 
 Inbound workers are started only when the container has both a `ConversationMemoryService` and an
-`AgentBoundary`. Until an agent boundary implementation is wired, the service can accept and enqueue
-resolved inbound events but does not start agent processing tasks.
+`AgentBoundary`. With Postgres configured and a complete OpenRouter agent configuration, the
+container starts the configured inbound worker tasks automatically.
 
 Compaction workers are started only when compaction is enabled, worker count is greater than zero,
 and a real `ConversationCompactor` implementation is wired. Until then, the policy and queue
@@ -286,6 +304,21 @@ the next queued event. Cancellation still propagates normally during shutdown.
 Channels never pass raw transport payloads to the agent. The agent layer receives an `AgentRequest`
 with internal identifiers, text/attachments, prepared context, metadata, and trace id. It does not
 receive Telegram updates or delivery-specific fields.
+
+Pydantic AI owns the model-facing contract: typed `ModelMessage` history, `output_type`, provider
+abstraction, usage reporting, and structured output support. The service boundary owns the
+domain-facing contract around it: only allowlisted operational metadata is passed to
+`Agent.run(...)`, attachments are rejected until non-text handling is implemented, provider errors
+propagate to the inbound worker retry/fallback policy, and model output must normalize to non-empty
+text before it becomes an `AgentResponse`.
+
+The agent boundary applies `AGENT_SERVICE_AGENT_TIMEOUT_SECONDS` around the provider run. Provider
+timeouts, provider errors, validation errors, and empty-output errors are not converted into
+user-facing text in the boundary. They propagate to `InboundWorker`, which applies
+`AGENT_SERVICE_AGENT_RETRY_*`; after the final failed attempt it publishes a fallback
+`OutboundEvent` and leaves direct delivery to the delivery layer. Process-level parallelism is
+controlled by `AGENT_SERVICE_INBOUND_WORKER_COUNT`; the boundary does not add a second global
+concurrency gate on top of the worker model.
 
 `ConversationMemoryService` is a contract with three operations:
 
@@ -396,9 +429,10 @@ AGENT_SERVICE_TEST_POSTGRES_DSN=postgresql://agent_service_test:agent_service_te
 ```
 
 The test suite covers user identity separation, conversation ownership/order, Postgres message
-sequence assignment, Redis snapshot validation, Pydantic AI context conversion, compaction
-invariants and idempotency, safe structured observability events, queue backpressure, worker
-resilience, and Telegram webhook overload behavior.
+sequence assignment, Redis snapshot validation, Pydantic AI context conversion, Pydantic AI
+AgentBoundary safety and timeout behavior, OpenRouter container wiring, compaction invariants and
+idempotency, safe structured observability events, queue backpressure, worker resilience, and
+Telegram webhook overload behavior.
 
 ## Observability
 

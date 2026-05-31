@@ -6,12 +6,14 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 Environment = Literal["local", "dev", "staging", "prod", "test"]
 LogLevel = Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
+AgentProvider = Literal["openrouter"]
 
 
 class AppSettings(BaseSettings):
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
+        env_ignore_empty=True,
         env_prefix="AGENT_SERVICE_",
         extra="ignore",
     )
@@ -30,6 +32,9 @@ class AppSettings(BaseSettings):
     inbound_worker_error_backoff_seconds: float = Field(default=0.1, ge=0)
     agent_retry_max_attempts: int = Field(default=3, ge=1)
     agent_retry_backoff_seconds: tuple[float, ...] = (1.0, 5.0, 15.0)
+    agent_provider: AgentProvider | None = None
+    agent_model: str | None = None
+    agent_timeout_seconds: float = Field(default=60.0, gt=0)
 
     postgres_dsn: str | None = None
     postgres_pool_min_size: int = Field(default=1, ge=0)
@@ -47,18 +52,24 @@ class AppSettings(BaseSettings):
     memory_compaction_worker_error_backoff_seconds: float = Field(default=0.1, ge=0)
     memory_compaction_publish_timeout_seconds: float = Field(default=0.1, ge=0)
     memory_compaction_target_summary_tokens: int = Field(default=1000, gt=0, le=1200)
+    memory_compaction_model: str | None = None
     telegram_bot_token: SecretStr | None = None
+    openrouter_api_key: SecretStr | None = None
     logfire_token: SecretStr | None = None
 
     @field_validator(
+        "agent_provider",
+        "agent_model",
         "postgres_dsn",
         "redis_dsn",
+        "memory_compaction_model",
         "telegram_bot_token",
+        "openrouter_api_key",
         "logfire_token",
         mode="before",
     )
     @classmethod
-    def empty_optional_secret_or_dsn_must_be_none(cls, value: object) -> object:
+    def empty_optional_value_must_be_none(cls, value: object) -> object:
         if value == "":
             return None
         return value

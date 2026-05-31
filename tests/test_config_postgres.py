@@ -1,11 +1,13 @@
+from typing import Any, cast
+
 import pytest
-from pydantic import ValidationError
+from pydantic import SecretStr, ValidationError
 
 from agent_service.config import AppSettings
 
 
 def test_postgres_pool_settings_have_safe_defaults() -> None:
-    settings = AppSettings(environment="test")
+    settings = cast(Any, AppSettings)(environment="test", _env_file=None)
 
     assert settings.postgres_dsn is None
     assert settings.telegram_bot_token is None
@@ -14,6 +16,9 @@ def test_postgres_pool_settings_have_safe_defaults() -> None:
     assert settings.inbound_worker_error_backoff_seconds == 0.1
     assert settings.agent_retry_max_attempts == 3
     assert settings.agent_retry_backoff_seconds == (1.0, 5.0, 15.0)
+    assert settings.agent_provider is None
+    assert settings.agent_model is None
+    assert settings.agent_timeout_seconds == 60.0
     assert settings.postgres_pool_min_size == 1
     assert settings.postgres_pool_max_size == 10
     assert settings.postgres_command_timeout_seconds == 30.0
@@ -29,6 +34,7 @@ def test_postgres_pool_settings_have_safe_defaults() -> None:
     assert settings.memory_compaction_worker_error_backoff_seconds == 0.1
     assert settings.memory_compaction_publish_timeout_seconds == 0.1
     assert settings.memory_compaction_target_summary_tokens == 1000
+    assert settings.memory_compaction_model is None
 
 
 def test_postgres_pool_settings_are_validated() -> None:
@@ -52,6 +58,9 @@ def test_postgres_pool_settings_are_validated() -> None:
 
     with pytest.raises(ValidationError):
         AppSettings(environment="test", agent_retry_backoff_seconds=(-1.0,))
+
+    with pytest.raises(ValidationError):
+        AppSettings(environment="test", agent_timeout_seconds=0)
 
     with pytest.raises(ValidationError):
         AppSettings(environment="test", redis_context_snapshot_ttl_seconds=0)
@@ -106,3 +115,27 @@ def test_postgres_pool_settings_are_validated() -> None:
             postgres_pool_min_size=20,
             postgres_pool_max_size=10,
         )
+
+
+def test_agent_settings_accept_openrouter_configuration() -> None:
+    settings = AppSettings(
+        environment="test",
+        agent_provider="openrouter",
+        agent_model="openai/gpt-4.1-mini",
+        openrouter_api_key=SecretStr("secret"),
+        memory_compaction_model="openai/gpt-4.1-mini",
+    )
+
+    assert settings.agent_provider == "openrouter"
+    assert settings.agent_model == "openai/gpt-4.1-mini"
+    assert settings.openrouter_api_key is not None
+    assert settings.openrouter_api_key.get_secret_value() == "secret"
+    assert settings.memory_compaction_model == "openai/gpt-4.1-mini"
+
+
+def test_agent_settings_accept_partial_provider_configuration() -> None:
+    settings = AppSettings(environment="test", agent_provider="openrouter")
+
+    assert settings.agent_provider == "openrouter"
+    assert settings.agent_model is None
+    assert settings.openrouter_api_key is None

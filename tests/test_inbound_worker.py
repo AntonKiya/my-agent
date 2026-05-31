@@ -534,6 +534,35 @@ async def test_inbound_worker_retries_agent_before_success() -> None:
     assert len(agent.requests) == 3
 
 
+async def test_inbound_worker_treats_agent_timeout_as_retryable_failure() -> None:
+    user_id = uuid4()
+    resolved_conversation = conversation(user_id=user_id)
+    delays: list[float] = []
+
+    async def sleep(delay: float) -> None:
+        delays.append(delay)
+
+    agent = FakeAgentBoundary(
+        errors=[TimeoutError("provider timed out")],
+        responses=[AgentResponse(text="recovered")],
+    )
+    inbound_worker, _inbound_queue, outbound_queue, _memory = worker(
+        conversations_by_chat_id={"12345": resolved_conversation},
+        agent_boundary=agent,
+        retry_policy=AgentRetryPolicy(max_attempts=2, backoff_seconds=(0.1,)),
+        sleep=sleep,
+    )
+    event = inbound_event(user_id=user_id)
+
+    await inbound_worker.process_event(event)
+
+    outbound = await outbound_queue.consume()
+    assert outbound.text == "recovered"
+    assert event.status is InboundEventStatus.COMPLETED
+    assert delays == [0.1]
+    assert len(agent.requests) == 2
+
+
 async def test_inbound_worker_publishes_fallback_after_agent_failure() -> None:
     user_id = uuid4()
     resolved_conversation = conversation(user_id=user_id)
