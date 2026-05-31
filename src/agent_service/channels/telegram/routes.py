@@ -1,3 +1,4 @@
+import logging
 import secrets
 from typing import Any, Literal, cast
 
@@ -6,8 +7,11 @@ from pydantic import BaseModel
 
 from agent_service.container import AppContainer
 from agent_service.inbound import InboundIntakeStatus
+from agent_service.observability.events import log_event
 
 from .normalizer import TelegramInboundNormalizer
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/webhooks", tags=["channels"])
 telegram_normalizer = TelegramInboundNormalizer()
@@ -49,6 +53,8 @@ async def telegram_webhook(
 def _verify_webhook_secret(*, request: Request, container: AppContainer) -> None:
     expected_secret = container.settings.telegram_webhook_secret_token
     if expected_secret is None:
+        # Only reachable in the "test" environment: AppSettings requires the
+        # secret in every other environment, so real deployments always verify.
         return
 
     received_secret = request.headers.get(TELEGRAM_SECRET_TOKEN_HEADER)
@@ -56,6 +62,15 @@ def _verify_webhook_secret(*, request: Request, container: AppContainer) -> None
         received_secret,
         expected_secret.get_secret_value(),
     ):
+        log_event(
+            logger,
+            logging.WARNING,
+            "Telegram webhook secret verification failed",
+            event="telegram_webhook_secret_rejected",
+            reason="missing_secret_header" if received_secret is None else "secret_mismatch",
+            secret_header_present=received_secret is not None,
+            client_host=request.client.host if request.client is not None else None,
+        )
         raise HTTPException(
             status_code=401,
             detail="Invalid Telegram webhook secret token",

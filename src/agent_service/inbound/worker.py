@@ -12,7 +12,7 @@ from agent_service.conversations import (
     ConversationLockManager,
     ConversationResolverProtocol,
 )
-from agent_service.inbound.errors import UnresolvedInboundEventError
+from agent_service.inbound.errors import OutboundOverloadedError, UnresolvedInboundEventError
 from agent_service.inbound.idempotency import InboundIdempotencyStore
 from agent_service.memory import (
     ConversationCompactionJob,
@@ -68,6 +68,7 @@ class InboundWorker:
     retry_policy: AgentRetryPolicy = field(default_factory=AgentRetryPolicy)
     fallback_text: str = DEFAULT_FALLBACK_TEXT
     error_backoff_seconds: float = 0.1
+    outbound_publish_timeout_seconds: float = 5.0
     compaction_queue: CompactionQueue | None = None
     compaction_policy: ConversationCompactionPolicyProtocol | None = None
     compaction_publish_timeout_seconds: float = 0.1
@@ -76,6 +77,8 @@ class InboundWorker:
     def __post_init__(self) -> None:
         if self.error_backoff_seconds < 0:
             raise ValueError("Inbound worker error backoff must be greater than or equal to zero")
+        if self.outbound_publish_timeout_seconds < 0:
+            raise ValueError("Outbound publish timeout must be greater than or equal to zero")
         if self.compaction_publish_timeout_seconds < 0:
             raise ValueError("Compaction publish timeout must be greater than or equal to zero")
 
@@ -203,13 +206,20 @@ class InboundWorker:
                 conversation_id=conversation.id,
                 response=response,
             )
+            # Publish before persisting the assistant message: if the outbound
+            # queue is saturated and the publish times out, no "delivered"
+            # message is left in memory, keeping a retry safe and idempotent.
+            await self._publish_outbound(
+                outbound_event,
+                inbound_event=event,
+                conversation_id=conversation.id,
+            )
             await self.memory_service.record_assistant_message(
                 conversation=conversation,
                 response=response,
                 trace_id=response.trace_id or event.trace_id,
                 outbound_event_id=outbound_event.event_id,
             )
-            await self.outbound_queue.publish(outbound_event)
             log_event(
                 logger,
                 logging.INFO,
@@ -324,6 +334,40 @@ class InboundWorker:
             trace_id=response.trace_id or event.trace_id,
         )
 
+    async def _publish_outbound(
+        self,
+        outbound_event: OutboundEvent,
+        *,
+        inbound_event: InboundEvent,
+        conversation_id: UUID,
+    ) -> None:
+        if self.outbound_publish_timeout_seconds == 0:
+            await self.outbound_queue.publish(outbound_event)
+            return
+        try:
+            await asyncio.wait_for(
+                self.outbound_queue.publish(outbound_event),
+                timeout=self.outbound_publish_timeout_seconds,
+            )
+        except TimeoutError as exc:
+            log_event(
+                logger,
+                logging.WARNING,
+                "Outbound queue publish timed out",
+                event="outbound_queue_overloaded",
+                inbound_event_id=str(inbound_event.event_id),
+                outbound_event_id=str(outbound_event.event_id),
+                conversation_id=str(conversation_id),
+                user_id=(
+                    str(inbound_event.user_id) if inbound_event.user_id is not None else None
+                ),
+                channel=outbound_event.channel,
+                queue_size=self.outbound_queue.stats.size,
+                queue_maxsize=self.outbound_queue.stats.maxsize,
+                publish_timeout_seconds=self.outbound_publish_timeout_seconds,
+            )
+            raise OutboundOverloadedError("Outbound queue publish timed out") from exc
+
     async def _publish_fallback_event(
         self,
         event: InboundEvent,
@@ -332,17 +376,20 @@ class InboundWorker:
     ) -> None:
         if event.user_id is None:
             raise UnresolvedInboundEventError("Inbound worker requires event.user_id")
-        await self.outbound_queue.publish(
-            outbound_event := OutboundEvent(
-                channel=event.channel,
-                user_id=event.user_id,
-                conversation_id=conversation_id,
-                external_chat_id=event.external_chat_id,
-                text=self.fallback_text,
-                thread_id=event.thread_id,
-                metadata={"fallback": True, "failed_inbound_event_id": str(event.event_id)},
-                trace_id=event.trace_id,
-            )
+        outbound_event = OutboundEvent(
+            channel=event.channel,
+            user_id=event.user_id,
+            conversation_id=conversation_id,
+            external_chat_id=event.external_chat_id,
+            text=self.fallback_text,
+            thread_id=event.thread_id,
+            metadata={"fallback": True, "failed_inbound_event_id": str(event.event_id)},
+            trace_id=event.trace_id,
+        )
+        await self._publish_outbound(
+            outbound_event,
+            inbound_event=event,
+            conversation_id=conversation_id,
         )
         log_event(
             logger,

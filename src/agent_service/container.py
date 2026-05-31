@@ -328,6 +328,9 @@ class AppContainer:
                 idempotency_store=self.inbound_idempotency_store,
                 retry_policy=retry_policy,
                 error_backoff_seconds=self.settings.inbound_worker_error_backoff_seconds,
+                outbound_publish_timeout_seconds=(
+                    self.settings.outbound_publish_timeout_seconds
+                ),
                 compaction_queue=(
                     self.compaction_queue if self._compaction_processing_enabled() else None
                 ),

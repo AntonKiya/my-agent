@@ -28,6 +28,7 @@ class AppSettings(BaseSettings):
     inbound_queue_maxsize: int = Field(default=5000, ge=0)
     outbound_queue_maxsize: int = Field(default=5000, ge=0)
     inbound_publish_timeout_seconds: float = Field(default=1.0, gt=0)
+    outbound_publish_timeout_seconds: float = Field(default=5.0, ge=0)
     inbound_worker_count: int = Field(default=8, ge=0)
     inbound_worker_error_backoff_seconds: float = Field(default=0.1, ge=0)
     delivery_worker_count: int = Field(default=4, ge=0)
@@ -90,13 +91,9 @@ class AppSettings(BaseSettings):
             raise ValueError(
                 "memory_recent_tail_fraction must be less than compaction trigger fraction"
             )
-        if (
-            self.environment == "prod"
-            and self.telegram_bot_token is not None
-            and self.telegram_webhook_secret_token is None
-        ):
+        if self.environment != "test" and self.telegram_webhook_secret_token is None:
             raise ValueError(
-                "telegram_webhook_secret_token is required in prod when telegram_bot_token is set"
+                "telegram_webhook_secret_token is required outside the test environment"
             )
         return self
 

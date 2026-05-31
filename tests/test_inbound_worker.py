@@ -20,6 +20,7 @@ from agent_service.inbound import (
     InboundIdempotencyClaim,
     InboundIdempotencyStore,
     InboundWorker,
+    OutboundOverloadedError,
     UnresolvedInboundEventError,
 )
 from agent_service.memory import (
@@ -38,6 +39,7 @@ from agent_service.messaging.in_memory import (
     AsyncioOutboundQueue,
 )
 from agent_service.observability.tracing import get_trace_id, reset_trace_id, set_trace_id
+from agent_service.outbound import OutboundEvent
 
 
 @dataclass(slots=True)
@@ -504,6 +506,43 @@ async def test_inbound_worker_stops_before_agent_when_context_prepare_fails() ->
     assert outbound_queue.is_empty
 
 
+async def test_inbound_worker_times_out_when_outbound_queue_is_full() -> None:
+    user_id = uuid4()
+    resolved_conversation = conversation(user_id=user_id)
+    outbound_queue = AsyncioOutboundQueue(maxsize=1)
+    memory = FakeMemoryService()
+    inbound_worker = InboundWorker(
+        inbound_queue=AsyncioInboundQueue(),
+        outbound_queue=outbound_queue,
+        conversation_resolver=FakeConversationResolver({"12345": resolved_conversation}),
+        memory_service=memory,
+        agent_boundary=FakeAgentBoundary(responses=[AgentResponse(text="answer")]),
+        lock_manager=AsyncioConversationLockManager(),
+        retry_policy=AgentRetryPolicy(max_attempts=1),
+        outbound_publish_timeout_seconds=0.01,
+    )
+    # Saturate the outbound queue so the worker's publish cannot complete.
+    await outbound_queue.publish(
+        OutboundEvent(
+            channel="telegram",
+            user_id=user_id,
+            conversation_id=resolved_conversation.id,
+            external_chat_id="12345",
+            text="blocking",
+        )
+    )
+    event = inbound_event(user_id=user_id)
+
+    with pytest.raises(OutboundOverloadedError):
+        await inbound_worker.process_event(event)
+
+    assert event.status is InboundEventStatus.FAILED_RETRYABLE
+    assert memory.user_messages[0].inbound_event_id == event.event_id
+    # No assistant message is persisted when delivery never happened.
+    assert memory.assistant_messages == []
+    assert outbound_queue.stats.is_full
+
+
 async def test_inbound_worker_run_forever_continues_after_event_error() -> None:
     user_id = uuid4()
     resolved_conversation = conversation(user_id=user_id)
@@ -549,6 +588,22 @@ def test_inbound_worker_rejects_negative_error_backoff() -> None:
             agent_boundary=FakeAgentBoundary(),
             lock_manager=AsyncioConversationLockManager(),
             error_backoff_seconds=-1,
+        )
+
+
+def test_inbound_worker_rejects_negative_outbound_publish_timeout() -> None:
+    user_id = uuid4()
+    resolved_conversation = conversation(user_id=user_id)
+
+    with pytest.raises(ValueError):
+        InboundWorker(
+            inbound_queue=AsyncioInboundQueue(),
+            outbound_queue=AsyncioOutboundQueue(),
+            conversation_resolver=FakeConversationResolver({"12345": resolved_conversation}),
+            memory_service=FakeMemoryService(),
+            agent_boundary=FakeAgentBoundary(),
+            lock_manager=AsyncioConversationLockManager(),
+            outbound_publish_timeout_seconds=-1,
         )
 
 

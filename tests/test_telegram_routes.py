@@ -1,6 +1,10 @@
+import logging
+from typing import Any, cast
 from uuid import uuid4
 
 import httpx
+import pytest
+from fastapi import FastAPI
 from pydantic import SecretStr
 
 from agent_service.app import create_app
@@ -217,3 +221,67 @@ async def test_telegram_webhook_acknowledges_duplicate_updates_without_publish()
     assert response.status_code == 200
     assert response.json() == {"status": "accepted", "published": False}
     assert app.state.container.inbound_queue.is_empty
+
+
+def _secret_app() -> FastAPI:
+    app = create_app(
+        AppSettings(
+            environment="test",
+            telegram_webhook_secret_token=SecretStr("secret-token-value"),
+        )
+    )
+    app.state.container.inbound_intake_service = AcceptingInboundIntake(
+        app.state.container.inbound_queue,
+    )
+    return app
+
+
+def _rejected_records(caplog: pytest.LogCaptureFixture) -> list[logging.LogRecord]:
+    return [
+        record
+        for record in caplog.records
+        if getattr(record, "event", None) == "telegram_webhook_secret_rejected"
+    ]
+
+
+async def test_telegram_webhook_audit_logs_wrong_secret_without_leaking_it(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    app = _secret_app()
+    transport = httpx.ASGITransport(app=app)
+
+    with caplog.at_level(logging.WARNING, logger="agent_service.channels.telegram.routes"):
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+            response = await client.post(
+                "/webhooks/telegram",
+                json=private_text_update(),
+                headers={"X-Telegram-Bot-Api-Secret-Token": "attacker-supplied-value"},
+            )
+
+    assert response.status_code == 401
+    records = _rejected_records(caplog)
+    assert len(records) == 1
+    record = records[0]
+    assert cast(Any, record).reason == "secret_mismatch"
+    assert cast(Any, record).secret_header_present is True
+    # Neither the configured secret nor the attacker value may appear in the log.
+    for value in vars(record).values():
+        assert "secret-token-value" not in str(value)
+        assert "attacker-supplied-value" not in str(value)
+
+
+async def test_telegram_webhook_audit_logs_missing_secret_header(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    app = _secret_app()
+    transport = httpx.ASGITransport(app=app)
+
+    with caplog.at_level(logging.WARNING, logger="agent_service.channels.telegram.routes"):
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+            response = await client.post("/webhooks/telegram", json=private_text_update())
+
+    assert response.status_code == 401
+    records = _rejected_records(caplog)
+    assert len(records) == 1
+    assert cast(Any, records[0]).reason == "missing_secret_header"
+    assert cast(Any, records[0]).secret_header_present is False

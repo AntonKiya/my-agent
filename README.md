@@ -66,8 +66,8 @@ persistent outbound tracking.
 - Stable user identity is based on `(channel, external_user_id)`, not username.
 - Inbound intake has a persistent Postgres idempotency gate keyed by `idempotency_key`, with a
   secondary Telegram update guard on `(channel, external_update_id)`.
-- Telegram webhooks can require `X-Telegram-Bot-Api-Secret-Token`; in `prod`, a configured Telegram
-  bot token requires a webhook secret.
+- Telegram webhooks are authenticated with `X-Telegram-Bot-Api-Secret-Token`; the webhook secret is
+  required in every environment except `test`.
 - Conversations use internal UUIDs for processing and derived `conversation_key` values for lookup.
 - One conversation is processed sequentially under a per-conversation lock.
 - Different conversations can be processed concurrently by async worker tasks.
@@ -91,6 +91,10 @@ persistent outbound tracking.
 - Pydantic AI receives clean `user_prompt`, real `ModelMessage` history, and no raw transport update.
 - Tool calls/results can be included in active context but are rejected from compaction input.
 - Bounded inbound queues apply backpressure and return overload instead of silently dropping events.
+- Outbound publishing from the inbound worker is bounded by `outbound_publish_timeout_seconds`: a
+  saturated outbound queue raises a retryable overload error (releasing the conversation lock) instead
+  of blocking forever, and the assistant message is published before it is persisted so a timed-out
+  delivery never leaves a "sent" message that was never delivered.
 - Worker queue consumers acknowledge processed events, so in-memory queues can be drained with
   `join()` during lifecycle-sensitive paths.
 - Worker loops survive single-event failures and continue processing the next queued event.
@@ -190,6 +194,8 @@ Telegram webhook:
 POST /webhooks/telegram
 ```
 
+> **Telegram webhook secret is required outside the `test` environment.** `AGENT_SERVICE_TELEGRAM_WEBHOOK_SECRET_TOKEN` authenticates inbound webhook calls; `AppSettings` fails fast at startup if it is missing in `local`/`dev`/`staging`/`prod`.
+
 ## Configuration
 
 Settings are loaded from environment variables with the `AGENT_SERVICE_` prefix.
@@ -258,8 +264,8 @@ it, supported inbound webhooks return `503` instead of publishing unresolved eve
 queue.
 
 `AGENT_SERVICE_TELEGRAM_WEBHOOK_SECRET_TOKEN` enables Telegram webhook header verification with
-`X-Telegram-Bot-Api-Secret-Token`. The check runs before update normalization or intake. In `prod`,
-setting `AGENT_SERVICE_TELEGRAM_BOT_TOKEN` without this secret is rejected during configuration.
+`X-Telegram-Bot-Api-Secret-Token`. The check runs before update normalization or intake. The secret
+is required in every environment except `test`, so misconfigured deployments fail fast at startup.
 
 `AGENT_SERVICE_AGENT_PROVIDER=openrouter` selects OpenRouter-backed agent configuration. The
 container creates a managed `PydanticAIAgentBoundary` only when `AGENT_SERVICE_AGENT_MODEL` and

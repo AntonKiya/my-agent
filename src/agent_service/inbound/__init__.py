@@ -1,4 +1,8 @@
-from agent_service.inbound.errors import InboundWorkerError, UnresolvedInboundEventError
+from agent_service.inbound.errors import (
+    InboundWorkerError,
+    OutboundOverloadedError,
+    UnresolvedInboundEventError,
+)
 from agent_service.inbound.idempotency import InboundIdempotencyClaim, InboundIdempotencyStore
 from agent_service.inbound.models import InboundIntakeResult, InboundIntakeStatus
 from agent_service.inbound.postgres import PostgresInboundIdempotencyStore
@@ -16,6 +20,7 @@ __all__ = [
     "InboundUserResolver",
     "InboundWorker",
     "InboundWorkerError",
+    "OutboundOverloadedError",
     "PostgresInboundIdempotencyStore",
     "UnresolvedInboundEventError",
 ]
