@@ -15,7 +15,13 @@ from agent_service.agents import (
 )
 from agent_service.channels import InboundEvent, InboundEventStatus
 from agent_service.conversations import AsyncioConversationLockManager, Conversation
-from agent_service.inbound import AgentRetryPolicy, InboundWorker, UnresolvedInboundEventError
+from agent_service.inbound import (
+    AgentRetryPolicy,
+    InboundIdempotencyClaim,
+    InboundIdempotencyStore,
+    InboundWorker,
+    UnresolvedInboundEventError,
+)
 from agent_service.memory import (
     ConversationCompactionDecision,
     ConversationCompactionPolicy,
@@ -211,6 +217,26 @@ class TrackingAgentBoundary:
             self.active_count -= 1
 
 
+@dataclass(slots=True)
+class FakeIdempotencyStore:
+    statuses: list[tuple[UUID, InboundEventStatus, str | None]] = field(default_factory=list)
+
+    async def claim(self, event: InboundEvent) -> InboundIdempotencyClaim:
+        raise NotImplementedError
+
+    async def release_claim(self, *, event_id: UUID) -> None:
+        raise NotImplementedError
+
+    async def mark_status(
+        self,
+        *,
+        event_id: UUID,
+        status: InboundEventStatus,
+        failure_reason: str | None = None,
+    ) -> None:
+        self.statuses.append((event_id, status, failure_reason))
+
+
 def conversation(*, user_id: UUID, chat_id: str = "12345") -> Conversation:
     return Conversation(
         id=uuid4(),
@@ -246,6 +272,7 @@ def worker(
     memory_service: FakeMemoryService | None = None,
     compaction_queue: AsyncioCompactionQueue | None = None,
     compaction_policy: ConversationCompactionPolicy | None = None,
+    idempotency_store: InboundIdempotencyStore | None = None,
     retry_policy: AgentRetryPolicy | None = None,
     sleep: Callable[[float], Awaitable[None]] | None = None,
 ) -> tuple[InboundWorker, AsyncioInboundQueue, AsyncioOutboundQueue, FakeMemoryService]:
@@ -260,6 +287,7 @@ def worker(
             memory_service=memory,
             agent_boundary=agent_boundary,
             lock_manager=AsyncioConversationLockManager(),
+            idempotency_store=idempotency_store,
             retry_policy=retry_policy or AgentRetryPolicy(max_attempts=1),
             compaction_queue=compaction_queue,
             compaction_policy=compaction_policy,
@@ -298,6 +326,25 @@ async def test_inbound_worker_processes_event_to_outbound_queue() -> None:
     assert agent.requests[0].pydantic_ai.user_prompt == "hello"
     assert "external_chat_id" not in agent.requests[0].model_dump()
     assert "raw_update" not in agent.requests[0].model_dump()
+
+
+async def test_inbound_worker_updates_persistent_idempotency_statuses() -> None:
+    user_id = uuid4()
+    resolved_conversation = conversation(user_id=user_id)
+    idempotency_store = FakeIdempotencyStore()
+    inbound_worker, _inbound_queue, _outbound_queue, _memory = worker(
+        conversations_by_chat_id={"12345": resolved_conversation},
+        agent_boundary=FakeAgentBoundary(responses=[AgentResponse(text="answer")]),
+        idempotency_store=idempotency_store,
+    )
+    event = inbound_event(user_id=user_id)
+
+    await inbound_worker.process_event(event)
+
+    assert idempotency_store.statuses == [
+        (event.event_id, InboundEventStatus.PROCESSING, None),
+        (event.event_id, InboundEventStatus.COMPLETED, None),
+    ]
 
 
 async def test_inbound_worker_emits_safe_observability_events(
@@ -450,7 +497,7 @@ async def test_inbound_worker_stops_before_agent_when_context_prepare_fails() ->
     with pytest.raises(RuntimeError, match="context prepare failed"):
         await inbound_worker.process_event(event)
 
-    assert event.status is InboundEventStatus.PROCESSING
+    assert event.status is InboundEventStatus.FAILED_RETRYABLE
     assert len(memory.user_messages) == 1
     assert memory.assistant_messages == []
     assert agent.requests == []
@@ -481,7 +528,7 @@ async def test_inbound_worker_run_forever_continues_after_event_error() -> None:
         with pytest.raises(asyncio.CancelledError):
             await task
 
-    assert first.status is InboundEventStatus.PROCESSING
+    assert first.status is InboundEventStatus.FAILED_RETRYABLE
     assert second.status is InboundEventStatus.COMPLETED
     assert outbound.text == "answer: second"
     assert len(agent.requests) == 1
@@ -582,6 +629,29 @@ async def test_inbound_worker_publishes_fallback_after_agent_failure() -> None:
     assert outbound.metadata["fallback"] is True
     assert outbound.conversation_id == resolved_conversation.id
     assert memory.assistant_messages == []
+
+
+async def test_inbound_worker_marks_fallback_status_in_idempotency_store() -> None:
+    user_id = uuid4()
+    resolved_conversation = conversation(user_id=user_id)
+    idempotency_store = FakeIdempotencyStore()
+    inbound_worker, _inbound_queue, _outbound_queue, _memory = worker(
+        conversations_by_chat_id={"12345": resolved_conversation},
+        agent_boundary=FakeAgentBoundary(errors=[RuntimeError("agent failed")]),
+        idempotency_store=idempotency_store,
+    )
+    event = inbound_event(user_id=user_id)
+
+    await inbound_worker.process_event(event)
+
+    assert idempotency_store.statuses == [
+        (event.event_id, InboundEventStatus.PROCESSING, None),
+        (
+            event.event_id,
+            InboundEventStatus.FALLBACK_SENT,
+            "agent call failed after retries",
+        ),
+    ]
 
 
 async def test_inbound_worker_serializes_same_conversation_agent_runs() -> None:

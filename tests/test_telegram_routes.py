@@ -1,6 +1,7 @@
 from uuid import uuid4
 
 import httpx
+from pydantic import SecretStr
 
 from agent_service.app import create_app
 from agent_service.channels import InboundEvent
@@ -33,6 +34,16 @@ class OverloadedInboundIntake:
             reason="inbound queue is overloaded",
             queue_size=1,
             queue_maxsize=1,
+        )
+
+
+class DuplicateInboundIntake:
+    async def accept(self, event: InboundEvent) -> InboundIntakeResult:
+        return InboundIntakeResult(
+            status=InboundIntakeStatus.DUPLICATE,
+            published=False,
+            user_resolution_status=UserResolutionStatus.RESOLVED,
+            reason="duplicate inbound event",
         )
 
 
@@ -104,6 +115,73 @@ async def test_telegram_webhook_ignores_unsupported_updates() -> None:
     assert app.state.container.inbound_queue.is_empty
 
 
+async def test_telegram_webhook_rejects_missing_secret_before_normalize() -> None:
+    app = create_app(
+        AppSettings(
+            environment="test",
+            telegram_webhook_secret_token=SecretStr("secret"),
+        )
+    )
+    app.state.container.inbound_intake_service = AcceptingInboundIntake(
+        app.state.container.inbound_queue,
+    )
+    transport = httpx.ASGITransport(app=app)
+
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.post("/webhooks/telegram", json={"edited_message": {}})
+
+    assert response.status_code == 401
+    assert response.json()["detail"] == "Invalid Telegram webhook secret token"
+    assert app.state.container.inbound_queue.is_empty
+
+
+async def test_telegram_webhook_rejects_wrong_secret() -> None:
+    app = create_app(
+        AppSettings(
+            environment="test",
+            telegram_webhook_secret_token=SecretStr("secret"),
+        )
+    )
+    app.state.container.inbound_intake_service = AcceptingInboundIntake(
+        app.state.container.inbound_queue,
+    )
+    transport = httpx.ASGITransport(app=app)
+
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.post(
+            "/webhooks/telegram",
+            json=private_text_update(),
+            headers={"X-Telegram-Bot-Api-Secret-Token": "wrong"},
+        )
+
+    assert response.status_code == 401
+    assert app.state.container.inbound_queue.is_empty
+
+
+async def test_telegram_webhook_accepts_matching_secret() -> None:
+    app = create_app(
+        AppSettings(
+            environment="test",
+            telegram_webhook_secret_token=SecretStr("secret"),
+        )
+    )
+    app.state.container.inbound_intake_service = AcceptingInboundIntake(
+        app.state.container.inbound_queue,
+    )
+    transport = httpx.ASGITransport(app=app)
+
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.post(
+            "/webhooks/telegram",
+            json=private_text_update(),
+            headers={"X-Telegram-Bot-Api-Secret-Token": "secret"},
+        )
+
+    assert response.status_code == 200
+    assert response.json() == {"status": "accepted", "published": True}
+    assert not app.state.container.inbound_queue.is_empty
+
+
 async def test_telegram_webhook_requires_inbound_intake_for_supported_updates() -> None:
     app = create_app(AppSettings(environment="test"))
     transport = httpx.ASGITransport(app=app)
@@ -125,4 +203,17 @@ async def test_telegram_webhook_returns_503_when_inbound_queue_is_overloaded() -
 
     assert response.status_code == 503
     assert response.json()["detail"] == "Inbound queue is overloaded"
+    assert app.state.container.inbound_queue.is_empty
+
+
+async def test_telegram_webhook_acknowledges_duplicate_updates_without_publish() -> None:
+    app = create_app(AppSettings(environment="test"))
+    app.state.container.inbound_intake_service = DuplicateInboundIntake()
+    transport = httpx.ASGITransport(app=app)
+
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.post("/webhooks/telegram", json=private_text_update())
+
+    assert response.status_code == 200
+    assert response.json() == {"status": "accepted", "published": False}
     assert app.state.container.inbound_queue.is_empty

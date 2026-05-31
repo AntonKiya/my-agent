@@ -1,7 +1,11 @@
 import pytest
 
-from agent_service.channels import InboundEvent
-from agent_service.inbound import InboundIntakeService, InboundIntakeStatus
+from agent_service.channels import InboundEvent, InboundEventStatus
+from agent_service.inbound import (
+    InboundIdempotencyClaim,
+    InboundIntakeService,
+    InboundIntakeStatus,
+)
 from agent_service.messaging.in_memory import AsyncioInboundQueue
 from agent_service.users import (
     ChannelIdentity,
@@ -21,6 +25,35 @@ class FakeUserResolver:
     async def resolve(self, event: InboundEvent) -> UserResolutionResult:
         self.events.append(event)
         return self.resolution
+
+
+class FakeIdempotencyStore:
+    def __init__(self, *, claimed: bool = True) -> None:
+        self.claimed = claimed
+        self.claims: list[InboundEvent] = []
+        self.released_event_ids: list[object] = []
+        self.statuses: list[tuple[object, InboundEventStatus, str | None]] = []
+
+    async def claim(self, event: InboundEvent) -> InboundIdempotencyClaim:
+        self.claims.append(event)
+        return InboundIdempotencyClaim(
+            claimed=self.claimed,
+            event_id=event.event_id,
+            existing_event_id=event.event_id if not self.claimed else None,
+            existing_status=InboundEventStatus.COMPLETED if not self.claimed else None,
+        )
+
+    async def release_claim(self, *, event_id: object) -> None:
+        self.released_event_ids.append(event_id)
+
+    async def mark_status(
+        self,
+        *,
+        event_id: object,
+        status: InboundEventStatus,
+        failure_reason: str | None = None,
+    ) -> None:
+        self.statuses.append((event_id, status, failure_reason))
 
 
 def inbound_event() -> InboundEvent:
@@ -72,6 +105,61 @@ async def test_inbound_intake_publishes_only_resolved_event_with_user_id() -> No
     published_event = await queue.consume()
     assert published_event == resolved_event
     assert published_event.user_id == stored.user.id
+
+
+async def test_inbound_intake_claims_idempotency_before_publish() -> None:
+    event = inbound_event()
+    stored = user_with_identity()
+    resolved_event = event.model_copy(update={"user_id": stored.user.id})
+    queue = AsyncioInboundQueue()
+    idempotency_store = FakeIdempotencyStore()
+    service = InboundIntakeService(
+        user_resolver=FakeUserResolver(
+            UserResolutionResult(
+                status=UserResolutionStatus.RESOLVED,
+                user=stored.user,
+                identity=stored.identity,
+                event=resolved_event,
+            )
+        ),
+        inbound_queue=queue,
+        idempotency_store=idempotency_store,
+    )
+
+    result = await service.accept(event)
+
+    assert result.status is InboundIntakeStatus.PUBLISHED
+    assert idempotency_store.claims == [resolved_event]
+    assert not idempotency_store.released_event_ids
+    assert not queue.is_empty
+
+
+async def test_inbound_intake_suppresses_duplicate_claim_without_publish() -> None:
+    event = inbound_event()
+    stored = user_with_identity()
+    resolved_event = event.model_copy(update={"user_id": stored.user.id})
+    queue = AsyncioInboundQueue()
+    idempotency_store = FakeIdempotencyStore(claimed=False)
+    service = InboundIntakeService(
+        user_resolver=FakeUserResolver(
+            UserResolutionResult(
+                status=UserResolutionStatus.RESOLVED,
+                user=stored.user,
+                identity=stored.identity,
+                event=resolved_event,
+            )
+        ),
+        inbound_queue=queue,
+        idempotency_store=idempotency_store,
+    )
+
+    result = await service.accept(event)
+
+    assert result.status is InboundIntakeStatus.DUPLICATE
+    assert not result.published
+    assert result.reason == "duplicate inbound event"
+    assert idempotency_store.claims == [resolved_event]
+    assert queue.is_empty
 
 
 async def test_inbound_intake_does_not_publish_blocked_user() -> None:
@@ -146,6 +234,33 @@ async def test_inbound_intake_returns_overloaded_when_publish_times_out() -> Non
     assert result.queue_size == 1
     assert result.queue_maxsize == 1
     assert queue.is_full
+
+
+async def test_inbound_intake_releases_idempotency_claim_when_publish_times_out() -> None:
+    event = inbound_event()
+    stored = user_with_identity()
+    resolved_event = event.model_copy(update={"user_id": stored.user.id})
+    queue = AsyncioInboundQueue(maxsize=1)
+    await queue.publish(inbound_event().model_copy(update={"text": "already queued"}))
+    idempotency_store = FakeIdempotencyStore()
+    service = InboundIntakeService(
+        user_resolver=FakeUserResolver(
+            UserResolutionResult(
+                status=UserResolutionStatus.RESOLVED,
+                user=stored.user,
+                identity=stored.identity,
+                event=resolved_event,
+            )
+        ),
+        inbound_queue=queue,
+        idempotency_store=idempotency_store,
+        publish_timeout_seconds=0.001,
+    )
+
+    result = await service.accept(event)
+
+    assert result.status is InboundIntakeStatus.OVERLOADED
+    assert idempotency_store.released_event_ids == [resolved_event.event_id]
 
 
 def test_inbound_intake_rejects_invalid_publish_timeout() -> None:

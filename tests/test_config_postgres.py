@@ -11,6 +11,7 @@ def test_postgres_pool_settings_have_safe_defaults() -> None:
 
     assert settings.postgres_dsn is None
     assert settings.telegram_bot_token is None
+    assert settings.telegram_webhook_secret_token is None
     assert settings.inbound_worker_count == 8
     assert settings.inbound_publish_timeout_seconds == 1.0
     assert settings.inbound_worker_error_backoff_seconds == 0.1
@@ -155,3 +156,17 @@ def test_agent_settings_accept_partial_provider_configuration() -> None:
     assert settings.agent_provider == "openrouter"
     assert settings.agent_model is None
     assert settings.openrouter_api_key is None
+
+
+def test_prod_telegram_bot_requires_webhook_secret() -> None:
+    with pytest.raises(ValidationError, match="telegram_webhook_secret_token is required"):
+        AppSettings(environment="prod", telegram_bot_token=SecretStr("bot-token"))
+
+    settings = AppSettings(
+        environment="prod",
+        telegram_bot_token=SecretStr("bot-token"),
+        telegram_webhook_secret_token=SecretStr("webhook-secret"),
+    )
+
+    assert settings.telegram_webhook_secret_token is not None
+    assert settings.telegram_webhook_secret_token.get_secret_value() == "webhook-secret"

@@ -64,6 +64,10 @@ persistent outbound tracking.
 - Channel adapters do not call the agent directly.
 - Inbound queue publication happens only after user resolution succeeds.
 - Stable user identity is based on `(channel, external_user_id)`, not username.
+- Inbound intake has a persistent Postgres idempotency gate keyed by `idempotency_key`, with a
+  secondary Telegram update guard on `(channel, external_update_id)`.
+- Telegram webhooks can require `X-Telegram-Bot-Api-Secret-Token`; in `prod`, a configured Telegram
+  bot token requires a webhook secret.
 - Conversations use internal UUIDs for processing and derived `conversation_key` values for lookup.
 - One conversation is processed sequentially under a per-conversation lock.
 - Different conversations can be processed concurrently by async worker tasks.
@@ -244,6 +248,7 @@ AGENT_SERVICE_POSTGRES_DSN=postgresql://agent_service:agent_service_local_passwo
 AGENT_SERVICE_TEST_POSTGRES_DSN=postgresql://agent_service_test:agent_service_test_local_password@127.0.0.1:5432/agent_service_test
 AGENT_SERVICE_REDIS_DSN=redis://127.0.0.1:6379/0
 AGENT_SERVICE_TELEGRAM_BOT_TOKEN=
+AGENT_SERVICE_TELEGRAM_WEBHOOK_SECRET_TOKEN=
 AGENT_SERVICE_OPENROUTER_API_KEY=
 AGENT_SERVICE_LOGFIRE_TOKEN=
 ```
@@ -251,6 +256,10 @@ AGENT_SERVICE_LOGFIRE_TOKEN=
 `AGENT_SERVICE_POSTGRES_DSN` enables runtime user resolution and conversation resolution. Without
 it, supported inbound webhooks return `503` instead of publishing unresolved events into the inbound
 queue.
+
+`AGENT_SERVICE_TELEGRAM_WEBHOOK_SECRET_TOKEN` enables Telegram webhook header verification with
+`X-Telegram-Bot-Api-Secret-Token`. The check runs before update normalization or intake. In `prod`,
+setting `AGENT_SERVICE_TELEGRAM_BOT_TOKEN` without this secret is rejected during configuration.
 
 `AGENT_SERVICE_AGENT_PROVIDER=openrouter` selects OpenRouter-backed agent configuration. The
 container creates a managed `PydanticAIAgentBoundary` only when `AGENT_SERVICE_AGENT_MODEL` and
@@ -269,8 +278,9 @@ Inbound workers are started only when the container has both a `ConversationMemo
 container starts the configured inbound worker tasks automatically.
 
 Compaction workers are started only when compaction is enabled, worker count is greater than zero,
-and a real `ConversationCompactor` implementation is wired. Until then, the policy and queue
-contracts are present but compaction processing is inert.
+Postgres memory is configured, and the container can build a real `PydanticAIConversationCompactor`
+from `AGENT_SERVICE_MEMORY_COMPACTION_MODEL` plus `AGENT_SERVICE_OPENROUTER_API_KEY`. Until then,
+the policy and queue contracts are present but compaction processing is inert.
 
 ## Inbound Flow
 
@@ -300,7 +310,9 @@ Telegram webhook
 ```
 
 The Telegram route never publishes directly to the inbound queue. Queue publication is allowed
-only after user resolution succeeds and the event contains an internal `user_id`.
+only after user resolution succeeds, the event contains an internal `user_id`, and the persistent
+idempotency gate claims the transport-derived message key. Duplicate webhook deliveries are
+acknowledged without publishing another queue event.
 
 The inbound worker does not call Telegram or any delivery adapter. It only creates an `OutboundEvent`
 and publishes it to the outbound queue. Delivery is intentionally a separate worker boundary.
@@ -314,6 +326,11 @@ Inbound queues are bounded by `AGENT_SERVICE_INBOUND_QUEUE_MAXSIZE`. The intake 
 `AGENT_SERVICE_INBOUND_PUBLISH_TIMEOUT_SECONDS`; if the queue stays full past that timeout, the
 event is not silently dropped. Telegram receives `503`, allowing the transport to retry instead of
 holding the webhook request indefinitely.
+
+If queue publication times out after the idempotency claim, the claim is released because the
+message was not accepted into the in-memory queue. This keeps Postgres as an intake gate and status
+record, not as a hidden queue. The current MVP remains at-most-once across process crashes until a
+durable broker or durable inbound journal is introduced.
 
 Worker loops are resilient to single-event failures. `run_forever()` logs unexpected event
 processing errors, waits `AGENT_SERVICE_INBOUND_WORKER_ERROR_BACKOFF_SECONDS`, and continues with
@@ -493,6 +510,8 @@ text, tool payloads, and full prompts should not be logged through these events.
 - Stable identity lookup is always `(channel, external_user_id)`.
 - `username` is mutable metadata and must never identify or merge users.
 - Inbound queue publication requires a resolved internal `user_id`.
+- Inbound idempotency is claimed before queue publication by `idempotency_key`; duplicate claims are
+  suppressed before they can reach the agent.
 - `blocked` and `pending` users do not reach the inbound queue.
 - `UNIQUE(channel, external_user_id)` protects the Postgres boundary from duplicate identities.
 - First-touch user creation must be race-safe; competing creates resolve to one identity.

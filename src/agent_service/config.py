@@ -58,6 +58,7 @@ class AppSettings(BaseSettings):
     memory_compaction_target_summary_tokens: int = Field(default=1000, gt=0, le=1200)
     memory_compaction_model: str | None = None
     telegram_bot_token: SecretStr | None = None
+    telegram_webhook_secret_token: SecretStr | None = None
     openrouter_api_key: SecretStr | None = None
     logfire_token: SecretStr | None = None
 
@@ -68,6 +69,7 @@ class AppSettings(BaseSettings):
         "redis_dsn",
         "memory_compaction_model",
         "telegram_bot_token",
+        "telegram_webhook_secret_token",
         "openrouter_api_key",
         "logfire_token",
         mode="before",
@@ -87,6 +89,14 @@ class AppSettings(BaseSettings):
         if self.memory_recent_tail_fraction >= self.memory_compaction_trigger_fraction:
             raise ValueError(
                 "memory_recent_tail_fraction must be less than compaction trigger fraction"
+            )
+        if (
+            self.environment == "prod"
+            and self.telegram_bot_token is not None
+            and self.telegram_webhook_secret_token is None
+        ):
+            raise ValueError(
+                "telegram_webhook_secret_token is required in prod when telegram_bot_token is set"
             )
         return self
 

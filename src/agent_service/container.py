@@ -7,6 +7,9 @@ from typing import Protocol, cast
 import asyncpg
 import httpx
 import redis.asyncio as redis
+from pydantic_ai import Agent
+from pydantic_ai.models.openrouter import OpenRouterModel
+from pydantic_ai.providers.openrouter import OpenRouterProvider
 
 from agent_service.agents import AgentBoundary, build_openrouter_agent_boundary
 from agent_service.channels import ChannelAdapterRegistry, InMemoryChannelAdapterRegistry
@@ -25,9 +28,11 @@ from agent_service.conversations import (
 from agent_service.delivery import DeliveryRetryPolicy, DeliveryWorker
 from agent_service.inbound import (
     AgentRetryPolicy,
+    InboundIdempotencyStore,
     InboundIntake,
     InboundIntakeService,
     InboundWorker,
+    PostgresInboundIdempotencyStore,
 )
 from agent_service.memory import (
     ConversationCompactionPolicy,
@@ -37,9 +42,12 @@ from agent_service.memory import (
     ConversationContextSnapshotStore,
     ConversationMemoryService,
     ConversationMemoryStore,
+    ConversationSummaryAgent,
+    ConversationSummaryOutput,
     DefaultConversationMemoryService,
     PostgresConversationCompactionStore,
     PostgresConversationMemoryStore,
+    PydanticAIConversationCompactor,
     RedisConversationContextSnapshotStore,
 )
 from agent_service.memory import PostgresPool as MemoryPostgresPool
@@ -94,6 +102,7 @@ class AppContainer:
     outbound_queue: OutboundQueue = field(init=False)
     compaction_queue: CompactionQueue = field(init=False)
     inbound_intake_service: InboundIntake | None = field(init=False)
+    inbound_idempotency_store: InboundIdempotencyStore | None = field(init=False)
     conversation_resolver: ConversationResolverProtocol | None = field(init=False)
     conversation_lock_manager: ConversationLockManager = field(init=False)
     delivery_lock_manager: ConversationLockManager = field(init=False)
@@ -110,6 +119,11 @@ class AppContainer:
     _redis_client: ManagedRedisClient | None = field(default=None, init=False, repr=False)
     _telegram_http_client: httpx.AsyncClient | None = field(default=None, init=False, repr=False)
     _agent_http_client: httpx.AsyncClient | None = field(default=None, init=False, repr=False)
+    _compaction_http_client: httpx.AsyncClient | None = field(
+        default=None,
+        init=False,
+        repr=False,
+    )
     _started: bool = field(default=False, init=False, repr=False)
 
     def __post_init__(self) -> None:
@@ -126,6 +140,7 @@ class AppContainer:
             maxsize=self.settings.memory_compaction_queue_maxsize,
         )
         self.inbound_intake_service = None
+        self.inbound_idempotency_store = None
         self.conversation_resolver = None
         self.conversation_lock_manager = AsyncioConversationLockManager()
         self.delivery_lock_manager = AsyncioConversationLockManager()
@@ -139,7 +154,7 @@ class AppContainer:
             trigger_fraction=self.settings.memory_compaction_trigger_fraction,
             recent_tail_fraction=self.settings.memory_recent_tail_fraction,
         )
-        self.conversation_compactor = None
+        self.conversation_compactor = self._build_conversation_compactor()
         self.memory_service = None
         self.agent_boundary = self._build_agent_boundary()
         self.channel_adapters = InMemoryChannelAdapterRegistry()
@@ -181,10 +196,15 @@ class AppContainer:
             await self._agent_http_client.aclose()
             self._agent_http_client = None
             self.agent_boundary = None
+        if self._compaction_http_client is not None:
+            await self._compaction_http_client.aclose()
+            self._compaction_http_client = None
+            self.conversation_compactor = None
         if self._postgres_pool is not None:
             await self._postgres_pool.close()
             self._postgres_pool = None
             self.inbound_intake_service = None
+            self.inbound_idempotency_store = None
             self.conversation_resolver = None
             self.conversation_memory_store = None
             self.conversation_compaction_store = None
@@ -219,6 +239,30 @@ class AppContainer:
             timeout_seconds=self.settings.agent_timeout_seconds,
         )
 
+    def _build_conversation_compactor(self) -> ConversationCompactor | None:
+        if not self.settings.memory_compaction_enabled:
+            return None
+        if self.settings.memory_compaction_model is None:
+            return None
+        if self.settings.openrouter_api_key is None:
+            return None
+
+        self._compaction_http_client = httpx.AsyncClient()
+        model = OpenRouterModel(
+            self.settings.memory_compaction_model,
+            provider=OpenRouterProvider(
+                api_key=self.settings.openrouter_api_key.get_secret_value(),
+                http_client=self._compaction_http_client,
+            ),
+        )
+        return PydanticAIConversationCompactor(
+            agent=cast(
+                ConversationSummaryAgent,
+                Agent(model, output_type=ConversationSummaryOutput),
+            ),
+            target_summary_tokens=self.settings.memory_compaction_target_summary_tokens,
+        )
+
     async def _start_redis_dependencies(self) -> None:
         if self.settings.redis_dsn is None:
             return
@@ -236,9 +280,13 @@ class AppContainer:
         self._postgres_pool = await _create_managed_postgres_pool(self.settings)
         user_store = PostgresUserStore(self._postgres_pool)
         user_resolver = UserResolver(user_store)
+        self.inbound_idempotency_store = PostgresInboundIdempotencyStore(
+            self._postgres_pool,
+        )
         self.inbound_intake_service = InboundIntakeService(
             user_resolver=user_resolver,
             inbound_queue=self.inbound_queue,
+            idempotency_store=self.inbound_idempotency_store,
             publish_timeout_seconds=self.settings.inbound_publish_timeout_seconds,
         )
         conversation_store = PostgresConversationStore(
@@ -277,6 +325,7 @@ class AppContainer:
                 memory_service=self.memory_service,
                 agent_boundary=self.agent_boundary,
                 lock_manager=self.conversation_lock_manager,
+                idempotency_store=self.inbound_idempotency_store,
                 retry_policy=retry_policy,
                 error_backoff_seconds=self.settings.inbound_worker_error_backoff_seconds,
                 compaction_queue=(

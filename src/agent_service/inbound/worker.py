@@ -1,6 +1,7 @@
 import asyncio
 import logging
 from collections.abc import Awaitable, Callable
+from contextlib import suppress
 from dataclasses import dataclass, field
 from uuid import UUID
 
@@ -12,6 +13,7 @@ from agent_service.conversations import (
     ConversationResolverProtocol,
 )
 from agent_service.inbound.errors import UnresolvedInboundEventError
+from agent_service.inbound.idempotency import InboundIdempotencyStore
 from agent_service.memory import (
     ConversationCompactionJob,
     ConversationCompactionPolicyProtocol,
@@ -62,6 +64,7 @@ class InboundWorker:
     memory_service: ConversationMemoryService
     agent_boundary: AgentBoundary
     lock_manager: ConversationLockManager
+    idempotency_store: InboundIdempotencyStore | None = None
     retry_policy: AgentRetryPolicy = field(default_factory=AgentRetryPolicy)
     fallback_text: str = DEFAULT_FALLBACK_TEXT
     error_backoff_seconds: float = 0.1
@@ -102,10 +105,18 @@ class InboundWorker:
         token = set_trace_id(trace_id)
         event.trace_id = trace_id
         event.status = InboundEventStatus.PROCESSING
+        await self._mark_idempotency_status(event)
         started_at = start_timer()
         try:
             await self._process_event_with_trace(event)
         except Exception:
+            if event.status is InboundEventStatus.PROCESSING:
+                event.status = InboundEventStatus.FAILED_RETRYABLE
+                with suppress(Exception):
+                    await self._mark_idempotency_status(
+                        event,
+                        failure_reason="inbound event processing failed",
+                    )
             log_exception(
                 logger,
                 "Inbound event processing failed",
@@ -135,6 +146,10 @@ class InboundWorker:
     async def _process_event_with_trace(self, event: InboundEvent) -> None:
         if event.user_id is None:
             event.status = InboundEventStatus.DEAD_LETTER
+            await self._mark_idempotency_status(
+                event,
+                failure_reason="event.user_id is missing",
+            )
             raise UnresolvedInboundEventError("Inbound worker requires event.user_id")
 
         conversation = await self.conversation_resolver.resolve(event)
@@ -177,6 +192,10 @@ class InboundWorker:
                 )
                 await self._publish_fallback_event(event, conversation_id=conversation.id)
                 event.status = InboundEventStatus.FALLBACK_SENT
+                await self._mark_idempotency_status(
+                    event,
+                    failure_reason="agent call failed after retries",
+                )
                 return
 
             outbound_event = self._outbound_event(
@@ -205,6 +224,7 @@ class InboundWorker:
                 queue_maxsize=self.outbound_queue.stats.maxsize,
             )
             event.status = InboundEventStatus.COMPLETED
+            await self._mark_idempotency_status(event)
             await self._schedule_compaction_if_needed(event=event, conversation=conversation)
             log_event(
                 logger,
@@ -404,3 +424,17 @@ class InboundWorker:
                     "inbound_event_id": str(event.event_id),
                 },
             )
+
+    async def _mark_idempotency_status(
+        self,
+        event: InboundEvent,
+        *,
+        failure_reason: str | None = None,
+    ) -> None:
+        if self.idempotency_store is None:
+            return
+        await self.idempotency_store.mark_status(
+            event_id=event.event_id,
+            status=event.status,
+            failure_reason=failure_reason,
+        )

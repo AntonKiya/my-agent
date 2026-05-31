@@ -9,6 +9,7 @@ class InboundIntakeStatus(StrEnum):
     PUBLISHED = "published"
     REJECTED = "rejected"
     OVERLOADED = "overloaded"
+    DUPLICATE = "duplicate"
 
 
 class InboundIntakeResult(BaseModel):

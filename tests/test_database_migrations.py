@@ -9,6 +9,7 @@ def test_users_migration_defines_identity_tables_and_constraints() -> None:
         "0002_conversations.sql",
         "0003_conversation_messages.sql",
         "0004_conversation_summaries.sql",
+        "0005_inbound_idempotency.sql",
     ]
 
     sql = migrations[0].sql
@@ -36,7 +37,13 @@ def test_conversations_migration_defines_conversation_table_and_constraints() ->
 def test_migrations_are_loaded_in_version_order() -> None:
     migrations = load_sql_migrations()
 
-    assert tuple(migration.version for migration in migrations) == ("0001", "0002", "0003", "0004")
+    assert tuple(migration.version for migration in migrations) == (
+        "0001",
+        "0002",
+        "0003",
+        "0004",
+        "0005",
+    )
 
 
 def test_conversation_messages_migration_defines_history_table_and_indexes() -> None:
@@ -83,3 +90,21 @@ def test_conversation_summaries_migration_defines_compaction_state_table() -> No
     assert "conversation_summaries_completed_to_sequence_unique" in sql
     assert "WHERE status = 'completed'" in sql
     assert "conversation_summaries_latest_completed_idx" in sql
+
+
+def test_inbound_idempotency_migration_defines_processing_gate() -> None:
+    migrations = load_sql_migrations()
+
+    sql = migrations[4].sql
+    assert "CREATE TABLE IF NOT EXISTS inbound_event_processing" in sql
+    assert "event_id uuid PRIMARY KEY" in sql
+    assert "idempotency_key text NOT NULL" in sql
+    assert "external_update_id text" in sql
+    assert "user_id uuid NOT NULL REFERENCES users(id) ON DELETE RESTRICT" in sql
+    assert "UNIQUE (idempotency_key)" in sql
+    assert "inbound_event_processing_channel_update_unique" in sql
+    assert "WHERE external_update_id IS NOT NULL" in sql
+    assert (
+        "status IN (\n            'queued',\n            'processing',\n            'completed',"
+        in sql
+    )

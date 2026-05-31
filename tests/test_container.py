@@ -29,6 +29,7 @@ from agent_service.memory import (
     ConversationSummary,
     DefaultConversationMemoryService,
     PreparedConversationContext,
+    PydanticAIConversationCompactor,
 )
 from agent_service.messaging.interfaces import CompactionQueue, InboundQueue
 from agent_service.outbound import OutboundEvent, OutboundQueue
@@ -178,6 +179,7 @@ async def test_container_tracks_lifecycle_state() -> None:
     assert isinstance(container.outbound_queue, OutboundQueue)
     assert isinstance(container.compaction_queue, CompactionQueue)
     assert container.inbound_intake_service is None
+    assert container.inbound_idempotency_store is None
     assert container.conversation_resolver is None
     assert container.conversation_memory_store is None
     assert container.conversation_snapshot_store is None
@@ -260,6 +262,52 @@ async def test_container_builds_openrouter_agent_boundary_when_configured() -> N
     assert container.agent_boundary is None
 
 
+async def test_container_builds_pydantic_ai_compactor_when_configured() -> None:
+    settings = AppSettings(
+        environment="test",
+        memory_compaction_enabled=True,
+        memory_compaction_model="openai/gpt-4.1-mini",
+        memory_compaction_target_summary_tokens=900,
+        openrouter_api_key=SecretStr("secret"),
+    )
+    container = AppContainer(settings=settings)
+
+    assert isinstance(container.conversation_compactor, PydanticAIConversationCompactor)
+    assert container.conversation_compactor.target_summary_tokens == 900
+    assert container._compaction_http_client is not None
+    assert not container._compaction_http_client.is_closed
+
+    await container.stop()
+
+    assert container._compaction_http_client is None
+    assert container.conversation_compactor is None
+
+
+async def test_container_does_not_build_compactor_without_complete_config() -> None:
+    missing_model = AppContainer(
+        settings=AppSettings(
+            environment="test",
+            memory_compaction_enabled=True,
+            openrouter_api_key=SecretStr("secret"),
+        )
+    )
+    missing_key = AppContainer(
+        settings=AppSettings(
+            environment="test",
+            memory_compaction_enabled=True,
+            memory_compaction_model="openai/gpt-4.1-mini",
+        )
+    )
+
+    assert missing_model.conversation_compactor is None
+    assert missing_model._compaction_http_client is None
+    assert missing_key.conversation_compactor is None
+    assert missing_key._compaction_http_client is None
+
+    await missing_model.stop()
+    await missing_key.stop()
+
+
 async def test_new_container_gets_fresh_openrouter_agent_http_client() -> None:
     settings = AppSettings(
         environment="test",
@@ -307,6 +355,7 @@ async def test_container_wires_postgres_user_intake_when_dsn_is_configured(
     assert container.started
     assert container._postgres_pool is fake_pool
     assert isinstance(container.inbound_intake_service, InboundIntake)
+    assert container.inbound_idempotency_store is not None
     assert isinstance(container.conversation_resolver, ConversationResolverProtocol)
     assert isinstance(container.conversation_memory_store, ConversationMemoryStore)
     assert isinstance(container.conversation_compaction_store, ConversationCompactionStore)
@@ -325,6 +374,7 @@ async def test_container_wires_postgres_user_intake_when_dsn_is_configured(
     assert fake_pool.closed
     assert container._postgres_pool is None
     assert container.inbound_intake_service is None
+    assert container.inbound_idempotency_store is None
     assert container.conversation_resolver is None
     assert container.conversation_memory_store is None
     assert container.conversation_compaction_store is None
@@ -569,4 +619,39 @@ async def test_container_starts_configured_compaction_worker_tasks(
     await container.stop()
 
     assert container.task_supervisor.task_count == 0
+    assert fake_pool.closed
+
+
+async def test_container_starts_compaction_workers_with_configured_pydantic_ai_compactor(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake_pool = FakeManagedPostgresPool()
+
+    async def fake_create_pool(**kwargs: object) -> FakeManagedPostgresPool:
+        return fake_pool
+
+    monkeypatch.setattr("agent_service.container.asyncpg.create_pool", fake_create_pool)
+    settings = AppSettings(
+        environment="test",
+        postgres_dsn="postgresql://agent:secret@localhost:5432/agent",
+        inbound_worker_count=0,
+        memory_compaction_enabled=True,
+        memory_compaction_model="openai/gpt-4.1-mini",
+        memory_compaction_worker_count=2,
+        openrouter_api_key=SecretStr("secret"),
+        graceful_shutdown_timeout_seconds=0.1,
+    )
+    container = AppContainer(settings=settings)
+
+    await container.start()
+
+    assert container.started
+    assert isinstance(container.conversation_compactor, PydanticAIConversationCompactor)
+    assert container.task_supervisor.task_count == 2
+
+    await container.stop()
+
+    assert container.task_supervisor.task_count == 0
+    assert container._compaction_http_client is None
+    assert container.conversation_compactor is None
     assert fake_pool.closed
