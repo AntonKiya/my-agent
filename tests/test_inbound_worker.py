@@ -26,7 +26,7 @@ from agent_service.memory import (
     ConversationSummary,
     PreparedConversationContext,
 )
-from agent_service.messaging import (
+from agent_service.messaging.in_memory import (
     AsyncioCompactionQueue,
     AsyncioInboundQueue,
     AsyncioOutboundQueue,

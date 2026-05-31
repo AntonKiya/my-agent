@@ -4,7 +4,7 @@ from datetime import UTC, datetime
 
 from agent_service.channels import InboundEvent
 from agent_service.inbound import InboundIntakeService
-from agent_service.messaging import AsyncioInboundQueue
+from agent_service.messaging.in_memory import AsyncioInboundQueue
 from agent_service.users import (
     ChannelIdentity,
     ChannelIdentityLookup,

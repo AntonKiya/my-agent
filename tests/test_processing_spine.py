@@ -15,7 +15,7 @@ from agent_service.memory import (
     ConversationSummary,
     PreparedConversationContext,
 )
-from agent_service.messaging import AsyncioInboundQueue, AsyncioOutboundQueue
+from agent_service.messaging.in_memory import AsyncioInboundQueue, AsyncioOutboundQueue
 
 
 @dataclass(slots=True)

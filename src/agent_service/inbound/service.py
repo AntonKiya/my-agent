@@ -3,7 +3,7 @@ import logging
 from typing import Protocol, runtime_checkable
 
 from agent_service.channels.models import InboundEvent
-from agent_service.messaging import InboundQueue
+from agent_service.messaging.interfaces import InboundQueue
 from agent_service.observability.events import elapsed_ms, log_event, start_timer
 from agent_service.users import UserResolutionError, UserResolutionResult, UserResolutionStatus
 

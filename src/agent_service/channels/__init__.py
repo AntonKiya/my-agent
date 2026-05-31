@@ -10,13 +10,9 @@ from agent_service.channels.models import (
     AttachmentType,
     ChannelMetadata,
     ChannelName,
-    DeliveryResult,
-    DeliveryStatus,
     InboundEvent,
     InboundEventStatus,
     MessageType,
-    OutboundEvent,
-    OutboundEventStatus,
 )
 from agent_service.channels.registry import InMemoryChannelAdapterRegistry
 
@@ -30,13 +26,9 @@ __all__ = [
     "ChannelInboundNormalizer",
     "ChannelMetadata",
     "ChannelName",
-    "DeliveryResult",
-    "DeliveryStatus",
     "InboundEvent",
     "InboundEventStatus",
     "InMemoryChannelAdapterRegistry",
     "MessageType",
-    "OutboundEvent",
-    "OutboundEventStatus",
     "RawMappingInboundNormalizer",
 ]

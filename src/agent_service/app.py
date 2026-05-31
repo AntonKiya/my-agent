@@ -8,7 +8,8 @@ from agent_service.api.health import router as health_router
 from agent_service.channels.telegram.routes import router as telegram_router
 from agent_service.config import AppSettings, get_settings
 from agent_service.container import AppContainer
-from agent_service.observability.logging import configure_logging
+from agent_service.observability.logfire_integration import configure_logfire
+from agent_service.observability.logging import configure_observability
 
 logger = logging.getLogger(__name__)
 
@@ -21,7 +22,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         app.state.container = AppContainer(settings=app.state.settings)
     settings = app.state.settings
     container = app.state.container
-    configure_logging(settings)
+    configure_observability(settings)
+    configure_logfire(settings, app=app)
     await container.start()
     logger.info(
         "Service startup",
@@ -64,4 +66,5 @@ def create_app(settings: AppSettings | None = None) -> FastAPI:
     app.dependency_overrides[get_settings] = settings_dependency
     app.include_router(health_router)
     app.include_router(telegram_router)
+    configure_logfire(app_settings, app=app)
     return app

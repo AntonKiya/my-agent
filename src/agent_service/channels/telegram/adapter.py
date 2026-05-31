@@ -1,21 +1,16 @@
-import asyncio
-from collections.abc import Awaitable, Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
 
 import httpx
 from pydantic import SecretStr
 
 from agent_service.channels.interfaces import ChannelAdapter
-from agent_service.channels.models import DeliveryResult, DeliveryStatus, OutboundEvent
+from agent_service.delivery.models import DeliveryResult, DeliveryStatus
+from agent_service.outbound.models import OutboundEvent
 
 TELEGRAM_CHANNEL = "telegram"
 TELEGRAM_TEXT_LIMIT = 4096
 TELEGRAM_SEND_MESSAGE_METHOD = "sendMessage"
-DEFAULT_RETRY_BACKOFF_SECONDS = (1.0, 5.0, 15.0)
-
-
-SleepCallable = Callable[[float], Awaitable[None]]
 
 
 @dataclass(slots=True)
@@ -33,14 +28,9 @@ class TelegramAdapter(ChannelAdapter):
     client: httpx.AsyncClient
     api_base_url: str = "https://api.telegram.org"
     parse_mode: str | None = None
-    max_attempts: int = 3
-    retry_backoff_seconds: tuple[float, ...] = DEFAULT_RETRY_BACKOFF_SECONDS
-    sleep: SleepCallable = field(default=asyncio.sleep, repr=False)
     channel: str = TELEGRAM_CHANNEL
 
     def __post_init__(self) -> None:
-        if self.max_attempts < 1:
-            raise ValueError("Telegram max_attempts must be at least one")
         if not self.token:
             raise ValueError("Telegram bot token must not be empty")
 
@@ -72,7 +62,7 @@ class TelegramAdapter(ChannelAdapter):
 
         external_message_ids: list[str] = []
         for chunk in split_telegram_text(event.text):
-            attempt = await self._send_chunk_with_retry(event, chunk)
+            attempt = await self._send_chunk(event, chunk)
             if attempt.status is not DeliveryStatus.SENT:
                 return DeliveryResult(
                     event_id=event.event_id,
@@ -93,29 +83,6 @@ class TelegramAdapter(ChannelAdapter):
             status=DeliveryStatus.SENT,
             external_message_ids=external_message_ids,
         )
-
-    async def _send_chunk_with_retry(
-        self,
-        event: OutboundEvent,
-        text: str,
-    ) -> TelegramSendAttempt:
-        last_attempt: TelegramSendAttempt | None = None
-        for attempt_number in range(1, self.max_attempts + 1):
-            last_attempt = await self._send_chunk(event, text)
-            if last_attempt.status is DeliveryStatus.SENT:
-                return last_attempt
-            if last_attempt.status is DeliveryStatus.DEAD_LETTER:
-                return last_attempt
-            if attempt_number < self.max_attempts:
-                await self.sleep(self._retry_delay(last_attempt, attempt_number))
-
-        if last_attempt is None:
-            return TelegramSendAttempt(
-                status=DeliveryStatus.FAILED_RETRYABLE,
-                error_code="telegram_send_not_attempted",
-                error_message="Telegram send was not attempted",
-            )
-        return last_attempt
 
     async def _send_chunk(self, event: OutboundEvent, text: str) -> TelegramSendAttempt:
         try:
@@ -188,12 +155,6 @@ class TelegramAdapter(ChannelAdapter):
 
     def _method_url(self, method: str) -> str:
         return f"{self.api_base_url.rstrip('/')}/bot{self.token}/{method}"
-
-    def _retry_delay(self, attempt: TelegramSendAttempt, attempt_number: int) -> float:
-        if attempt.retry_after_seconds is not None:
-            return attempt.retry_after_seconds
-        index = min(attempt_number - 1, len(self.retry_backoff_seconds) - 1)
-        return self.retry_backoff_seconds[index]
 
     def _dead_letter(
         self,

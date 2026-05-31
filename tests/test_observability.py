@@ -1,10 +1,18 @@
 import json
 import logging
+from typing import Any
 
 import pytest
+from fastapi import FastAPI
+from pydantic import SecretStr
 
 from agent_service.config import AppSettings
+from agent_service.observability import logfire_integration
 from agent_service.observability.events import elapsed_ms, log_event, start_timer
+from agent_service.observability.logfire_integration import (
+    configure_logfire,
+    reset_logfire_integration_for_tests,
+)
 from agent_service.observability.logging import configure_logging
 from agent_service.observability.tracing import (
     create_trace_id,
@@ -12,6 +20,14 @@ from agent_service.observability.tracing import (
     reset_trace_id,
     set_trace_id,
 )
+
+
+class FakeLogfireLoggingHandler(logging.NullHandler):
+    _agent_service_logfire_handler: bool
+
+    def __init__(self, **kwargs: Any) -> None:
+        super().__init__()
+        self.kwargs = kwargs
 
 
 def test_settings_read_environment_variables(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -94,3 +110,102 @@ def test_elapsed_ms_returns_non_negative_duration() -> None:
     started_at = start_timer()
 
     assert elapsed_ms(started_at) >= 0
+
+
+class FakeLogfire:
+    def __init__(self) -> None:
+        self.configure_calls: list[dict[str, object]] = []
+        self.httpx_calls: list[dict[str, object]] = []
+        self.asyncpg_calls: list[dict[str, object]] = []
+        self.redis_calls: list[dict[str, object]] = []
+        self.pydantic_ai_calls: list[dict[str, object]] = []
+        self.fastapi_apps: list[FastAPI] = []
+        self.fastapi_calls: list[dict[str, object]] = []
+        self.logging_handlers: list[FakeLogfireLoggingHandler] = []
+
+    def configure(self, **kwargs: object) -> None:
+        self.configure_calls.append(kwargs)
+
+    def instrument_httpx(self, **kwargs: object) -> None:
+        self.httpx_calls.append(kwargs)
+
+    def instrument_asyncpg(self, **kwargs: object) -> None:
+        self.asyncpg_calls.append(kwargs)
+
+    def instrument_redis(self, **kwargs: object) -> None:
+        self.redis_calls.append(kwargs)
+
+    def instrument_pydantic_ai(self, **kwargs: object) -> None:
+        self.pydantic_ai_calls.append(kwargs)
+
+    def instrument_fastapi(self, app: FastAPI, **kwargs: object) -> None:
+        self.fastapi_apps.append(app)
+        self.fastapi_calls.append(kwargs)
+
+    def LogfireLoggingHandler(self, **kwargs: Any) -> FakeLogfireLoggingHandler:
+        handler = FakeLogfireLoggingHandler(**kwargs)
+        self.logging_handlers.append(handler)
+        return handler
+
+
+def test_configure_logfire_does_nothing_without_token(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    reset_logfire_integration_for_tests()
+
+    def fail_import() -> object:
+        raise AssertionError("logfire should not be imported without a token")
+
+    monkeypatch.setattr(logfire_integration, "_import_logfire", fail_import)
+
+    configure_logfire(AppSettings(environment="test"))
+
+
+def test_configure_logfire_installs_safe_instrumentation_once(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    reset_logfire_integration_for_tests()
+    fake_logfire = FakeLogfire()
+    app = FastAPI()
+    settings = AppSettings(
+        environment="test",
+        service_name="agent-service-test",
+        logfire_token=SecretStr("token"),
+    )
+
+    monkeypatch.setattr(logfire_integration, "_import_logfire", lambda: fake_logfire)
+
+    configure_logfire(settings, app=app)
+    configure_logfire(settings, app=app)
+
+    assert fake_logfire.configure_calls == [
+        {
+            "token": "token",
+            "service_name": "agent-service-test",
+            "environment": "test",
+            "send_to_logfire": True,
+            "console": False,
+            "inspect_arguments": False,
+        }
+    ]
+    assert len(fake_logfire.logging_handlers) == 1
+    assert fake_logfire.logging_handlers[0]._agent_service_logfire_handler is True
+    assert fake_logfire.logging_handlers[0].kwargs["level"] == "INFO"
+    assert isinstance(fake_logfire.logging_handlers[0].kwargs["fallback"], logging.NullHandler)
+    assert fake_logfire.httpx_calls == [
+        {
+            "capture_headers": False,
+            "capture_request_body": False,
+            "capture_response_body": False,
+        }
+    ]
+    assert fake_logfire.asyncpg_calls == [{"capture_parameters": False}]
+    assert fake_logfire.redis_calls == [{"capture_statement": False}]
+    assert fake_logfire.pydantic_ai_calls == [{"include_content": False}]
+    assert fake_logfire.fastapi_apps == [app]
+    assert fake_logfire.fastapi_calls == [
+        {
+            "capture_headers": False,
+            "record_send_receive": False,
+        }
+    ]

@@ -14,29 +14,39 @@ class TaskSupervisor:
     # Business retries, dead letters, and delivery semantics belong to workers/services.
     shutdown_timeout_seconds: float
     _tasks: set[asyncio.Task[None]] = field(default_factory=set, init=False, repr=False)
+    _task_groups: dict[asyncio.Task[None], str] = field(
+        default_factory=dict,
+        init=False,
+        repr=False,
+    )
     _stopping: bool = field(default=False, init=False, repr=False)
 
     @property
     def task_count(self) -> int:
         return len(self._tasks)
 
+    def task_count_for_group(self, group: str) -> int:
+        return sum(1 for task in self._tasks if self._task_groups.get(task) == group)
+
     def create_task(
         self,
         coro: Coroutine[Any, Any, None],
         *,
         name: str,
+        group: str = "default",
     ) -> asyncio.Task[None]:
         if self._stopping:
             raise RuntimeError("Cannot create background tasks while supervisor is stopping")
 
         task = asyncio.create_task(coro, name=name)
         self._tasks.add(task)
+        self._task_groups[task] = group
         task.add_done_callback(self._on_task_done)
         return task
 
-    async def stop(self) -> None:
+    async def stop(self, *, group: str | None = None) -> None:
         self._stopping = True
-        tasks = tuple(self._tasks)
+        tasks = self._tasks_for_group(group)
         if not tasks:
             return
 
@@ -50,13 +60,20 @@ class TaskSupervisor:
                 "Background tasks did not stop before timeout",
                 extra={
                     "event": "background_tasks_shutdown_timeout",
+                    "task_group": group,
                     "pending_task_count": len(pending),
                     "shutdown_timeout_seconds": self.shutdown_timeout_seconds,
                 },
             )
 
+    def _tasks_for_group(self, group: str | None) -> tuple[asyncio.Task[None], ...]:
+        if group is None:
+            return tuple(self._tasks)
+        return tuple(task for task in self._tasks if self._task_groups.get(task) == group)
+
     def _on_task_done(self, task: asyncio.Task[None]) -> None:
         self._tasks.discard(task)
+        self._task_groups.pop(task, None)
         self._consume_task_result(task)
 
     def _consume_task_result(self, task: asyncio.Task[None]) -> None:

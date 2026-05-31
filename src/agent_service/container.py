@@ -1,3 +1,5 @@
+import asyncio
+import logging
 from collections.abc import Awaitable
 from dataclasses import dataclass, field
 from typing import Protocol, cast
@@ -20,6 +22,7 @@ from agent_service.conversations import (
 from agent_service.conversations import (
     PostgresPool as ConversationPostgresPool,
 )
+from agent_service.delivery import DeliveryRetryPolicy, DeliveryWorker
 from agent_service.inbound import (
     AgentRetryPolicy,
     InboundIntake,
@@ -40,16 +43,17 @@ from agent_service.memory import (
     RedisConversationContextSnapshotStore,
 )
 from agent_service.memory import PostgresPool as MemoryPostgresPool
-from agent_service.messaging import (
+from agent_service.messaging.in_memory import (
     AsyncioCompactionQueue,
     AsyncioInboundQueue,
     AsyncioOutboundQueue,
-    CompactionQueue,
-    InboundQueue,
-    OutboundQueue,
 )
+from agent_service.messaging.interfaces import CompactionQueue, InboundQueue
+from agent_service.outbound import OutboundQueue
 from agent_service.runtime.lifecycle import TaskSupervisor
 from agent_service.users import PostgresPool, PostgresUserStore, UserResolver
+
+logger = logging.getLogger(__name__)
 
 
 class ManagedPostgresPool(PostgresPool, Protocol):
@@ -92,6 +96,7 @@ class AppContainer:
     inbound_intake_service: InboundIntake | None = field(init=False)
     conversation_resolver: ConversationResolverProtocol | None = field(init=False)
     conversation_lock_manager: ConversationLockManager = field(init=False)
+    delivery_lock_manager: ConversationLockManager = field(init=False)
     conversation_memory_store: ConversationMemoryStore | None = field(init=False)
     conversation_snapshot_store: ConversationContextSnapshotStore | None = field(init=False)
     conversation_compaction_store: ConversationCompactionStore | None = field(init=False)
@@ -123,6 +128,7 @@ class AppContainer:
         self.inbound_intake_service = None
         self.conversation_resolver = None
         self.conversation_lock_manager = AsyncioConversationLockManager()
+        self.delivery_lock_manager = AsyncioConversationLockManager()
         self.conversation_memory_store = None
         self.conversation_snapshot_store = None
         self.conversation_compaction_store = None
@@ -155,6 +161,7 @@ class AppContainer:
             await self._start_redis_dependencies()
             await self._start_postgres_dependencies()
             self._start_inbound_workers()
+            self._start_delivery_workers()
             self._start_compaction_workers()
             self._started = True
         except BaseException:
@@ -162,6 +169,10 @@ class AppContainer:
             raise
 
     async def stop(self) -> None:
+        await self.task_supervisor.stop(group="inbound")
+        await self.task_supervisor.stop(group="compaction")
+        await self._drain_outbound_queue()
+        await self.task_supervisor.stop(group="delivery")
         await self.task_supervisor.stop()
         if self._telegram_http_client is not None:
             await self._telegram_http_client.aclose()
@@ -283,6 +294,7 @@ class AppContainer:
             self.task_supervisor.create_task(
                 worker.run_forever(),
                 name=f"inbound-worker-{index + 1}",
+                group="inbound",
             )
 
     def _start_compaction_workers(self) -> None:
@@ -304,6 +316,31 @@ class AppContainer:
             self.task_supervisor.create_task(
                 worker.run_forever(),
                 name=f"compaction-worker-{index + 1}",
+                group="compaction",
+            )
+
+    def _start_delivery_workers(self) -> None:
+        if self.settings.delivery_worker_count == 0:
+            return
+        if not getattr(self.channel_adapters, "channels", ()):
+            return
+
+        retry_policy = DeliveryRetryPolicy(
+            max_attempts=self.settings.delivery_retry_max_attempts,
+            backoff_seconds=self.settings.delivery_retry_backoff_seconds,
+        )
+        for index in range(self.settings.delivery_worker_count):
+            worker = DeliveryWorker(
+                outbound_queue=self.outbound_queue,
+                channel_adapters=self.channel_adapters,
+                lock_manager=self.delivery_lock_manager,
+                retry_policy=retry_policy,
+                error_backoff_seconds=self.settings.delivery_worker_error_backoff_seconds,
+            )
+            self.task_supervisor.create_task(
+                worker.run_forever(),
+                name=f"delivery-worker-{index + 1}",
+                group="delivery",
             )
 
     def _compaction_processing_enabled(self) -> bool:
@@ -312,6 +349,41 @@ class AppContainer:
             and self.settings.memory_compaction_worker_count > 0
             and self.conversation_compactor is not None
         )
+
+    async def _drain_outbound_queue(self) -> None:
+        if self.task_supervisor.task_count_for_group("delivery") == 0:
+            if self.outbound_queue.stats.size > 0:
+                logger.warning(
+                    "Outbound queue was not drained because no delivery workers are running",
+                    extra={
+                        "event": "outbound_queue_drain_skipped",
+                        "queue_size": self.outbound_queue.stats.size,
+                    },
+                )
+            return
+
+        try:
+            await asyncio.wait_for(
+                self.outbound_queue.join(),
+                timeout=self.settings.graceful_shutdown_timeout_seconds,
+            )
+        except TimeoutError:
+            logger.warning(
+                "Outbound queue did not drain before shutdown timeout",
+                extra={
+                    "event": "outbound_queue_drain_timeout",
+                    "queue_size": self.outbound_queue.stats.size,
+                    "shutdown_timeout_seconds": self.settings.graceful_shutdown_timeout_seconds,
+                },
+            )
+        else:
+            logger.info(
+                "Outbound queue drained before shutdown",
+                extra={
+                    "event": "outbound_queue_drained",
+                    "queue_size": self.outbound_queue.stats.size,
+                },
+            )
 
 
 async def _create_managed_postgres_pool(settings: AppSettings) -> ManagedPostgresPool:

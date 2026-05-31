@@ -3,18 +3,17 @@ from uuid import uuid4
 
 import pytest
 
-from agent_service.channels import InboundEvent, OutboundEvent
+from agent_service.channels import InboundEvent
 from agent_service.conversations import Conversation
 from agent_service.memory import ConversationCompactionJob
-from agent_service.messaging import (
+from agent_service.messaging import QueueStats
+from agent_service.messaging.in_memory import (
     AsyncioCompactionQueue,
     AsyncioInboundQueue,
     AsyncioOutboundQueue,
-    CompactionQueue,
-    InboundQueue,
-    OutboundQueue,
-    QueueStats,
 )
+from agent_service.messaging.interfaces import CompactionQueue, InboundQueue
+from agent_service.outbound import OutboundEvent, OutboundQueue
 
 
 def make_inbound_event(text: str = "hello") -> InboundEvent:
@@ -111,6 +110,22 @@ async def test_asyncio_queue_publish_waits_when_bounded_queue_is_full() -> None:
     await asyncio.wait_for(publish_task, timeout=0.1)
 
     assert await queue.consume() == second
+
+
+async def test_asyncio_queue_join_waits_for_consumed_event_acknowledgement() -> None:
+    queue = AsyncioOutboundQueue()
+    event = make_outbound_event()
+
+    await queue.publish(event)
+    assert await queue.consume() == event
+
+    join_task = asyncio.create_task(queue.join())
+    await asyncio.sleep(0)
+
+    assert not join_task.done()
+
+    await queue.acknowledge()
+    await asyncio.wait_for(join_task, timeout=0.1)
 
 
 def test_asyncio_queue_rejects_negative_maxsize() -> None:

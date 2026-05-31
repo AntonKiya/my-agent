@@ -51,7 +51,10 @@ class ConversationCompactionWorker:
 
     async def process_next(self) -> None:
         job = await self.compaction_queue.consume()
-        await self.process_job(job)
+        try:
+            await self.process_job(job)
+        finally:
+            await self.compaction_queue.acknowledge()
 
     async def process_job(self, job: ConversationCompactionJob) -> None:
         token = set_trace_id(job.trace_id) if job.trace_id is not None else None

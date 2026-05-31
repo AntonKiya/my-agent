@@ -2,11 +2,10 @@ import pytest
 
 from agent_service.channels import (
     ChannelAdapterNotFoundError,
-    DeliveryResult,
-    DeliveryStatus,
     InMemoryChannelAdapterRegistry,
-    OutboundEvent,
 )
+from agent_service.delivery import DeliveryResult, DeliveryStatus
+from agent_service.outbound import OutboundEvent
 
 
 class FakeAdapter:

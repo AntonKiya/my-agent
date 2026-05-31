@@ -30,6 +30,10 @@ class AppSettings(BaseSettings):
     inbound_publish_timeout_seconds: float = Field(default=1.0, gt=0)
     inbound_worker_count: int = Field(default=8, ge=0)
     inbound_worker_error_backoff_seconds: float = Field(default=0.1, ge=0)
+    delivery_worker_count: int = Field(default=4, ge=0)
+    delivery_worker_error_backoff_seconds: float = Field(default=0.1, ge=0)
+    delivery_retry_max_attempts: int = Field(default=3, ge=1)
+    delivery_retry_backoff_seconds: tuple[float, ...] = (1.0, 5.0, 15.0)
     agent_retry_max_attempts: int = Field(default=3, ge=1)
     agent_retry_backoff_seconds: tuple[float, ...] = (1.0, 5.0, 15.0)
     agent_provider: AgentProvider | None = None
@@ -79,23 +83,21 @@ class AppSettings(BaseSettings):
         if self.postgres_pool_min_size > self.postgres_pool_max_size:
             raise ValueError("postgres_pool_min_size must be less than or equal to max size")
         if self.memory_reserved_output_tokens >= self.memory_model_context_window_tokens:
-            raise ValueError(
-                "memory_reserved_output_tokens must be less than model context window"
-            )
+            raise ValueError("memory_reserved_output_tokens must be less than model context window")
         if self.memory_recent_tail_fraction >= self.memory_compaction_trigger_fraction:
             raise ValueError(
                 "memory_recent_tail_fraction must be less than compaction trigger fraction"
             )
         return self
 
-    @field_validator("agent_retry_backoff_seconds")
+    @field_validator("agent_retry_backoff_seconds", "delivery_retry_backoff_seconds")
     @classmethod
-    def agent_retry_backoff_seconds_must_not_be_negative(
+    def retry_backoff_seconds_must_not_be_negative(
         cls,
         value: tuple[float, ...],
     ) -> tuple[float, ...]:
         if any(delay < 0 for delay in value):
-            raise ValueError("agent_retry_backoff_seconds must not contain negative values")
+            raise ValueError("retry backoff seconds must not contain negative values")
         return value
 
 

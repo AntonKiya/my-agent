@@ -6,7 +6,7 @@ from agent_service.app import create_app
 from agent_service.channels import InboundEvent
 from agent_service.config import AppSettings
 from agent_service.inbound import InboundIntakeResult, InboundIntakeStatus
-from agent_service.messaging import InboundQueue
+from agent_service.messaging.interfaces import InboundQueue
 from agent_service.users import UserResolutionStatus
 
 

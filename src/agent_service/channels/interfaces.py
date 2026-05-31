@@ -1,7 +1,9 @@
 from collections.abc import Mapping
 from typing import Any, Protocol, TypeVar, runtime_checkable
 
-from agent_service.channels.models import ChannelName, DeliveryResult, InboundEvent, OutboundEvent
+from agent_service.channels.models import ChannelName, InboundEvent
+from agent_service.delivery.models import DeliveryResult
+from agent_service.outbound.models import OutboundEvent
 
 RawInboundPayloadT = TypeVar("RawInboundPayloadT", contravariant=True)
 

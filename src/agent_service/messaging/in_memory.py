@@ -1,15 +1,14 @@
 import asyncio
 from dataclasses import dataclass, field
 
-from agent_service.channels.models import InboundEvent, OutboundEvent
+from agent_service.channels.models import InboundEvent
 from agent_service.memory.models import ConversationCompactionJob
+from agent_service.messaging.base import EventQueue, QueueStats
 from agent_service.messaging.interfaces import (
     CompactionQueue,
-    EventQueue,
     InboundQueue,
-    OutboundQueue,
-    QueueStats,
 )
+from agent_service.outbound import OutboundEvent, OutboundQueue
 
 
 @dataclass(slots=True)
@@ -48,6 +47,12 @@ class AsyncioEventQueue[QueueEventT](EventQueue[QueueEventT]):
 
     async def consume(self) -> QueueEventT:
         return await self._queue.get()
+
+    async def acknowledge(self) -> None:
+        self._queue.task_done()
+
+    async def join(self) -> None:
+        await self._queue.join()
 
 
 class AsyncioInboundQueue(AsyncioEventQueue[InboundEvent], InboundQueue):

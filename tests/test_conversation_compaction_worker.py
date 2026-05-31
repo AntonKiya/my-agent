@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -19,7 +20,7 @@ from agent_service.memory import (
     ConversationMemoryService,
     ConversationSummary,
 )
-from agent_service.messaging import AsyncioCompactionQueue
+from agent_service.messaging.in_memory import AsyncioCompactionQueue
 from agent_service.observability.tracing import get_trace_id, reset_trace_id, set_trace_id
 
 
@@ -160,6 +161,7 @@ async def test_compaction_worker_compacts_one_job_under_conversation_lock() -> N
 
     await queue.publish(job)
     await worker.process_next()
+    await asyncio.wait_for(queue.join(), timeout=0.1)
 
     assert memory.compact_through_sequences == [7]
     assert len(compactor.requests) == 1

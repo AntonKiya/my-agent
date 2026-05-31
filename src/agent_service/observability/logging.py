@@ -5,6 +5,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from agent_service.config import AppSettings
+from agent_service.observability.logfire_integration import configure_logfire
 from agent_service.observability.tracing import get_trace_id
 
 _RESERVED_LOG_RECORD_FIELDS = {
@@ -67,3 +68,8 @@ def configure_logging(settings: AppSettings) -> None:
     root_logger.setLevel(settings.log_level)
 
     logging.getLogger("agent_service").setLevel(settings.log_level)
+
+
+def configure_observability(settings: AppSettings) -> None:
+    configure_logging(settings)
+    configure_logfire(settings)

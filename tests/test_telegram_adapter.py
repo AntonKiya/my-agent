@@ -5,8 +5,10 @@ from uuid import uuid4
 import httpx
 import pytest
 
-from agent_service.channels import Attachment, ChannelAdapter, DeliveryStatus, OutboundEvent
+from agent_service.channels import Attachment, ChannelAdapter
 from agent_service.channels.telegram.adapter import TELEGRAM_TEXT_LIMIT, TelegramAdapter
+from agent_service.delivery import DeliveryStatus
+from agent_service.outbound import OutboundEvent
 
 
 def make_outbound_event(
@@ -28,10 +30,6 @@ def make_client(
     handler: Callable[[httpx.Request], httpx.Response],
 ) -> httpx.AsyncClient:
     return httpx.AsyncClient(transport=httpx.MockTransport(handler))
-
-
-async def no_sleep(_delay: float) -> None:
-    return None
 
 
 async def test_telegram_adapter_sends_text_message() -> None:
@@ -86,54 +84,35 @@ async def test_telegram_adapter_splits_long_text_messages() -> None:
     assert [len(text) for text in texts] == [TELEGRAM_TEXT_LIMIT, 5]
 
 
-async def test_telegram_adapter_retries_retryable_api_errors() -> None:
+async def test_telegram_adapter_returns_retryable_api_errors_without_retrying() -> None:
     request_count = 0
-    sleeps: list[float] = []
-
-    async def sleep(delay: float) -> None:
-        sleeps.append(delay)
 
     def handler(_request: httpx.Request) -> httpx.Response:
         nonlocal request_count
         request_count += 1
-        if request_count == 1:
-            return httpx.Response(
-                429,
-                json={
-                    "ok": False,
-                    "error_code": 429,
-                    "description": "Too Many Requests",
-                    "parameters": {"retry_after": 2},
-                },
-            )
         return httpx.Response(
-            200,
-            json={"ok": True, "result": {"message_id": 101}},
+            429,
+            json={
+                "ok": False,
+                "error_code": 429,
+                "description": "Too Many Requests",
+                "parameters": {"retry_after": 2},
+            },
         )
 
     async with make_client(handler) as client:
-        adapter = TelegramAdapter(
-            bot_token="token",
-            client=client,
-            sleep=sleep,
-        )
+        adapter = TelegramAdapter(bot_token="token", client=client)
         result = await adapter.send(make_outbound_event())
 
-    assert result.status is DeliveryStatus.SENT
-    assert result.external_message_ids == ["101"]
-    assert request_count == 2
-    assert sleeps == [2]
+    assert result.status is DeliveryStatus.FAILED_RETRYABLE
+    assert result.error_code == "telegram_429"
+    assert result.retry_after_seconds == 2
+    assert request_count == 1
 
 
-async def test_telegram_adapter_returns_retryable_failure_after_attempts() -> None:
+async def test_telegram_adapter_returns_retryable_failure_for_temporary_errors() -> None:
     async with make_client(lambda _request: httpx.Response(503, json={"ok": False})) as client:
-        adapter = TelegramAdapter(
-            bot_token="token",
-            client=client,
-            max_attempts=2,
-            retry_backoff_seconds=(0.01,),
-            sleep=no_sleep,
-        )
+        adapter = TelegramAdapter(bot_token="token", client=client)
         result = await adapter.send(make_outbound_event())
 
     assert result.status is DeliveryStatus.FAILED_RETRYABLE
@@ -217,6 +196,29 @@ async def test_telegram_adapter_reports_partial_delivery_when_later_chunk_fails(
     assert result.metadata["partial_delivery"] is True
 
 
+async def test_telegram_adapter_allows_retry_after_partial_delivery() -> None:
+    request_count = 0
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        nonlocal request_count
+        request_count += 1
+        if request_count == 1:
+            return httpx.Response(
+                200,
+                json={"ok": True, "result": {"message_id": 100}},
+            )
+        return httpx.Response(503, json={"ok": False})
+
+    async with make_client(handler) as client:
+        adapter = TelegramAdapter(bot_token="token", client=client)
+        result = await adapter.send(make_outbound_event(text="a" * (TELEGRAM_TEXT_LIMIT + 1)))
+
+    assert result.status is DeliveryStatus.FAILED_RETRYABLE
+    assert result.error_code == "telegram_http_503"
+    assert result.external_message_ids == ["100"]
+    assert result.metadata["partial_delivery"] is True
+
+
 async def test_telegram_adapter_includes_optional_thread_and_reply_ids() -> None:
     payloads: list[dict[str, object]] = []
 
@@ -247,8 +249,6 @@ async def test_telegram_adapter_includes_optional_thread_and_reply_ids() -> None
 def test_telegram_adapter_rejects_invalid_configuration() -> None:
     client = make_client(lambda _request: httpx.Response(200))
 
-    with pytest.raises(ValueError, match="max_attempts"):
-        TelegramAdapter(bot_token="token", client=client, max_attempts=0)
     with pytest.raises(ValueError, match="token"):
         TelegramAdapter(bot_token="", client=client)
 

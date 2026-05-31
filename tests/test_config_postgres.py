@@ -14,6 +14,10 @@ def test_postgres_pool_settings_have_safe_defaults() -> None:
     assert settings.inbound_worker_count == 8
     assert settings.inbound_publish_timeout_seconds == 1.0
     assert settings.inbound_worker_error_backoff_seconds == 0.1
+    assert settings.delivery_worker_count == 4
+    assert settings.delivery_worker_error_backoff_seconds == 0.1
+    assert settings.delivery_retry_max_attempts == 3
+    assert settings.delivery_retry_backoff_seconds == (1.0, 5.0, 15.0)
     assert settings.agent_retry_max_attempts == 3
     assert settings.agent_retry_backoff_seconds == (1.0, 5.0, 15.0)
     assert settings.agent_provider is None
@@ -52,6 +56,18 @@ def test_postgres_pool_settings_are_validated() -> None:
 
     with pytest.raises(ValidationError):
         AppSettings(environment="test", inbound_worker_error_backoff_seconds=-1)
+
+    with pytest.raises(ValidationError):
+        AppSettings(environment="test", delivery_worker_count=-1)
+
+    with pytest.raises(ValidationError):
+        AppSettings(environment="test", delivery_worker_error_backoff_seconds=-1)
+
+    with pytest.raises(ValidationError):
+        AppSettings(environment="test", delivery_retry_max_attempts=0)
+
+    with pytest.raises(ValidationError):
+        AppSettings(environment="test", delivery_retry_backoff_seconds=(-1.0,))
 
     with pytest.raises(ValidationError):
         AppSettings(environment="test", agent_retry_max_attempts=0)

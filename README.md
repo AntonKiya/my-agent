@@ -13,10 +13,12 @@ This repository currently contains the service foundation:
 - Typed settings loaded from environment variables.
 - Health and readiness endpoints.
 - Structured JSON logging.
-- Log-based observability events with trace ids, safe metadata, and operation durations.
+- Log-based domain observability events with safe metadata and operation durations.
+- Optional Logfire/OTel instrumentation for FastAPI, HTTPX, asyncpg, Redis, and Pydantic AI.
 - Trace id context helpers.
 - Lightweight service container.
-- Channel-agnostic event models and queue interfaces.
+- Channel inbound models, adapter interfaces, and transport implementations.
+- Outbound event models and outbound queue contract.
 - In-memory asyncio queue backend for inbound/outbound events.
 - Inbound intake service that resolves users before queue publication.
 - Telegram inbound webhook route and private text normalizer.
@@ -38,6 +40,10 @@ This repository currently contains the service foundation:
 - Pydantic AI conversation compactor contract with structured summary output and fixed rendered
   summary format.
 - Inbound worker orchestration from inbound queue to outbound queue.
+- Delivery domain models for the outbound lifecycle: queued, sending, sent, failed_retryable, and
+  dead_letter.
+- Delivery worker orchestration from outbound queue to channel adapter with retry, dead-letter, and
+  per-conversation send ordering.
 - Runtime Postgres pool wiring for `PostgresUserStore`, `UserResolver`, `PostgresConversationStore`,
   `ConversationResolver`, and inbound intake when `AGENT_SERVICE_POSTGRES_DSN` is configured.
 - Runtime OpenRouter agent boundary wiring when `AGENT_SERVICE_AGENT_PROVIDER`,
@@ -45,10 +51,13 @@ This repository currently contains the service foundation:
 - Guarded inbound worker runtime wiring through the task supervisor.
 - Docker Compose Postgres and Redis services for local development and integration tests.
 - Explicit database migration runner command.
+- Architecture invariant tests for identity separation, clean agent payloads, worker queue
+  acknowledgement, outbound delivery separation, and graceful shutdown drain behavior.
 - Ruff, mypy, pyright, pytest, and pytest-asyncio quality gates.
 
-The delivery worker and real compaction/summarization implementation are not implemented yet. Their
-contracts, runtime boundaries, and persistent summary state foundation are present.
+The runtime delivery worker and compaction/summarization boundaries are implemented for the current
+in-memory MVP. Durable broker-backed delivery state is intentionally deferred until the service needs
+persistent outbound tracking.
 
 ## Implemented Guarantees
 
@@ -78,7 +87,14 @@ contracts, runtime boundaries, and persistent summary state foundation are prese
 - Pydantic AI receives clean `user_prompt`, real `ModelMessage` history, and no raw transport update.
 - Tool calls/results can be included in active context but are rejected from compaction input.
 - Bounded inbound queues apply backpressure and return overload instead of silently dropping events.
+- Worker queue consumers acknowledge processed events, so in-memory queues can be drained with
+  `join()` during lifecycle-sensitive paths.
 - Worker loops survive single-event failures and continue processing the next queued event.
+- Delivery workers can run concurrently. They use a delivery-side lock keyed by internal
+  `conversation.id`, so one conversation is sent sequentially while different conversations can be
+  delivered in parallel.
+- Graceful shutdown stops message producers first, then waits for already generated outbound events
+  to be delivered before delivery workers are cancelled.
 
 ## Requirements
 
@@ -189,6 +205,10 @@ AGENT_SERVICE_OUTBOUND_QUEUE_MAXSIZE=5000
 AGENT_SERVICE_INBOUND_PUBLISH_TIMEOUT_SECONDS=1.0
 AGENT_SERVICE_INBOUND_WORKER_COUNT=8
 AGENT_SERVICE_INBOUND_WORKER_ERROR_BACKOFF_SECONDS=0.1
+AGENT_SERVICE_DELIVERY_WORKER_COUNT=4
+AGENT_SERVICE_DELIVERY_WORKER_ERROR_BACKOFF_SECONDS=0.1
+AGENT_SERVICE_DELIVERY_RETRY_MAX_ATTEMPTS=3
+AGENT_SERVICE_DELIVERY_RETRY_BACKOFF_SECONDS='[1.0,5.0,15.0]'
 AGENT_SERVICE_AGENT_RETRY_MAX_ATTEMPTS=3
 AGENT_SERVICE_AGENT_RETRY_BACKOFF_SECONDS='[1.0,5.0,15.0]'
 AGENT_SERVICE_AGENT_PROVIDER=
@@ -298,6 +318,11 @@ holding the webhook request indefinitely.
 Worker loops are resilient to single-event failures. `run_forever()` logs unexpected event
 processing errors, waits `AGENT_SERVICE_INBOUND_WORKER_ERROR_BACKOFF_SECONDS`, and continues with
 the next queued event. Cancellation still propagates normally during shutdown.
+
+In-memory queues expose a small backend-neutral lifecycle contract: `publish()`, `consume()`,
+`acknowledge()`, and `join()`. Workers acknowledge consumed events in `finally` blocks. The current
+MVP uses this mainly for outbound graceful shutdown, but keeping the contract consistent across
+inbound, outbound, and compaction queues makes the later move to a durable broker less invasive.
 
 ## Agent and Memory Boundaries
 
@@ -431,13 +456,24 @@ AGENT_SERVICE_TEST_POSTGRES_DSN=postgresql://agent_service_test:agent_service_te
 The test suite covers user identity separation, conversation ownership/order, Postgres message
 sequence assignment, Redis snapshot validation, Pydantic AI context conversion, Pydantic AI
 AgentBoundary safety and timeout behavior, OpenRouter container wiring, compaction invariants and
-idempotency, safe structured observability events, queue backpressure, worker resilience, and
-Telegram webhook overload behavior.
+idempotency, safe structured observability events, queue backpressure, worker resilience, delivery
+worker concurrency, graceful outbound drain, and Telegram webhook overload behavior.
+
+Architecture-level invariant tests live in `tests/test_architecture_invariants.py`. They assert that
+raw transport metadata does not cross into the agent request and that the in-memory spine keeps
+parallel users, conversations, outbound events, and delivery targets separated end to end.
 
 ## Observability
 
-The current observability layer intentionally uses standard Python logging, not Logfire. Logs are
-JSON-formatted and include the active `trace_id` from context when one is available.
+The observability boundary has two separate responsibilities:
+
+- Logfire/OTel provides infrastructure tracing, spans, correlation, and export when
+  `AGENT_SERVICE_LOGFIRE_TOKEN` is configured.
+- The service emits low-PII domain events through structured Python logs. These events describe
+  application semantics such as intake, worker attempts, delivery retry decisions, and compaction
+  outcomes; they are not a custom tracing backend or a delivery status database.
+
+Logs are JSON-formatted and include the active domain `trace_id` from context when one is available.
 
 Workers emit structured, low-PII events around the important runtime boundaries:
 
@@ -445,6 +481,7 @@ Workers emit structured, low-PII events around the important runtime boundaries:
 - inbound event processing success/failure;
 - agent run success and retry scheduling;
 - outbound/fallback event publication;
+- delivery attempts, retries, success, and dead letters;
 - compaction scheduling, skip, completion, and failure.
 
 Observability fields should stay safe and operational: internal ids, channel, status, attempt,
@@ -472,6 +509,9 @@ text, tool payloads, and full prompts should not be logged through these events.
 - Different conversations can be processed concurrently.
 - Agent requests must not include raw Telegram updates or transport delivery fields.
 - Fallback responses are emitted as outbound events; delivery remains outside the inbound worker.
+- Delivery workers also preserve per-conversation ordering before calling channel adapters.
+- During shutdown, generated outbound events are drained through delivery workers within the
+  graceful shutdown timeout; they are not silently dropped while delivery workers are still running.
 
 ## Project Layout
 
@@ -479,13 +519,15 @@ text, tool payloads, and full prompts should not be logged through these events.
 src/agent_service/
   api/                 HTTP routes such as health/readiness
   observability/       structured logs and trace context helpers
-  channels/            channel-agnostic event models and adapter interfaces
+  channels/            inbound models, adapter interfaces, and transport implementations
   inbound/             user-resolution intake and inbound worker orchestration
+  outbound/            outbound event models and outbound queue contract
   users/               user identity domain models and storage interfaces
   conversations/       conversation models, resolver, storage, and locks
   agents/              agent boundary contracts and request/response models
   memory/              conversation memory service contracts and context models
-  messaging/           queue interfaces and in-memory queue backend
+  delivery/            delivery lifecycle models shared by outbound workers and adapters
+  messaging/           shared queue primitives and in-memory queue backend
   database/            bundled SQL migrations and database helpers
   runtime/             lifecycle helpers for background tasks
   app.py               FastAPI app factory and lifespan

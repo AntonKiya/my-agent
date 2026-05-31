@@ -1,5 +1,6 @@
+import asyncio
 from contextlib import AbstractAsyncContextManager
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import pytest
 from pydantic import SecretStr
@@ -14,6 +15,7 @@ from agent_service.channels.telegram import TelegramAdapter
 from agent_service.config import AppSettings
 from agent_service.container import AppContainer
 from agent_service.conversations import Conversation, ConversationResolverProtocol
+from agent_service.delivery import DeliveryResult, DeliveryStatus
 from agent_service.inbound import InboundIntake
 from agent_service.memory import (
     ConversationCompactionDecision,
@@ -28,7 +30,8 @@ from agent_service.memory import (
     DefaultConversationMemoryService,
     PreparedConversationContext,
 )
-from agent_service.messaging import CompactionQueue, InboundQueue, OutboundQueue
+from agent_service.messaging.interfaces import CompactionQueue, InboundQueue
+from agent_service.outbound import OutboundEvent, OutboundQueue
 from agent_service.users import PostgresConnection
 
 
@@ -90,6 +93,24 @@ class FakeCompactor:
             user_id=request.user_id,
             summary=request.previous_summary or "summary",
             last_compacted_sequence=request.last_compacted_sequence,
+        )
+
+
+class FakeDeliveryAdapter:
+    channel = "telegram"
+
+    def __init__(self) -> None:
+        self.events: list[OutboundEvent] = []
+        self.started = asyncio.Event()
+
+    async def send(self, event: OutboundEvent) -> DeliveryResult:
+        self.events.append(event)
+        self.started.set()
+        return DeliveryResult(
+            event_id=event.event_id,
+            channel=event.channel,
+            status=DeliveryStatus.SENT,
+            external_message_ids=["501"],
         )
 
 
@@ -440,6 +461,52 @@ async def test_container_starts_configured_inbound_worker_tasks(
 
     assert container.task_supervisor.task_count == 0
     assert fake_pool.closed
+
+
+async def test_container_starts_configured_delivery_worker_tasks() -> None:
+    settings = AppSettings(
+        environment="test",
+        telegram_bot_token=SecretStr("token"),
+        delivery_worker_count=3,
+        graceful_shutdown_timeout_seconds=0.1,
+    )
+    container = AppContainer(settings=settings)
+
+    await container.start()
+
+    assert container.started
+    assert container.task_supervisor.task_count == 3
+
+    await container.stop()
+
+    assert container.task_supervisor.task_count == 0
+
+
+async def test_container_stop_drains_generated_outbound_events_before_delivery_shutdown() -> None:
+    settings = AppSettings(
+        environment="test",
+        delivery_worker_count=1,
+        graceful_shutdown_timeout_seconds=0.5,
+    )
+    container = AppContainer(settings=settings)
+    adapter = FakeDeliveryAdapter()
+    container.channel_adapters.register(adapter)
+    event = OutboundEvent(
+        channel="telegram",
+        user_id=uuid4(),
+        conversation_id=uuid4(),
+        external_chat_id="12345",
+        text="generated response",
+    )
+    await container.outbound_queue.publish(event)
+
+    await container.start()
+    await container.stop()
+
+    assert adapter.events == [event]
+    assert event.status is DeliveryStatus.SENT
+    assert container.outbound_queue.stats.size == 0
+    assert container.task_supervisor.task_count == 0
 
 
 async def test_container_starts_inbound_workers_with_configured_openrouter_boundary(

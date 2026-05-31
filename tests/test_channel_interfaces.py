@@ -5,12 +5,12 @@ from agent_service.channels import (
     ChannelAdapter,
     ChannelAdapterRegistry,
     ChannelInboundNormalizer,
-    DeliveryResult,
-    DeliveryStatus,
     InboundEvent,
-    OutboundEvent,
 )
-from agent_service.messaging import InboundQueue, OutboundQueue, QueueStats
+from agent_service.delivery import DeliveryResult, DeliveryStatus
+from agent_service.messaging import QueueStats
+from agent_service.messaging.interfaces import InboundQueue
+from agent_service.outbound import OutboundEvent, OutboundQueue
 
 
 class FakeNormalizer:
@@ -63,6 +63,12 @@ class FakeInboundQueue:
     async def consume(self) -> InboundEvent:
         return self._events.pop(0)
 
+    async def acknowledge(self) -> None:
+        return None
+
+    async def join(self) -> None:
+        return None
+
     @property
     def stats(self) -> QueueStats:
         return QueueStats(
@@ -82,6 +88,12 @@ class FakeOutboundQueue:
 
     async def consume(self) -> OutboundEvent:
         return self._events.pop(0)
+
+    async def acknowledge(self) -> None:
+        return None
+
+    async def join(self) -> None:
+        return None
 
     @property
     def stats(self) -> QueueStats:

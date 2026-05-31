@@ -5,7 +5,7 @@ from dataclasses import dataclass, field
 from uuid import UUID
 
 from agent_service.agents import AgentBoundary, AgentRequest, AgentResponse
-from agent_service.channels import InboundEvent, InboundEventStatus, OutboundEvent
+from agent_service.channels import InboundEvent, InboundEventStatus
 from agent_service.conversations import (
     Conversation,
     ConversationLockManager,
@@ -18,7 +18,7 @@ from agent_service.memory import (
     ConversationMemoryService,
     PreparedConversationContext,
 )
-from agent_service.messaging import CompactionQueue, InboundQueue, OutboundQueue
+from agent_service.messaging.interfaces import CompactionQueue, InboundQueue
 from agent_service.observability.events import (
     elapsed_ms,
     log_event,
@@ -26,6 +26,7 @@ from agent_service.observability.events import (
     start_timer,
 )
 from agent_service.observability.tracing import create_trace_id, reset_trace_id, set_trace_id
+from agent_service.outbound import OutboundEvent, OutboundQueue
 
 logger = logging.getLogger(__name__)
 
@@ -73,9 +74,7 @@ class InboundWorker:
         if self.error_backoff_seconds < 0:
             raise ValueError("Inbound worker error backoff must be greater than or equal to zero")
         if self.compaction_publish_timeout_seconds < 0:
-            raise ValueError(
-                "Compaction publish timeout must be greater than or equal to zero"
-            )
+            raise ValueError("Compaction publish timeout must be greater than or equal to zero")
 
     async def run_forever(self) -> None:
         while True:
@@ -93,7 +92,10 @@ class InboundWorker:
 
     async def process_next(self) -> None:
         event = await self.inbound_queue.consume()
-        await self.process_event(event)
+        try:
+            await self.process_event(event)
+        finally:
+            await self.inbound_queue.acknowledge()
 
     async def process_event(self, event: InboundEvent) -> None:
         trace_id = event.trace_id or create_trace_id()
