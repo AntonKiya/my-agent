@@ -12,9 +12,17 @@ from agent_service.agents.models import (
     PydanticAIMessage,
     PydanticAIRunContext,
 )
+from agent_service.agents.pydantic_ai import (
+    AgentBoundaryError,
+    EmptyAgentResponseError,
+    PydanticAIAgentBoundary,
+    UnsupportedAgentRequestError,
+    build_openrouter_agent_boundary,
+)
 
 __all__ = [
     "AgentBoundary",
+    "AgentBoundaryError",
     "AgentContext",
     "AgentContextMessage",
     "AgentContextRole",
@@ -24,6 +32,10 @@ __all__ = [
     "AgentToolInfo",
     "AgentToolStatus",
     "AgentUsage",
+    "EmptyAgentResponseError",
     "PydanticAIMessage",
+    "PydanticAIAgentBoundary",
     "PydanticAIRunContext",
+    "UnsupportedAgentRequestError",
+    "build_openrouter_agent_boundary",
 ]

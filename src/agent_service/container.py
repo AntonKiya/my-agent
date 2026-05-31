@@ -6,7 +6,7 @@ import asyncpg
 import httpx
 import redis.asyncio as redis
 
-from agent_service.agents import AgentBoundary
+from agent_service.agents import AgentBoundary, build_openrouter_agent_boundary
 from agent_service.channels import ChannelAdapterRegistry, InMemoryChannelAdapterRegistry
 from agent_service.channels.telegram import TelegramAdapter
 from agent_service.config import AppSettings
@@ -104,6 +104,7 @@ class AppContainer:
     _postgres_pool: ManagedPostgresPool | None = field(default=None, init=False, repr=False)
     _redis_client: ManagedRedisClient | None = field(default=None, init=False, repr=False)
     _telegram_http_client: httpx.AsyncClient | None = field(default=None, init=False, repr=False)
+    _agent_http_client: httpx.AsyncClient | None = field(default=None, init=False, repr=False)
     _started: bool = field(default=False, init=False, repr=False)
 
     def __post_init__(self) -> None:
@@ -134,7 +135,7 @@ class AppContainer:
         )
         self.conversation_compactor = None
         self.memory_service = None
-        self.agent_boundary = None
+        self.agent_boundary = self._build_agent_boundary()
         self.channel_adapters = InMemoryChannelAdapterRegistry()
         self.telegram_adapter = self._build_telegram_adapter()
         if self.telegram_adapter is not None:
@@ -149,6 +150,8 @@ class AppContainer:
         if self._started:
             return
         try:
+            if self.agent_boundary is None:
+                self.agent_boundary = self._build_agent_boundary()
             await self._start_redis_dependencies()
             await self._start_postgres_dependencies()
             self._start_inbound_workers()
@@ -162,6 +165,11 @@ class AppContainer:
         await self.task_supervisor.stop()
         if self._telegram_http_client is not None:
             await self._telegram_http_client.aclose()
+            self._telegram_http_client = None
+        if self._agent_http_client is not None:
+            await self._agent_http_client.aclose()
+            self._agent_http_client = None
+            self.agent_boundary = None
         if self._postgres_pool is not None:
             await self._postgres_pool.close()
             self._postgres_pool = None
@@ -184,6 +192,20 @@ class AppContainer:
         return TelegramAdapter(
             bot_token=self.settings.telegram_bot_token,
             client=self._telegram_http_client,
+        )
+
+    def _build_agent_boundary(self) -> AgentBoundary | None:
+        if self.settings.agent_provider != "openrouter":
+            return None
+        if self.settings.agent_model is None or self.settings.openrouter_api_key is None:
+            return None
+
+        self._agent_http_client = httpx.AsyncClient()
+        return build_openrouter_agent_boundary(
+            model_name=self.settings.agent_model,
+            api_key=self.settings.openrouter_api_key.get_secret_value(),
+            http_client=self._agent_http_client,
+            timeout_seconds=self.settings.agent_timeout_seconds,
         )
 
     async def _start_redis_dependencies(self) -> None:

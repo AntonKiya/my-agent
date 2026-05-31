@@ -4,7 +4,7 @@ from uuid import UUID
 import pytest
 from pydantic import SecretStr
 
-from agent_service.agents import AgentRequest, AgentResponse
+from agent_service.agents import AgentRequest, AgentResponse, PydanticAIAgentBoundary
 from agent_service.channels import (
     ChannelAdapterNotFoundError,
     ChannelAdapterRegistry,
@@ -189,12 +189,76 @@ async def test_container_registers_telegram_adapter_when_token_is_configured() -
 
     assert isinstance(container.telegram_adapter, TelegramAdapter)
     assert container.channel_adapters.get("telegram") is container.telegram_adapter
+    telegram_http_client = container._telegram_http_client
 
     await container.start()
     await container.stop()
 
-    assert container._telegram_http_client is not None
-    assert container._telegram_http_client.is_closed
+    assert telegram_http_client is not None
+    assert telegram_http_client.is_closed
+    assert container._telegram_http_client is None
+
+
+async def test_container_does_not_build_agent_boundary_without_complete_agent_config() -> None:
+    settings = AppSettings(
+        environment="test",
+        agent_provider="openrouter",
+    )
+    container = AppContainer(settings=settings)
+
+    assert container.agent_boundary is None
+    assert container._agent_http_client is None
+
+    await container.start()
+
+    assert container.started
+    assert container.agent_boundary is None
+    assert container._agent_http_client is None
+
+    await container.stop()
+
+
+async def test_container_builds_openrouter_agent_boundary_when_configured() -> None:
+    settings = AppSettings(
+        environment="test",
+        agent_provider="openrouter",
+        agent_model="openai/gpt-4.1-mini",
+        openrouter_api_key=SecretStr("secret"),
+        agent_timeout_seconds=12.5,
+    )
+    container = AppContainer(settings=settings)
+
+    assert isinstance(container.agent_boundary, PydanticAIAgentBoundary)
+    assert container.agent_boundary.timeout_seconds == 12.5
+    assert container._agent_http_client is not None
+    assert not container._agent_http_client.is_closed
+
+    await container.stop()
+
+    assert container._agent_http_client is None
+    assert container.agent_boundary is None
+
+
+async def test_new_container_gets_fresh_openrouter_agent_http_client() -> None:
+    settings = AppSettings(
+        environment="test",
+        agent_provider="openrouter",
+        agent_model="openai/gpt-4.1-mini",
+        openrouter_api_key=SecretStr("secret"),
+    )
+    first_container = AppContainer(settings=settings)
+    first_http_client = first_container._agent_http_client
+
+    await first_container.stop()
+    second_container = AppContainer(settings=settings)
+
+    assert first_http_client is not None
+    assert first_http_client.is_closed
+    assert isinstance(second_container.agent_boundary, PydanticAIAgentBoundary)
+    assert second_container._agent_http_client is not None
+    assert second_container._agent_http_client is not first_http_client
+
+    await second_container.stop()
 
 
 async def test_container_wires_postgres_user_intake_when_dsn_is_configured(
@@ -371,6 +435,38 @@ async def test_container_starts_configured_inbound_worker_tasks(
 
     assert container.started
     assert container.task_supervisor.task_count == 3
+
+    await container.stop()
+
+    assert container.task_supervisor.task_count == 0
+    assert fake_pool.closed
+
+
+async def test_container_starts_inbound_workers_with_configured_openrouter_boundary(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake_pool = FakeManagedPostgresPool()
+
+    async def fake_create_pool(**kwargs: object) -> FakeManagedPostgresPool:
+        return fake_pool
+
+    monkeypatch.setattr("agent_service.container.asyncpg.create_pool", fake_create_pool)
+    settings = AppSettings(
+        environment="test",
+        postgres_dsn="postgresql://agent:secret@localhost:5432/agent",
+        agent_provider="openrouter",
+        agent_model="openai/gpt-4.1-mini",
+        openrouter_api_key=SecretStr("secret"),
+        inbound_worker_count=2,
+        graceful_shutdown_timeout_seconds=0.1,
+    )
+    container = AppContainer(settings=settings)
+
+    await container.start()
+
+    assert container.started
+    assert isinstance(container.agent_boundary, PydanticAIAgentBoundary)
+    assert container.task_supervisor.task_count == 2
 
     await container.stop()
 
