@@ -1,14 +1,21 @@
 import logging
+import os
 from importlib import import_module
 from typing import Any
 
 from fastapi import FastAPI
 
 from agent_service.config import AppSettings
+from agent_service.observability.events import (
+    disable_business_spans_for_tests,
+    enable_business_spans,
+)
 
 _logfire_configured = False
 _global_instrumentation_configured = False
 _instrumented_fastapi_apps: set[int] = set()
+_HTTPX_EXCLUDED_URLS_ENV = "OTEL_PYTHON_HTTPX_EXCLUDED_URLS"
+_TELEGRAM_BOT_API_EXCLUDED_URL_PATTERN = r"https://api\.telegram\.org/bot[^/]+/.*"
 
 
 def configure_logfire(settings: AppSettings, *, app: FastAPI | None = None) -> None:
@@ -18,6 +25,7 @@ def configure_logfire(settings: AppSettings, *, app: FastAPI | None = None) -> N
 
     logfire = _import_logfire()
     _configure_logfire_once(logfire, settings=settings, token=token)
+    enable_business_spans()
     _install_logfire_logging_handler(logfire, settings=settings)
     _configure_global_instrumentation_once(logfire)
     if app is not None:
@@ -45,6 +53,7 @@ def _configure_global_instrumentation_once(logfire: Any) -> None:
     if _global_instrumentation_configured:
         return
 
+    _exclude_sensitive_httpx_urls()
     logfire.instrument_httpx(
         capture_headers=False,
         capture_request_body=False,
@@ -54,6 +63,18 @@ def _configure_global_instrumentation_once(logfire: Any) -> None:
     logfire.instrument_redis(capture_statement=False)
     logfire.instrument_pydantic_ai(include_content=False)
     _global_instrumentation_configured = True
+
+
+def _exclude_sensitive_httpx_urls() -> None:
+    existing_value = os.environ.get(_HTTPX_EXCLUDED_URLS_ENV)
+    if existing_value is None:
+        os.environ[_HTTPX_EXCLUDED_URLS_ENV] = _TELEGRAM_BOT_API_EXCLUDED_URL_PATTERN
+        return
+
+    patterns = [pattern.strip() for pattern in existing_value.split(",") if pattern.strip()]
+    if _TELEGRAM_BOT_API_EXCLUDED_URL_PATTERN not in patterns:
+        patterns.append(_TELEGRAM_BOT_API_EXCLUDED_URL_PATTERN)
+        os.environ[_HTTPX_EXCLUDED_URLS_ENV] = ",".join(patterns)
 
 
 def _install_logfire_logging_handler(logfire: Any, *, settings: AppSettings) -> None:
@@ -94,3 +115,4 @@ def reset_logfire_integration_for_tests() -> None:
     _logfire_configured = False
     _global_instrumentation_configured = False
     _instrumented_fastapi_apps.clear()
+    disable_business_spans_for_tests()

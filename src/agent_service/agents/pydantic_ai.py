@@ -157,7 +157,9 @@ def _response_text(output: Any) -> str:
 
 
 def _agent_usage(result: PydanticAIRunResult) -> AgentUsage | None:
-    usage = result.usage()
+    usage = result.usage
+    if callable(usage):
+        usage = usage()
     input_tokens = _optional_int_attr(usage, "input_tokens")
     output_tokens = _optional_int_attr(usage, "output_tokens")
     total_tokens = _optional_int_attr(usage, "total_tokens")

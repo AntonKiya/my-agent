@@ -347,7 +347,9 @@ def _summary_version(last_compacted_sequence: int | None) -> int:
 
 def _usage_metadata(result: ConversationSummaryAgentRunResult) -> dict[str, int]:
     try:
-        usage = result.usage()
+        usage = result.usage
+        if callable(usage):
+            usage = usage()
     except Exception:
         return {}
     metadata: dict[str, int] = {}

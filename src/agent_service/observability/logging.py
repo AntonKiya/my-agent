@@ -68,6 +68,7 @@ def configure_logging(settings: AppSettings) -> None:
     root_logger.setLevel(settings.log_level)
 
     logging.getLogger("agent_service").setLevel(settings.log_level)
+    logging.getLogger("httpx").setLevel(logging.WARNING)
 
 
 def configure_observability(settings: AppSettings) -> None:

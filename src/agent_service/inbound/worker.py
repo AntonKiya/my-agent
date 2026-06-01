@@ -22,10 +22,13 @@ from agent_service.memory import (
 )
 from agent_service.messaging.interfaces import CompactionQueue, InboundQueue
 from agent_service.observability.events import (
+    attached_trace_context,
+    business_span,
     elapsed_ms,
     log_event,
     log_exception,
     start_timer,
+    store_current_trace_context,
 )
 from agent_service.observability.tracing import create_trace_id, reset_trace_id, set_trace_id
 from agent_service.outbound import OutboundEvent, OutboundQueue
@@ -98,53 +101,74 @@ class InboundWorker:
 
     async def process_next(self) -> None:
         event = await self.inbound_queue.consume()
+        with attached_trace_context(event.metadata):
+            log_event(
+                logger,
+                logging.INFO,
+                "Inbound event dequeued",
+                event="inbound_event_dequeued",
+                queue_name="inbound",
+                inbound_event_id=str(event.event_id),
+                channel=event.channel,
+                user_id=str(event.user_id) if event.user_id is not None else None,
+                queue_size=self.inbound_queue.stats.size,
+                queue_maxsize=self.inbound_queue.stats.maxsize,
+            )
         try:
             await self.process_event(event)
         finally:
             await self.inbound_queue.acknowledge()
 
     async def process_event(self, event: InboundEvent) -> None:
-        trace_id = event.trace_id or create_trace_id()
-        token = set_trace_id(trace_id)
-        event.trace_id = trace_id
-        event.status = InboundEventStatus.PROCESSING
-        await self._mark_idempotency_status(event)
-        started_at = start_timer()
-        try:
-            await self._process_event_with_trace(event)
-        except Exception:
-            if event.status is InboundEventStatus.PROCESSING:
-                event.status = InboundEventStatus.FAILED_RETRYABLE
-                with suppress(Exception):
-                    await self._mark_idempotency_status(
-                        event,
-                        failure_reason="inbound event processing failed",
-                    )
-            log_exception(
-                logger,
-                "Inbound event processing failed",
-                event="inbound_event_processing_failed",
-                inbound_event_id=str(event.event_id),
-                channel=event.channel,
-                user_id=str(event.user_id) if event.user_id is not None else None,
-                status=event.status.value,
-                duration_ms=elapsed_ms(started_at),
-            )
-            raise
-        else:
-            log_event(
-                logger,
-                logging.INFO,
-                "Inbound event processed",
-                event="inbound_event_processed",
-                inbound_event_id=str(event.event_id),
-                channel=event.channel,
-                user_id=str(event.user_id) if event.user_id is not None else None,
-                status=event.status.value,
-                duration_ms=elapsed_ms(started_at),
-            )
-        finally:
-            reset_trace_id(token)
+        with attached_trace_context(event.metadata):
+            trace_id = event.trace_id or create_trace_id()
+            token = set_trace_id(trace_id)
+            event.trace_id = trace_id
+            event.status = InboundEventStatus.PROCESSING
+            await self._mark_idempotency_status(event)
+            started_at = start_timer()
+            try:
+                with business_span(
+                    "Process inbound event",
+                    event="inbound_event_processing",
+                    inbound_event_id=str(event.event_id),
+                    channel=event.channel,
+                    user_id=str(event.user_id) if event.user_id is not None else None,
+                ):
+                    await self._process_event_with_trace(event)
+            except Exception:
+                if event.status is InboundEventStatus.PROCESSING:
+                    event.status = InboundEventStatus.FAILED_RETRYABLE
+                    with suppress(Exception):
+                        await self._mark_idempotency_status(
+                            event,
+                            failure_reason="inbound event processing failed",
+                        )
+                log_exception(
+                    logger,
+                    "Inbound event processing failed",
+                    event="inbound_event_processing_failed",
+                    inbound_event_id=str(event.event_id),
+                    channel=event.channel,
+                    user_id=str(event.user_id) if event.user_id is not None else None,
+                    status=event.status.value,
+                    duration_ms=elapsed_ms(started_at),
+                )
+                raise
+            else:
+                log_event(
+                    logger,
+                    logging.INFO,
+                    "Inbound event processed",
+                    event="inbound_event_processed",
+                    inbound_event_id=str(event.event_id),
+                    channel=event.channel,
+                    user_id=str(event.user_id) if event.user_id is not None else None,
+                    status=event.status.value,
+                    duration_ms=elapsed_ms(started_at),
+                )
+            finally:
+                reset_trace_id(token)
 
     async def _process_event_with_trace(self, event: InboundEvent) -> None:
         if event.user_id is None:
@@ -155,7 +179,25 @@ class InboundWorker:
             )
             raise UnresolvedInboundEventError("Inbound worker requires event.user_id")
 
-        conversation = await self.conversation_resolver.resolve(event)
+        with business_span(
+            "Resolve conversation",
+            event="conversation_resolution",
+            inbound_event_id=str(event.event_id),
+            channel=event.channel,
+            user_id=str(event.user_id),
+        ):
+            conversation = await self.conversation_resolver.resolve(event)
+            log_event(
+                logger,
+                logging.INFO,
+                "Conversation resolved",
+                event="conversation_resolved",
+                inbound_event_id=str(event.event_id),
+                conversation_id=str(conversation.id),
+                user_id=str(conversation.user_id),
+                channel=conversation.channel,
+                conversation_type=conversation.type.value,
+            )
         async with self.lock_manager.acquire(conversation.id):
             lock_started_at = start_timer()
             log_event(
@@ -167,14 +209,50 @@ class InboundWorker:
                 user_id=str(conversation.user_id),
                 inbound_event_id=str(event.event_id),
             )
-            user_message = await self.memory_service.record_user_message(
-                conversation=conversation,
-                event=event,
-            )
-            prepared_context = await self.memory_service.prepare_agent_context(
-                conversation=conversation,
-                latest_user_message=user_message,
-            )
+            with business_span(
+                "Record user message",
+                event="memory_user_message_recording",
+                inbound_event_id=str(event.event_id),
+                conversation_id=str(conversation.id),
+                user_id=str(conversation.user_id),
+            ):
+                user_message = await self.memory_service.record_user_message(
+                    conversation=conversation,
+                    event=event,
+                )
+                log_event(
+                    logger,
+                    logging.INFO,
+                    "User message recorded",
+                    event="memory_user_message_recorded",
+                    inbound_event_id=str(event.event_id),
+                    conversation_id=str(conversation.id),
+                    user_id=str(conversation.user_id),
+                    message_id=str(user_message.id),
+                    sequence=user_message.sequence,
+                )
+            with business_span(
+                "Prepare agent context",
+                event="agent_context_preparation",
+                inbound_event_id=str(event.event_id),
+                conversation_id=str(conversation.id),
+                user_id=str(conversation.user_id),
+            ):
+                prepared_context = await self.memory_service.prepare_agent_context(
+                    conversation=conversation,
+                    latest_user_message=user_message,
+                )
+                log_event(
+                    logger,
+                    logging.INFO,
+                    "Agent context prepared",
+                    event="agent_context_prepared",
+                    inbound_event_id=str(event.event_id),
+                    conversation_id=str(conversation.id),
+                    user_id=str(conversation.user_id),
+                    snapshot_source=prepared_context.metadata.get("snapshot_source"),
+                    snapshot_version=prepared_context.metadata.get("snapshot_version"),
+                )
             try:
                 response = await self._run_agent_with_retry(
                     request=self._agent_request(
@@ -214,25 +292,32 @@ class InboundWorker:
                 inbound_event=event,
                 conversation_id=conversation.id,
             )
-            await self.memory_service.record_assistant_message(
-                conversation=conversation,
-                response=response,
-                trace_id=response.trace_id or event.trace_id,
-                outbound_event_id=outbound_event.event_id,
-            )
-            log_event(
-                logger,
-                logging.INFO,
-                "Outbound event published",
-                event="outbound_event_published",
+            with business_span(
+                "Record assistant message",
+                event="memory_assistant_message_recording",
                 inbound_event_id=str(event.event_id),
                 outbound_event_id=str(outbound_event.event_id),
                 conversation_id=str(conversation.id),
-                user_id=str(event.user_id),
-                channel=outbound_event.channel,
-                queue_size=self.outbound_queue.stats.size,
-                queue_maxsize=self.outbound_queue.stats.maxsize,
-            )
+                user_id=str(conversation.user_id),
+            ):
+                assistant_message = await self.memory_service.record_assistant_message(
+                    conversation=conversation,
+                    response=response,
+                    trace_id=response.trace_id or event.trace_id,
+                    outbound_event_id=outbound_event.event_id,
+                )
+                log_event(
+                    logger,
+                    logging.INFO,
+                    "Assistant message recorded",
+                    event="memory_assistant_message_recorded",
+                    inbound_event_id=str(event.event_id),
+                    outbound_event_id=str(outbound_event.event_id),
+                    conversation_id=str(conversation.id),
+                    user_id=str(conversation.user_id),
+                    message_id=str(assistant_message.id),
+                    sequence=assistant_message.sequence,
+                )
             event.status = InboundEventStatus.COMPLETED
             await self._mark_idempotency_status(event)
             await self._schedule_compaction_if_needed(event=event, conversation=conversation)
@@ -248,43 +333,63 @@ class InboundWorker:
             )
 
     async def _run_agent_with_retry(self, *, request: AgentRequest) -> AgentResponse:
-        for attempt_number in range(1, self.retry_policy.max_attempts + 1):
-            started_at = start_timer()
-            try:
-                response = await self.agent_boundary.run(request)
-                log_event(
-                    logger,
-                    logging.INFO,
-                    "Agent run completed",
-                    event="agent_run_completed",
-                    inbound_event_id=str(request.inbound_event_id),
-                    conversation_id=str(request.conversation_id),
-                    user_id=str(request.user_id),
-                    channel=request.channel,
-                    attempt=attempt_number,
-                    duration_ms=elapsed_ms(started_at),
-                )
-                return response
-            except Exception as exc:
-                if attempt_number >= self.retry_policy.max_attempts:
-                    raise
-                request.metadata["retry_attempt"] = attempt_number
-                delay_seconds = self.retry_policy.delay_for_attempt(attempt_number)
-                log_event(
-                    logger,
-                    logging.WARNING,
-                    "Agent run attempt failed and will be retried",
-                    event="agent_run_retry_scheduled",
-                    inbound_event_id=str(request.inbound_event_id),
-                    conversation_id=str(request.conversation_id),
-                    user_id=str(request.user_id),
-                    channel=request.channel,
-                    attempt=attempt_number,
-                    error_type=type(exc).__name__,
-                    delay_seconds=delay_seconds,
-                    duration_ms=elapsed_ms(started_at),
-                )
-                await self.sleep(delay_seconds)
+        with business_span(
+            "Run agent",
+            event="agent_run",
+            inbound_event_id=str(request.inbound_event_id),
+            conversation_id=str(request.conversation_id),
+            user_id=str(request.user_id),
+            channel=request.channel,
+        ):
+            for attempt_number in range(1, self.retry_policy.max_attempts + 1):
+                started_at = start_timer()
+                try:
+                    response = await self.agent_boundary.run(request)
+                    log_event(
+                        logger,
+                        logging.INFO,
+                        "Agent run completed",
+                        event="agent_run_completed",
+                        inbound_event_id=str(request.inbound_event_id),
+                        conversation_id=str(request.conversation_id),
+                        user_id=str(request.user_id),
+                        channel=request.channel,
+                        attempt=attempt_number,
+                        duration_ms=elapsed_ms(started_at),
+                    )
+                    return response
+                except Exception as exc:
+                    if attempt_number >= self.retry_policy.max_attempts:
+                        log_exception(
+                            logger,
+                            "Agent run failed after final attempt",
+                            event="agent_run_failed",
+                            inbound_event_id=str(request.inbound_event_id),
+                            conversation_id=str(request.conversation_id),
+                            user_id=str(request.user_id),
+                            channel=request.channel,
+                            attempt=attempt_number,
+                            error_type=type(exc).__name__,
+                            duration_ms=elapsed_ms(started_at),
+                        )
+                        raise
+                    request.metadata["retry_attempt"] = attempt_number
+                    delay_seconds = self.retry_policy.delay_for_attempt(attempt_number)
+                    log_event(
+                        logger,
+                        logging.WARNING,
+                        "Agent run attempt failed and will be retried",
+                        event="agent_run_retry_scheduled",
+                        inbound_event_id=str(request.inbound_event_id),
+                        conversation_id=str(request.conversation_id),
+                        user_id=str(request.user_id),
+                        channel=request.channel,
+                        attempt=attempt_number,
+                        error_type=type(exc).__name__,
+                        delay_seconds=delay_seconds,
+                        duration_ms=elapsed_ms(started_at),
+                    )
+                    await self.sleep(delay_seconds)
         raise RuntimeError("Agent retry loop exited without a response")
 
     def _agent_request(
@@ -342,12 +447,24 @@ class InboundWorker:
         conversation_id: UUID,
     ) -> None:
         if self.outbound_publish_timeout_seconds == 0:
+            store_current_trace_context(outbound_event.metadata)
             await self.outbound_queue.publish(outbound_event)
+            self._log_outbound_published(
+                outbound_event,
+                inbound_event=inbound_event,
+                conversation_id=conversation_id,
+            )
             return
         try:
+            store_current_trace_context(outbound_event.metadata)
             await asyncio.wait_for(
                 self.outbound_queue.publish(outbound_event),
                 timeout=self.outbound_publish_timeout_seconds,
+            )
+            self._log_outbound_published(
+                outbound_event,
+                inbound_event=inbound_event,
+                conversation_id=conversation_id,
             )
         except TimeoutError as exc:
             log_event(
@@ -367,6 +484,28 @@ class InboundWorker:
                 publish_timeout_seconds=self.outbound_publish_timeout_seconds,
             )
             raise OutboundOverloadedError("Outbound queue publish timed out") from exc
+
+    def _log_outbound_published(
+        self,
+        outbound_event: OutboundEvent,
+        *,
+        inbound_event: InboundEvent,
+        conversation_id: UUID,
+    ) -> None:
+        log_event(
+            logger,
+            logging.INFO,
+            "Outbound event published",
+            event="outbound_event_published",
+            queue_name="outbound",
+            inbound_event_id=str(inbound_event.event_id),
+            outbound_event_id=str(outbound_event.event_id),
+            conversation_id=str(conversation_id),
+            user_id=str(inbound_event.user_id) if inbound_event.user_id is not None else None,
+            channel=outbound_event.channel,
+            queue_size=self.outbound_queue.stats.size,
+            queue_maxsize=self.outbound_queue.stats.maxsize,
+        )
 
     async def _publish_fallback_event(
         self,
@@ -396,6 +535,7 @@ class InboundWorker:
             logging.WARNING,
             "Fallback outbound event published",
             event="fallback_outbound_event_published",
+            queue_name="outbound",
             inbound_event_id=str(event.event_id),
             outbound_event_id=str(outbound_event.event_id),
             conversation_id=str(conversation_id),
@@ -437,6 +577,7 @@ class InboundWorker:
             },
         )
         try:
+            store_current_trace_context(job.metadata)
             if self.compaction_publish_timeout_seconds == 0:
                 await self.compaction_queue.publish(job)
             else:
@@ -449,6 +590,7 @@ class InboundWorker:
                 logging.INFO,
                 "Conversation compaction scheduled",
                 event="conversation_compaction_scheduled",
+                queue_name="compaction",
                 conversation_id=str(conversation.id),
                 user_id=str(conversation.user_id),
                 inbound_event_id=str(event.event_id),

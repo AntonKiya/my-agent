@@ -204,7 +204,7 @@ Settings are loaded from environment variables with the `AGENT_SERVICE_` prefix.
 Common production baseline settings:
 
 ```text
-AGENT_SERVICE_SERVICE_NAME=agent-service
+AGENT_SERVICE_SERVICE_NAME=my-agent
 AGENT_SERVICE_ENVIRONMENT=prod
 AGENT_SERVICE_DEBUG=false
 AGENT_SERVICE_HOST=0.0.0.0

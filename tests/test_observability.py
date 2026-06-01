@@ -1,5 +1,6 @@
 import json
 import logging
+import os
 from typing import Any
 
 import pytest
@@ -165,6 +166,7 @@ def test_configure_logfire_installs_safe_instrumentation_once(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     reset_logfire_integration_for_tests()
+    monkeypatch.delenv("OTEL_PYTHON_HTTPX_EXCLUDED_URLS", raising=False)
     fake_logfire = FakeLogfire()
     app = FastAPI()
     settings = AppSettings(
@@ -198,6 +200,9 @@ def test_configure_logfire_installs_safe_instrumentation_once(
             "capture_request_body": False,
             "capture_response_body": False,
         }
+    ]
+    assert "https://api\\.telegram\\.org/bot[^/]+/.*" in os.environ[
+        "OTEL_PYTHON_HTTPX_EXCLUDED_URLS"
     ]
     assert fake_logfire.asyncpg_calls == [{"capture_parameters": False}]
     assert fake_logfire.redis_calls == [{"capture_statement": False}]

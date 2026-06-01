@@ -18,7 +18,7 @@ class AppSettings(BaseSettings):
         extra="ignore",
     )
 
-    service_name: str = "agent-service"
+    service_name: str = "my-agent"
     environment: Environment = "local"
     debug: bool = False
     host: str = "0.0.0.0"

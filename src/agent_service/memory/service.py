@@ -31,6 +31,7 @@ from agent_service.memory.models import (
     ConversationSummary,
     PreparedConversationContext,
 )
+from agent_service.observability.events import TRACE_CONTEXT_METADATA_KEY
 from agent_service.memory.pydantic_ai import pydantic_ai_history_from_memory
 
 logger = logging.getLogger(__name__)
@@ -85,7 +86,11 @@ class DefaultConversationMemoryService(ConversationMemoryService):
                     "thread_id": event.thread_id,
                     "reply_to_message_id": event.reply_to_message_id,
                     "channel_metadata": event.channel_metadata,
-                    "metadata": event.metadata,
+                    "metadata": {
+                        key: value
+                        for key, value in event.metadata.items()
+                        if key != TRACE_CONTEXT_METADATA_KEY
+                    },
                 },
                 created_at=event.received_at,
             )
