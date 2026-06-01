@@ -5,7 +5,8 @@ from dataclasses import dataclass, field
 
 from agent_service.conversations import ConversationLockManager
 from agent_service.memory.interfaces import ConversationCompactor, ConversationMemoryService
-from agent_service.memory.models import ConversationCompactionJob
+from agent_service.memory.models import ConversationCompactionJob, ConversationCompactionResult
+from agent_service.memory.tokens import estimate_messages_tokens, usage_token_count
 from agent_service.messaging.interfaces import CompactionQueue
 from agent_service.observability.events import (
     attached_trace_context,
@@ -165,7 +166,43 @@ class ConversationCompactionWorker:
                 compaction_job_id=str(job.event_id),
                 compact_through_sequence=job.compact_through_sequence,
                 request_message_count=len(request.messages),
-                input_token_count=sum(message.token_count or 0 for message in request.messages),
+                input_token_count=_compaction_usage_input_token_count(result, job=job),
+                estimated_input_token_count=estimate_messages_tokens(request.messages),
                 output_token_count=result.token_count,
                 compactor_duration_ms=compactor_duration_ms,
             )
+
+
+def _compaction_usage_input_token_count(
+    result: ConversationCompactionResult,
+    *,
+    job: ConversationCompactionJob,
+) -> int | None:
+    usage = result.metadata.get("usage")
+    if not isinstance(usage, dict):
+        _log_compaction_usage_missing(result, job=job, missing_reason="usage_metadata_missing")
+        return None
+    input_token_count = usage_token_count(usage, "input_tokens")
+    if input_token_count is None:
+        _log_compaction_usage_missing(result, job=job, missing_reason="input_tokens_missing")
+    return input_token_count
+
+
+def _log_compaction_usage_missing(
+    result: ConversationCompactionResult,
+    *,
+    job: ConversationCompactionJob,
+    missing_reason: str,
+) -> None:
+    log_event(
+        logger,
+        logging.WARNING,
+        "Conversation compaction input usage is missing",
+        event="conversation_compaction_input_usage_missing",
+        conversation_id=str(job.conversation.id),
+        user_id=str(job.conversation.user_id),
+        compaction_job_id=str(job.event_id),
+        compact_through_sequence=job.compact_through_sequence,
+        missing_reason=missing_reason,
+        output_token_count=result.token_count,
+    )

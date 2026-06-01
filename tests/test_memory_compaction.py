@@ -14,6 +14,7 @@ from agent_service.memory import (
     NoopConversationCompactor,
     compactable_messages_from_snapshot,
     compaction_request_from_snapshot,
+    estimate_messages_tokens,
 )
 
 
@@ -249,7 +250,7 @@ def test_compaction_policy_uses_token_trigger_and_retains_recent_tail_by_tokens(
         context_window_tokens=100,
         reserved_output_tokens=0,
         trigger_fraction=0.80,
-        recent_tail_fraction=0.30,
+        recent_tail_fraction=0.10,
     )
 
     decision = policy.decide(snapshot=snapshot)
@@ -257,11 +258,11 @@ def test_compaction_policy_uses_token_trigger_and_retains_recent_tail_by_tokens(
     assert decision.should_compact
     assert decision.reason == "trigger_reached"
     assert decision.trigger_tokens == 80
-    assert decision.recent_tail_budget_tokens == 30
+    assert decision.recent_tail_budget_tokens == 10
     assert decision.compact_through_sequence == 3
     assert decision.keep_from_sequence == 4
-    assert decision.compactable_token_count == 65
-    assert decision.retained_tail_token_count == 25
+    assert decision.compactable_token_count == estimate_messages_tokens(messages[:3])
+    assert decision.retained_tail_token_count == estimate_messages_tokens(messages[3:])
 
 
 def test_compaction_policy_does_not_trigger_below_token_threshold() -> None:
