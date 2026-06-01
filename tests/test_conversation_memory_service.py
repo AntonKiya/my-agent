@@ -17,6 +17,7 @@ from agent_service.memory import (
     ConversationMemoryServiceError,
     ConversationSummary,
     DefaultConversationMemoryService,
+    estimate_message_tokens,
 )
 
 
@@ -298,7 +299,7 @@ async def test_memory_service_extends_compacted_snapshot_without_losing_summary_
     assert saved_snapshot.summary == "compressed old context"
     assert saved_snapshot.recent_messages == [stored]
     assert saved_snapshot.last_seen_sequence == 3
-    assert saved_snapshot.token_count == 11
+    assert saved_snapshot.token_count == 11 + estimate_message_tokens(stored)
 
 
 async def test_memory_service_uses_fresh_snapshot_without_reloading_history() -> None:
@@ -444,7 +445,7 @@ async def test_memory_service_rebuilds_snapshot_from_latest_summary_and_recent_t
     assert prepared.snapshot.last_compacted_sequence == 2
     assert prepared.snapshot.last_seen_message_id == recent.id
     assert prepared.snapshot.last_seen_sequence == 3
-    assert prepared.snapshot.token_count == 18
+    assert prepared.snapshot.token_count == 11 + estimate_message_tokens(recent)
     assert prepared.agent_context.system_prompt_parts == ["compressed old context"]
     assert prepared.pydantic_ai.instructions == "compressed old context"
 
@@ -585,11 +586,47 @@ async def test_memory_service_records_assistant_message_with_usage_and_tool_info
 
     assert stored.sequence == 1
     assert stored.role is ConversationMemoryRole.ASSISTANT
-    assert stored.token_count == 5
+    assert stored.token_count is None
     assert stored.trace_id == "trace-response"
     assert stored.metadata["model"] == "test"
     assert stored.metadata["usage"]["output_tokens"] == 5
     assert stored.metadata["tool_info"][0]["tool_name"] == "search"
+
+
+async def test_memory_service_uses_latest_assistant_usage_for_snapshot_tokens() -> None:
+    resolved_conversation = conversation()
+    latest_user = memory_message(
+        resolved_conversation=resolved_conversation,
+        role=ConversationMemoryRole.USER,
+        sequence=1,
+        text="latest",
+    )
+    memory_store = FakeMemoryStore(messages={resolved_conversation.id: [latest_user]})
+    snapshot_store = FakeSnapshotStore(
+        snapshots={
+            resolved_conversation.id: ConversationContextSnapshot(
+                conversation_id=resolved_conversation.id,
+                user_id=resolved_conversation.user_id,
+                recent_messages=[latest_user],
+                last_seen_message_id=latest_user.id,
+                last_seen_sequence=1,
+                token_count=estimate_message_tokens(latest_user),
+            )
+        }
+    )
+    service = DefaultConversationMemoryService(memory_store, snapshot_store)
+
+    stored = await service.record_assistant_message(
+        conversation=resolved_conversation,
+        response=AgentResponse(
+            text="answer",
+            usage=AgentUsage(input_tokens=41, output_tokens=9, total_tokens=50),
+        ),
+    )
+
+    saved_snapshot = snapshot_store.save_calls[-1]
+    assert saved_snapshot.recent_messages == [latest_user, stored]
+    assert saved_snapshot.token_count == 50
 
 
 async def test_memory_service_prepares_compaction_request_from_memory_state() -> None:
@@ -700,7 +737,10 @@ async def test_memory_service_records_compaction_result_and_updates_hot_snapshot
         last_compacted_message_id=second.id,
         last_compacted_sequence=2,
         token_count=8,
-        metadata={"model": "summary-model"},
+        metadata={
+            "model": "summary-model",
+            "usage": {"input_tokens": 22, "output_tokens": 8, "total_tokens": 30},
+        },
         created_at=datetime(2026, 5, 30, 12, 30, tzinfo=UTC),
     )
 
@@ -725,7 +765,7 @@ async def test_memory_service_records_compaction_result_and_updates_hot_snapshot
     assert saved_snapshot.last_compacted_sequence == 2
     assert saved_snapshot.last_seen_message_id == recent.id
     assert saved_snapshot.last_seen_sequence == 3
-    assert saved_snapshot.token_count == 13
+    assert saved_snapshot.token_count == 8 + estimate_message_tokens(recent)
     assert saved_snapshot.metadata["latest_summary_id"] == str(summary.id)
 
 
@@ -835,7 +875,7 @@ async def test_memory_service_evaluates_compaction_policy_from_fresh_snapshot() 
         context_window_tokens=100,
         reserved_output_tokens=0,
         trigger_fraction=0.80,
-        recent_tail_fraction=0.30,
+        recent_tail_fraction=0.10,
     )
 
     decision = await service.evaluate_compaction(

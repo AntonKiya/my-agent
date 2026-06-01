@@ -59,6 +59,14 @@ from agent_service.memory.summary import (
     render_summary_user_prompt,
     render_transcript,
 )
+from agent_service.memory.tokens import (
+    DEFAULT_TOKEN_ENCODING,
+    estimate_message_tokens,
+    estimate_messages_tokens,
+    estimate_text_tokens,
+    usage_token_count,
+    usage_total_token_count,
+)
 from agent_service.memory.worker import ConversationCompactionWorker
 
 __all__ = [
@@ -108,4 +116,10 @@ __all__ = [
     "RedisClient",
     "RedisConversationContextSnapshotStore",
     "RedisSnapshotError",
+    "DEFAULT_TOKEN_ENCODING",
+    "estimate_text_tokens",
+    "estimate_message_tokens",
+    "estimate_messages_tokens",
+    "usage_token_count",
+    "usage_total_token_count",
 ]

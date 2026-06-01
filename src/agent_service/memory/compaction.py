@@ -9,6 +9,7 @@ from agent_service.memory.models import (
     ConversationMemoryMessage,
     ConversationMemoryRole,
 )
+from agent_service.memory.tokens import estimate_message_tokens, estimate_messages_tokens
 
 COMPACTABLE_ROLES = frozenset(
     {
@@ -105,33 +106,39 @@ class ConversationCompactionPolicy:
             return ConversationCompactionDecision(
                 should_compact=False,
                 reason="not_enough_compactable_messages",
-                compactable_token_count=_messages_token_count(compactable_messages),
+                compactable_token_count=estimate_messages_tokens(compactable_messages),
                 **base,
             )
 
+        context_messages = context_messages_from_snapshot(snapshot)
         retained_tail = _retained_tail_by_token_budget(
-            compactable_messages,
+            context_messages,
             token_budget=self.recent_tail_budget_tokens,
         )
-        compact_prefix = compactable_messages[: len(compactable_messages) - len(retained_tail)]
+        keep_from_sequence = retained_tail[0].sequence if retained_tail else None
+        compact_prefix = [
+            message
+            for message in compactable_messages
+            if keep_from_sequence is None
+            or (message.sequence is not None and message.sequence < keep_from_sequence)
+        ]
         if not compact_prefix:
             return ConversationCompactionDecision(
                 should_compact=False,
                 reason="nothing_before_recent_tail",
-                compactable_token_count=_messages_token_count(compactable_messages),
-                retained_tail_token_count=_messages_token_count(retained_tail),
+                compactable_token_count=estimate_messages_tokens(compactable_messages),
+                retained_tail_token_count=estimate_messages_tokens(retained_tail),
                 **base,
             )
 
         last_compacted = compact_prefix[-1]
-        first_retained = retained_tail[0] if retained_tail else None
         return ConversationCompactionDecision(
             should_compact=True,
             reason="trigger_reached",
             compact_through_sequence=last_compacted.sequence,
-            keep_from_sequence=first_retained.sequence if first_retained is not None else None,
-            compactable_token_count=_messages_token_count(compact_prefix),
-            retained_tail_token_count=_messages_token_count(retained_tail),
+            keep_from_sequence=keep_from_sequence,
+            compactable_token_count=estimate_messages_tokens(compact_prefix),
+            retained_tail_token_count=estimate_messages_tokens(retained_tail),
             **base,
         )
 
@@ -146,6 +153,17 @@ def compactable_messages_from_snapshot(
         if message.role in COMPACTABLE_ROLES
         and message.sequence is not None
         and message.sequence > last_compacted_sequence
+    ]
+
+
+def context_messages_from_snapshot(
+    snapshot: ConversationContextSnapshot,
+) -> list[ConversationMemoryMessage]:
+    last_compacted_sequence = snapshot.last_compacted_sequence or 0
+    return [
+        message
+        for message in snapshot.recent_messages
+        if message.sequence is not None and message.sequence > last_compacted_sequence
     ]
 
 
@@ -187,14 +205,10 @@ def _retained_tail_by_token_budget(
     retained: list[ConversationMemoryMessage] = []
     total = 0
     for message in reversed(messages):
-        token_count = message.token_count or 0
+        token_count = estimate_message_tokens(message)
         if retained and total + token_count > token_budget:
             break
         retained.append(message)
         total += token_count
     retained.reverse()
     return retained
-
-
-def _messages_token_count(messages: list[ConversationMemoryMessage]) -> int:
-    return sum(message.token_count or 0 for message in messages)

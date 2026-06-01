@@ -31,8 +31,14 @@ from agent_service.memory.models import (
     ConversationSummary,
     PreparedConversationContext,
 )
-from agent_service.observability.events import TRACE_CONTEXT_METADATA_KEY
 from agent_service.memory.pydantic_ai import pydantic_ai_history_from_memory
+from agent_service.memory.tokens import (
+    estimate_messages_tokens,
+    estimate_text_tokens,
+    usage_token_count,
+    usage_total_token_count,
+)
+from agent_service.observability.events import TRACE_CONTEXT_METADATA_KEY, log_event
 
 logger = logging.getLogger(__name__)
 
@@ -186,7 +192,6 @@ class DefaultConversationMemoryService(ConversationMemoryService):
                 text=response.text,
                 outbound_event_id=outbound_event_id,
                 trace_id=trace_id or response.trace_id,
-                token_count=response.usage.output_tokens if response.usage is not None else None,
                 metadata=metadata,
             )
         )
@@ -348,8 +353,14 @@ class DefaultConversationMemoryService(ConversationMemoryService):
                 "recent_messages": recent_messages,
                 "last_seen_message_id": message.id,
                 "last_seen_sequence": message.sequence,
-                "token_count": _snapshot_summary_token_count(snapshot)
-                + _token_count(recent_messages),
+                "token_count": _snapshot_context_token_count(
+                    conversation_id=message.conversation_id,
+                    user_id=message.user_id,
+                    messages=recent_messages,
+                    summary_token_count=_snapshot_summary_token_count(snapshot),
+                    summary_created_at=_snapshot_summary_created_at(snapshot),
+                    fallback_reason="assistant_usage_missing_after_snapshot_extend",
+                ),
                 "updated_at": _utc_now(),
             }
         )
@@ -429,7 +440,14 @@ class DefaultConversationMemoryService(ConversationMemoryService):
                 "recent_messages": recent_messages,
                 "last_compacted_message_id": summary.last_compacted_message_id,
                 "last_compacted_sequence": summary.to_sequence,
-                "token_count": summary.output_token_count + _token_count(recent_messages),
+                "token_count": _snapshot_context_token_count(
+                    conversation_id=summary.conversation_id,
+                    user_id=summary.user_id,
+                    messages=recent_messages,
+                    summary_token_count=summary.output_token_count,
+                    summary_created_at=summary.created_at,
+                    fallback_reason="assistant_usage_missing_after_compaction",
+                ),
                 "metadata": {
                     **snapshot.metadata,
                     "latest_summary_id": str(summary.id),
@@ -530,8 +548,14 @@ def _snapshot_from_messages(
         last_compacted_sequence=summary.to_sequence if summary is not None else None,
         last_seen_sequence=current_sequence,
         version=CONTEXT_SNAPSHOT_VERSION,
-        token_count=(summary.output_token_count if summary is not None else 0)
-        + _token_count(messages),
+        token_count=_snapshot_context_token_count(
+            conversation_id=conversation.id,
+            user_id=conversation.user_id,
+            messages=messages,
+            summary_token_count=summary.output_token_count if summary is not None else 0,
+            summary_created_at=summary.created_at if summary is not None else None,
+            fallback_reason="assistant_usage_missing_during_snapshot_rebuild",
+        ),
         metadata=(
             {
                 "latest_summary_id": str(summary.id),
@@ -573,6 +597,30 @@ def _summary_from_compaction_result(
         message.id for message in compacted_messages
     ]
     model = result.metadata.get("model")
+    usage = result.metadata.get("usage")
+    input_token_count = (
+        usage_token_count(usage, "input_tokens")
+        if isinstance(usage, dict)
+        else None
+    )
+    output_token_count = (
+        usage_token_count(usage, "output_tokens")
+        if isinstance(usage, dict)
+        else None
+    )
+    if input_token_count is None or output_token_count is None:
+        log_event(
+            logger,
+            logging.WARNING,
+            "Conversation compaction usage is missing and will use fallback counters",
+            event="conversation_compaction_usage_fallback",
+            conversation_id=str(conversation.id),
+            user_id=str(conversation.user_id),
+            missing_input_tokens=input_token_count is None,
+            missing_output_tokens=output_token_count is None,
+            result_token_count=result.token_count,
+            compacted_message_count=len(compacted_messages),
+        )
     return ConversationSummary(
         conversation_id=conversation.id,
         user_id=conversation.user_id,
@@ -582,8 +630,14 @@ def _summary_from_compaction_result(
         summary=result.summary,
         compacted_message_ids=compacted_message_ids,
         last_compacted_message_id=result.last_compacted_message_id,
-        input_token_count=_token_count(compacted_messages),
-        output_token_count=result.token_count,
+        input_token_count=(
+            input_token_count
+            if input_token_count is not None
+            else estimate_messages_tokens(compacted_messages)
+        ),
+        output_token_count=(
+            output_token_count if output_token_count is not None else result.token_count
+        ),
         model=model if isinstance(model, str) else None,
         trace_id=trace_id,
         metadata={
@@ -644,15 +698,83 @@ def _message_text(message: ConversationMemoryMessage) -> str:
     return "[empty message]"
 
 
-def _token_count(messages: list[ConversationMemoryMessage]) -> int:
-    return sum(message.token_count or 0 for message in messages)
+def _snapshot_context_token_count(
+    *,
+    conversation_id: UUID,
+    user_id: UUID,
+    messages: list[ConversationMemoryMessage],
+    summary_token_count: int = 0,
+    summary_created_at: datetime | None = None,
+    fallback_reason: str,
+) -> int:
+    latest_usage = _latest_assistant_usage(messages, summary_created_at=summary_created_at)
+    if latest_usage is not None:
+        message_index, usage_token_count_value = latest_usage
+        return usage_token_count_value + estimate_messages_tokens(messages[message_index + 1 :])
+
+    estimated_messages_token_count = estimate_messages_tokens(messages)
+    if any(message.role is ConversationMemoryRole.ASSISTANT for message in messages):
+        log_event(
+            logger,
+            logging.WARNING,
+            "Conversation context token count fell back to local estimate",
+            event="conversation_context_token_usage_fallback",
+            conversation_id=str(conversation_id),
+            user_id=str(user_id),
+            fallback_reason=fallback_reason,
+            summary_token_count=summary_token_count,
+            estimated_messages_token_count=estimated_messages_token_count,
+            message_count=len(messages),
+        )
+    return summary_token_count + estimated_messages_token_count
 
 
 def _snapshot_summary_token_count(snapshot: ConversationContextSnapshot) -> int:
     value = snapshot.metadata.get("latest_summary_token_count")
     if isinstance(value, int):
         return value
-    return max(snapshot.token_count - _token_count(snapshot.recent_messages), 0)
+    if snapshot.summary:
+        log_event(
+            logger,
+            logging.WARNING,
+            "Conversation summary token count is missing and will use local estimate",
+            event="conversation_summary_token_count_fallback",
+            conversation_id=str(snapshot.conversation_id),
+            user_id=str(snapshot.user_id),
+            snapshot_version=snapshot.version,
+            last_compacted_sequence=snapshot.last_compacted_sequence,
+        )
+    return estimate_text_tokens(snapshot.summary)
+
+
+def _snapshot_summary_created_at(snapshot: ConversationContextSnapshot) -> datetime | None:
+    value = snapshot.metadata.get("latest_summary_created_at")
+    if not isinstance(value, str):
+        return None
+    try:
+        return datetime.fromisoformat(value)
+    except ValueError:
+        return None
+
+
+def _latest_assistant_usage(
+    messages: list[ConversationMemoryMessage],
+    *,
+    summary_created_at: datetime | None,
+) -> tuple[int, int] | None:
+    for index in range(len(messages) - 1, -1, -1):
+        message = messages[index]
+        if message.role is not ConversationMemoryRole.ASSISTANT:
+            continue
+        if summary_created_at is not None and message.created_at <= summary_created_at:
+            continue
+        usage = message.metadata.get("usage")
+        if not isinstance(usage, dict):
+            continue
+        total_tokens = usage_total_token_count(usage)
+        if total_tokens is not None:
+            return index, total_tokens
+    return None
 
 
 def _utc_now() -> datetime:
