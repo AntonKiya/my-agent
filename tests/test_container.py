@@ -1,5 +1,6 @@
 import asyncio
 from contextlib import AbstractAsyncContextManager
+from typing import Any, cast
 from uuid import UUID, uuid4
 
 import pytest
@@ -208,19 +209,64 @@ async def test_container_tracks_lifecycle_state() -> None:
 
 
 async def test_container_registers_telegram_adapter_when_token_is_configured() -> None:
-    settings = AppSettings(environment="test", telegram_bot_token=SecretStr("token"))
+    settings = AppSettings(
+        environment="test",
+        telegram_bot_token=SecretStr("token"),
+        telegram_http_connect_timeout_seconds=11.0,
+        telegram_http_read_timeout_seconds=31.0,
+        telegram_http_write_timeout_seconds=12.0,
+        telegram_http_pool_timeout_seconds=13.0,
+    )
     container = AppContainer(settings=settings)
 
     assert isinstance(container.telegram_adapter, TelegramAdapter)
     assert container.channel_adapters.get("telegram") is container.telegram_adapter
     telegram_http_client = container._telegram_http_client
+    assert telegram_http_client is not None
+    assert telegram_http_client.timeout.connect == 11.0
+    assert telegram_http_client.timeout.read == 31.0
+    assert telegram_http_client.timeout.write == 12.0
+    assert telegram_http_client.timeout.pool == 13.0
 
     await container.start()
     await container.stop()
 
-    assert telegram_http_client is not None
     assert telegram_http_client.is_closed
     assert container._telegram_http_client is None
+
+
+async def test_container_wires_telegram_thinking_draft_sender_when_enabled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured_workers: list[dict[str, Any]] = []
+
+    class CapturingInboundWorker:
+        def __init__(self, **kwargs: Any) -> None:
+            captured_workers.append(kwargs)
+
+        async def run_forever(self) -> None:
+            return None
+
+    monkeypatch.setattr("agent_service.container.InboundWorker", CapturingInboundWorker)
+    settings = AppSettings(
+        environment="test",
+        telegram_bot_token=SecretStr("token"),
+        telegram_thinking_draft_enabled=True,
+        telegram_thinking_draft_timeout_seconds=0.25,
+        inbound_worker_count=1,
+    )
+    container = AppContainer(settings=settings)
+    container.conversation_resolver = cast(ConversationResolverProtocol, object())
+    container.memory_service = FakeMemoryService()
+    container.agent_boundary = FakeAgentBoundary()
+
+    container._start_inbound_workers()
+
+    assert len(captured_workers) == 1
+    assert captured_workers[0]["thinking_indicator_sender"] is container.telegram_adapter
+    assert captured_workers[0]["thinking_indicator_timeout_seconds"] == 0.25
+
+    await container.stop()
 
 
 async def test_container_does_not_build_agent_boundary_without_complete_agent_config() -> None:
@@ -249,12 +295,19 @@ async def test_container_builds_openrouter_agent_boundary_when_configured() -> N
         agent_model="openai/gpt-4.1-mini",
         openrouter_api_key=SecretStr("secret"),
         agent_timeout_seconds=12.5,
+        openrouter_http_connect_timeout_seconds=14.0,
+        openrouter_http_write_timeout_seconds=15.0,
+        openrouter_http_pool_timeout_seconds=16.0,
     )
     container = AppContainer(settings=settings)
 
     assert isinstance(container.agent_boundary, PydanticAIAgentBoundary)
     assert container.agent_boundary.timeout_seconds == 12.5
     assert container._agent_http_client is not None
+    assert container._agent_http_client.timeout.connect == 14.0
+    assert container._agent_http_client.timeout.read == 12.5
+    assert container._agent_http_client.timeout.write == 15.0
+    assert container._agent_http_client.timeout.pool == 16.0
     assert not container._agent_http_client.is_closed
 
     await container.stop()
@@ -336,13 +389,22 @@ async def test_container_builds_pydantic_ai_compactor_when_configured() -> None:
         memory_compaction_enabled=True,
         memory_compaction_model="openai/gpt-4.1-mini",
         memory_compaction_target_summary_tokens=900,
+        memory_compaction_timeout_seconds=88.0,
+        openrouter_http_connect_timeout_seconds=14.0,
+        openrouter_http_write_timeout_seconds=15.0,
+        openrouter_http_pool_timeout_seconds=16.0,
         openrouter_api_key=SecretStr("secret"),
     )
     container = AppContainer(settings=settings)
 
     assert isinstance(container.conversation_compactor, PydanticAIConversationCompactor)
     assert container.conversation_compactor.target_summary_tokens == 900
+    assert container.conversation_compactor.timeout_seconds == 88.0
     assert container._compaction_http_client is not None
+    assert container._compaction_http_client.timeout.connect == 14.0
+    assert container._compaction_http_client.timeout.read == 88.0
+    assert container._compaction_http_client.timeout.write == 15.0
+    assert container._compaction_http_client.timeout.pool == 16.0
     assert not container._compaction_http_client.is_closed
 
     await container.stop()

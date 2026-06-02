@@ -220,7 +220,7 @@ class AppContainer:
         if self.settings.telegram_bot_token is None:
             return None
 
-        self._telegram_http_client = httpx.AsyncClient()
+        self._telegram_http_client = _create_telegram_http_client(self.settings)
         return TelegramAdapter(
             bot_token=self.settings.telegram_bot_token,
             client=self._telegram_http_client,
@@ -233,13 +233,17 @@ class AppContainer:
         if self.settings.agent_model is None or self.settings.openrouter_api_key is None:
             return None
 
-        self._agent_http_client = httpx.AsyncClient()
         vkusvill_toolsets = build_vkusvill_mcp_toolsets(self.settings)
         enabled_skill_ids: set[str] = set()
         capability_toolsets = None
         if vkusvill_toolsets:
             enabled_skill_ids.add(VKUSVILL_SHOPPING_SKILL_ID)
             capability_toolsets = {VKUSVILL_SHOPPING_SKILL_ID: vkusvill_toolsets}
+        self._agent_http_client = _create_openrouter_http_client(
+            self.settings,
+            read_timeout_seconds=self.settings.agent_timeout_seconds,
+            worker_count=self.settings.inbound_worker_count,
+        )
         return build_openrouter_agent_boundary(
             model_name=self.settings.agent_model,
             api_key=self.settings.openrouter_api_key.get_secret_value(),
@@ -257,7 +261,11 @@ class AppContainer:
         if self.settings.openrouter_api_key is None:
             return None
 
-        self._compaction_http_client = httpx.AsyncClient()
+        self._compaction_http_client = _create_openrouter_http_client(
+            self.settings,
+            read_timeout_seconds=self.settings.memory_compaction_timeout_seconds,
+            worker_count=self.settings.memory_compaction_worker_count,
+        )
         model = OpenRouterModel(
             self.settings.memory_compaction_model,
             provider=OpenRouterProvider(
@@ -271,6 +279,7 @@ class AppContainer:
                 Agent(model, output_type=ConversationSummaryOutput),
             ),
             target_summary_tokens=self.settings.memory_compaction_target_summary_tokens,
+            timeout_seconds=self.settings.memory_compaction_timeout_seconds,
         )
 
     async def _start_redis_dependencies(self) -> None:
@@ -338,8 +347,12 @@ class AppContainer:
                 idempotency_store=self.inbound_idempotency_store,
                 retry_policy=retry_policy,
                 error_backoff_seconds=self.settings.inbound_worker_error_backoff_seconds,
-                outbound_publish_timeout_seconds=(
-                    self.settings.outbound_publish_timeout_seconds
+                outbound_publish_timeout_seconds=self.settings.outbound_publish_timeout_seconds,
+                thinking_indicator_sender=(
+                    self.telegram_adapter if self.settings.telegram_thinking_draft_enabled else None
+                ),
+                thinking_indicator_timeout_seconds=(
+                    self.settings.telegram_thinking_draft_timeout_seconds
                 ),
                 compaction_queue=(
                     self.compaction_queue if self._compaction_processing_enabled() else None
@@ -459,6 +472,68 @@ async def _create_managed_postgres_pool(settings: AppSettings) -> ManagedPostgre
         ),
     )
     return cast(ManagedPostgresPool, pool)
+
+
+def _create_telegram_http_client(settings: AppSettings) -> httpx.AsyncClient:
+    return _create_external_http_client(
+        connect_timeout_seconds=settings.telegram_http_connect_timeout_seconds,
+        read_timeout_seconds=settings.telegram_http_read_timeout_seconds,
+        write_timeout_seconds=settings.telegram_http_write_timeout_seconds,
+        pool_timeout_seconds=settings.telegram_http_pool_timeout_seconds,
+        keepalive_expiry_seconds=settings.telegram_http_keepalive_expiry_seconds,
+        worker_count=settings.delivery_worker_count,
+    )
+
+
+def _create_openrouter_http_client(
+    settings: AppSettings,
+    *,
+    read_timeout_seconds: float,
+    worker_count: int,
+) -> httpx.AsyncClient:
+    return _create_external_http_client(
+        connect_timeout_seconds=settings.openrouter_http_connect_timeout_seconds,
+        read_timeout_seconds=read_timeout_seconds,
+        write_timeout_seconds=settings.openrouter_http_write_timeout_seconds,
+        pool_timeout_seconds=settings.openrouter_http_pool_timeout_seconds,
+        keepalive_expiry_seconds=settings.openrouter_http_keepalive_expiry_seconds,
+        worker_count=worker_count,
+    )
+
+
+def _create_external_http_client(
+    *,
+    connect_timeout_seconds: float,
+    read_timeout_seconds: float,
+    write_timeout_seconds: float,
+    pool_timeout_seconds: float,
+    keepalive_expiry_seconds: float,
+    worker_count: int,
+) -> httpx.AsyncClient:
+    return httpx.AsyncClient(
+        timeout=httpx.Timeout(
+            connect=connect_timeout_seconds,
+            read=read_timeout_seconds,
+            write=write_timeout_seconds,
+            pool=pool_timeout_seconds,
+        ),
+        limits=_external_http_limits(
+            worker_count=worker_count,
+            keepalive_expiry_seconds=keepalive_expiry_seconds,
+        ),
+    )
+
+
+def _external_http_limits(
+    *,
+    worker_count: int,
+    keepalive_expiry_seconds: float,
+) -> httpx.Limits:
+    return httpx.Limits(
+        max_connections=max(worker_count * 2, 10),
+        max_keepalive_connections=max(worker_count, 4),
+        keepalive_expiry=keepalive_expiry_seconds,
+    )
 
 
 async def _create_managed_redis_client(settings: AppSettings) -> ManagedRedisClient:

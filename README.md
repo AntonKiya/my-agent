@@ -68,6 +68,8 @@ persistent outbound tracking.
   secondary Telegram update guard on `(channel, external_update_id)`.
 - Telegram webhooks are authenticated with `X-Telegram-Bot-Api-Secret-Token`; the webhook secret is
   required in every environment except `test`.
+- Telegram outbound delivery uses an explicit HTTP timeout profile and keep-alive pool for Bot API
+  calls instead of httpx defaults, so VPN/TLS cold starts do not immediately turn into retry noise.
 - Conversations use internal UUIDs for processing and derived `conversation_key` values for lookup.
 - One conversation is processed sequentially under a per-conversation lock.
 - Different conversations can be processed concurrently by async worker tasks.
@@ -226,6 +228,10 @@ AGENT_SERVICE_AGENT_RETRY_BACKOFF_SECONDS='[1.0,5.0,15.0]'
 AGENT_SERVICE_AGENT_PROVIDER=
 AGENT_SERVICE_AGENT_MODEL=
 AGENT_SERVICE_AGENT_TIMEOUT_SECONDS=90.0
+AGENT_SERVICE_OPENROUTER_HTTP_CONNECT_TIMEOUT_SECONDS=10.0
+AGENT_SERVICE_OPENROUTER_HTTP_WRITE_TIMEOUT_SECONDS=10.0
+AGENT_SERVICE_OPENROUTER_HTTP_POOL_TIMEOUT_SECONDS=10.0
+AGENT_SERVICE_OPENROUTER_HTTP_KEEPALIVE_EXPIRY_SECONDS=60.0
 AGENT_SERVICE_POSTGRES_POOL_MIN_SIZE=4
 AGENT_SERVICE_POSTGRES_POOL_MAX_SIZE=32
 AGENT_SERVICE_POSTGRES_COMMAND_TIMEOUT_SECONDS=15.0
@@ -239,6 +245,7 @@ AGENT_SERVICE_MEMORY_COMPACTION_QUEUE_MAXSIZE=5000
 AGENT_SERVICE_MEMORY_COMPACTION_WORKER_COUNT=2
 AGENT_SERVICE_MEMORY_COMPACTION_WORKER_ERROR_BACKOFF_SECONDS=0.5
 AGENT_SERVICE_MEMORY_COMPACTION_PUBLISH_TIMEOUT_SECONDS=0.5
+AGENT_SERVICE_MEMORY_COMPACTION_TIMEOUT_SECONDS=120.0
 AGENT_SERVICE_MEMORY_COMPACTION_TARGET_SUMMARY_TOKENS=1000
 AGENT_SERVICE_MEMORY_COMPACTION_MODEL=
 ```
@@ -258,6 +265,18 @@ AGENT_SERVICE_TEST_POSTGRES_DSN=postgresql://agent_service_test:agent_service_te
 AGENT_SERVICE_REDIS_DSN=redis://:agent_service_redis_local_password@127.0.0.1:6379/0
 AGENT_SERVICE_TELEGRAM_BOT_TOKEN=
 AGENT_SERVICE_TELEGRAM_WEBHOOK_SECRET_TOKEN=
+AGENT_SERVICE_TELEGRAM_RENDER_MARKDOWN=false
+AGENT_SERVICE_TELEGRAM_THINKING_DRAFT_ENABLED=false
+AGENT_SERVICE_TELEGRAM_THINKING_DRAFT_TIMEOUT_SECONDS=1.0
+AGENT_SERVICE_TELEGRAM_HTTP_CONNECT_TIMEOUT_SECONDS=10.0
+AGENT_SERVICE_TELEGRAM_HTTP_READ_TIMEOUT_SECONDS=15.0
+AGENT_SERVICE_TELEGRAM_HTTP_WRITE_TIMEOUT_SECONDS=10.0
+AGENT_SERVICE_TELEGRAM_HTTP_POOL_TIMEOUT_SECONDS=10.0
+AGENT_SERVICE_TELEGRAM_HTTP_KEEPALIVE_EXPIRY_SECONDS=60.0
+AGENT_SERVICE_OPENROUTER_HTTP_CONNECT_TIMEOUT_SECONDS=10.0
+AGENT_SERVICE_OPENROUTER_HTTP_WRITE_TIMEOUT_SECONDS=10.0
+AGENT_SERVICE_OPENROUTER_HTTP_POOL_TIMEOUT_SECONDS=10.0
+AGENT_SERVICE_OPENROUTER_HTTP_KEEPALIVE_EXPIRY_SECONDS=60.0
 AGENT_SERVICE_OPENROUTER_API_KEY=
 AGENT_SERVICE_LOGFIRE_TOKEN=
 ```
@@ -323,8 +342,11 @@ only after user resolution succeeds, the event contains an internal `user_id`, a
 idempotency gate claims the transport-derived message key. Duplicate webhook deliveries are
 acknowledged without publishing another queue event.
 
-The inbound worker does not call Telegram or any delivery adapter. It only creates an `OutboundEvent`
-and publishes it to the outbound queue. Delivery is intentionally a separate worker boundary.
+The inbound worker does not send final Telegram messages or call delivery adapters. It only creates
+an `OutboundEvent` and publishes it to the outbound queue. Delivery is intentionally a separate
+worker boundary. When `AGENT_SERVICE_TELEGRAM_THINKING_DRAFT_ENABLED=true`, it may also make a
+best-effort Telegram `sendMessageDraft` call before the agent run; draft failures are logged and do
+not affect retries, memory, idempotency, or final delivery.
 
 `InboundWorker` uses a lock keyed by internal `conversation.id`. Messages in one conversation are
 processed sequentially; different conversations may be processed concurrently by separate worker

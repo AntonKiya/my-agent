@@ -1,4 +1,5 @@
 # ruff: noqa: E501
+import asyncio
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -168,6 +169,7 @@ Clock = Callable[[], datetime]
 class PydanticAIConversationCompactor(ConversationCompactor):
     agent: ConversationSummaryAgent
     target_summary_tokens: int = DEFAULT_TARGET_SUMMARY_TOKENS
+    timeout_seconds: float = 120.0
     clock: Clock = field(default=lambda: datetime.now(UTC), repr=False)
 
     def __post_init__(self) -> None:
@@ -175,6 +177,8 @@ class PydanticAIConversationCompactor(ConversationCompactor):
             raise ValueError("target_summary_tokens must be greater than zero")
         if self.target_summary_tokens > MAX_FALLBACK_SUMMARY_TOKENS:
             raise ValueError("target_summary_tokens must not exceed 1200")
+        if self.timeout_seconds <= 0:
+            raise ValueError("timeout_seconds must be greater than zero")
 
     async def compact(
         self,
@@ -199,17 +203,18 @@ class PydanticAIConversationCompactor(ConversationCompactor):
             current_datetime=current_datetime,
             target_summary_tokens=self.target_summary_tokens,
         )
-        result = await self.agent.run(
-            user_prompt,
-            output_type=ConversationSummaryOutput,
-            instructions=CONVERSATION_SUMMARY_SYSTEM_PROMPT,
-            metadata={
-                "conversation_id": str(request.conversation_id),
-                "user_id": str(request.user_id),
-                "message_sequence_range": message_sequence_range,
-                "summary_version": summary_version,
-            },
-        )
+        async with asyncio.timeout(self.timeout_seconds):
+            result = await self.agent.run(
+                user_prompt,
+                output_type=ConversationSummaryOutput,
+                instructions=CONVERSATION_SUMMARY_SYSTEM_PROMPT,
+                metadata={
+                    "conversation_id": str(request.conversation_id),
+                    "user_id": str(request.user_id),
+                    "message_sequence_range": message_sequence_range,
+                    "summary_version": summary_version,
+                },
+            )
         summary_text = render_conversation_summary(
             output=result.output,
             message_sequence_range=message_sequence_range,

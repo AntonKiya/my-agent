@@ -6,8 +6,18 @@ import httpx
 import pytest
 
 from agent_service.channels import Attachment, ChannelAdapter
-from agent_service.channels.telegram.adapter import TELEGRAM_TEXT_LIMIT, TelegramAdapter
-from agent_service.channels.telegram.formatting import markdown_to_telegram_html
+from agent_service.channels.models import InboundEvent
+from agent_service.channels.telegram.adapter import (
+    TELEGRAM_TEXT_LIMIT,
+    TELEGRAM_THINKING_DRAFT_CUSTOM_EMOJI_ID,
+    TELEGRAM_THINKING_DRAFT_TEXT,
+    TelegramAdapter,
+    telegram_draft_id,
+)
+from agent_service.channels.telegram.formatting import (
+    TELEGRAM_HTML_PARSE_MODE,
+    markdown_to_telegram_html,
+)
 from agent_service.delivery import DeliveryStatus
 from agent_service.outbound import OutboundEvent
 
@@ -24,6 +34,23 @@ def make_outbound_event(
         conversation_id=uuid4(),
         external_chat_id=external_chat_id,
         text=text,
+    )
+
+
+def make_inbound_event(
+    *,
+    channel: str = "telegram",
+    external_chat_id: str = "12345",
+    thread_id: str | None = None,
+) -> InboundEvent:
+    return InboundEvent(
+        channel=channel,
+        external_user_id="67890",
+        external_chat_id=external_chat_id,
+        external_message_id="42",
+        idempotency_key=f"{channel}:{external_chat_id}:42",
+        text="hello",
+        thread_id=thread_id,
     )
 
 
@@ -62,6 +89,52 @@ async def test_telegram_adapter_satisfies_channel_adapter_protocol() -> None:
         adapter: ChannelAdapter = TelegramAdapter(bot_token="token", client=client)
 
     assert isinstance(adapter, ChannelAdapter)
+
+
+async def test_telegram_adapter_sends_thinking_draft_text() -> None:
+    requests: list[httpx.Request] = []
+    inbound = make_inbound_event(thread_id="11")
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(200, json={"ok": True, "result": True})
+
+    async with make_client(handler) as client:
+        adapter = TelegramAdapter(bot_token="token", client=client)
+        result = await adapter.send_thinking_indicator(inbound)
+
+    assert result.status is DeliveryStatus.SENT
+    assert len(requests) == 1
+    assert str(requests[0].url) == "https://api.telegram.org/bottoken/sendMessageDraft"
+    assert _request_json(requests[0]) == {
+        "chat_id": "12345",
+        "draft_id": telegram_draft_id(inbound.event_id),
+        "message_thread_id": 11,
+        "parse_mode": TELEGRAM_HTML_PARSE_MODE,
+        "text": TELEGRAM_THINKING_DRAFT_TEXT,
+    }
+    assert TELEGRAM_THINKING_DRAFT_CUSTOM_EMOJI_ID in TELEGRAM_THINKING_DRAFT_TEXT
+    assert ">💬</tg-emoji>" in TELEGRAM_THINKING_DRAFT_TEXT
+
+
+async def test_telegram_adapter_reports_thinking_draft_errors() -> None:
+    async with make_client(
+        lambda _request: httpx.Response(
+            429,
+            json={
+                "ok": False,
+                "error_code": 429,
+                "description": "Too Many Requests",
+                "parameters": {"retry_after": 3},
+            },
+        )
+    ) as client:
+        adapter = TelegramAdapter(bot_token="token", client=client)
+        result = await adapter.send_thinking_indicator(make_inbound_event())
+
+    assert result.status is DeliveryStatus.FAILED_RETRYABLE
+    assert result.error_code == "telegram_429"
+    assert result.retry_after_seconds == 3
 
 
 async def test_telegram_adapter_splits_long_text_messages() -> None:
@@ -118,6 +191,25 @@ async def test_telegram_adapter_returns_retryable_failure_for_temporary_errors()
 
     assert result.status is DeliveryStatus.FAILED_RETRYABLE
     assert result.error_code == "telegram_http_503"
+
+
+async def test_telegram_adapter_classifies_transport_timeouts_without_leaking_token() -> None:
+    def handler(_request: httpx.Request) -> httpx.Response:
+        raise httpx.ReadTimeout(
+            "timed out while requesting https://api.telegram.org/botsecret-token/sendMessage"
+        )
+
+    async with make_client(handler) as client:
+        adapter = TelegramAdapter(bot_token="secret-token", client=client)
+        result = await adapter.send(make_outbound_event())
+
+    assert result.status is DeliveryStatus.FAILED_RETRYABLE
+    assert result.error_code == "telegram_read_timeout"
+    assert result.error_message is not None
+    assert "ReadTimeout" in result.error_message
+    assert "secret-token" not in result.error_message
+    assert "bot<redacted>/sendMessage" in result.error_message
+    assert result.metadata["error_type"] == "ReadTimeout"
 
 
 async def test_telegram_adapter_dead_letters_non_retryable_errors() -> None:
@@ -257,7 +349,7 @@ async def test_telegram_adapter_can_render_markdown_as_telegram_html() -> None:
     async with make_client(handler) as client:
         adapter = TelegramAdapter(bot_token="token", client=client, render_markdown=True)
         result = await adapter.send(
-            make_outbound_event(text='## Несколько мыслей\n**Позиционирование:** <safe>')
+            make_outbound_event(text="## Несколько мыслей\n**Позиционирование:** <safe>")
         )
 
     assert result.status is DeliveryStatus.SENT
@@ -272,6 +364,66 @@ async def test_telegram_adapter_can_render_markdown_as_telegram_html() -> None:
 
 def test_markdown_to_telegram_html_escapes_plain_text() -> None:
     assert markdown_to_telegram_html("2 < 3 & **yes**") == "2 &lt; 3 &amp; <b>yes</b>"
+
+
+def test_markdown_to_telegram_html_renders_useful_markdown_subset() -> None:
+    text = "\n".join(
+        [
+            "*Курсив italic* и _курсив italic_",
+            "`inline <code>`",
+            "```",
+            "code <block>",
+            "```",
+            "[OpenAI](https://openai.com)",
+            "> **Цитата**",
+            "~~Зачеркнутый~~",
+            "||spoiler||",
+        ]
+    )
+
+    assert markdown_to_telegram_html(text) == "\n".join(
+        [
+            "<i>Курсив italic</i> и <i>курсив italic</i>",
+            "<code>inline &lt;code&gt;</code>",
+            "<pre>code &lt;block&gt;\n</pre>",
+            '<a href="https://openai.com">OpenAI</a>',
+            "<blockquote><b>Цитата</b></blockquote>",
+            "<s>Зачеркнутый</s>",
+            "<tg-spoiler>spoiler</tg-spoiler>",
+        ]
+    )
+
+
+def test_markdown_to_telegram_html_leaves_unclosed_or_unsafe_markup_as_text() -> None:
+    text = "\n".join(
+        [
+            "* Список со звездочкой",
+            "`unclosed code",
+            "``",
+            "```\n```",
+            ">",
+            "****",
+            "~~~~",
+            "||||",
+            "[bad](javascript:alert(1))",
+            "snake_case_name",
+        ]
+    )
+
+    assert markdown_to_telegram_html(text) == "\n".join(
+        [
+            "* Список со звездочкой",
+            "`unclosed code",
+            "``",
+            "```\n```",
+            "&gt;",
+            "****",
+            "~~~~",
+            "||||",
+            "[bad](javascript:alert(1))",
+            "snake_case_name",
+        ]
+    )
 
 
 def test_telegram_adapter_rejects_invalid_configuration() -> None:

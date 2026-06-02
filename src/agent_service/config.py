@@ -63,11 +63,23 @@ class AppSettings(BaseSettings):
     memory_compaction_worker_count: int = Field(default=0, ge=0)
     memory_compaction_worker_error_backoff_seconds: float = Field(default=0.1, ge=0)
     memory_compaction_publish_timeout_seconds: float = Field(default=0.1, ge=0)
+    memory_compaction_timeout_seconds: float = Field(default=120.0, gt=0)
     memory_compaction_target_summary_tokens: int = Field(default=1000, gt=0, le=1200)
     memory_compaction_model: str | None = None
     telegram_bot_token: SecretStr | None = None
     telegram_webhook_secret_token: SecretStr | None = None
     telegram_render_markdown: bool = False
+    telegram_thinking_draft_enabled: bool = False
+    telegram_thinking_draft_timeout_seconds: float = Field(default=1.0, gt=0)
+    telegram_http_connect_timeout_seconds: float = Field(default=10.0, gt=0)
+    telegram_http_read_timeout_seconds: float = Field(default=15.0, gt=0)
+    telegram_http_write_timeout_seconds: float = Field(default=10.0, gt=0)
+    telegram_http_pool_timeout_seconds: float = Field(default=10.0, gt=0)
+    telegram_http_keepalive_expiry_seconds: float = Field(default=60.0, ge=0)
+    openrouter_http_connect_timeout_seconds: float = Field(default=10.0, gt=0)
+    openrouter_http_write_timeout_seconds: float = Field(default=10.0, gt=0)
+    openrouter_http_pool_timeout_seconds: float = Field(default=10.0, gt=0)
+    openrouter_http_keepalive_expiry_seconds: float = Field(default=60.0, ge=0)
     openrouter_api_key: SecretStr | None = None
     logfire_token: SecretStr | None = None
 

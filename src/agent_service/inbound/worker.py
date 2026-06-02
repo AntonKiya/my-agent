@@ -3,6 +3,7 @@ import logging
 from collections.abc import Awaitable, Callable
 from contextlib import suppress
 from dataclasses import dataclass, field
+from typing import Protocol
 from uuid import UUID
 
 from pydantic_ai.messages import ToolCallPart, ToolReturnPart
@@ -14,6 +15,7 @@ from agent_service.conversations import (
     ConversationLockManager,
     ConversationResolverProtocol,
 )
+from agent_service.delivery.models import DeliveryResult, DeliveryStatus
 from agent_service.inbound.errors import OutboundOverloadedError, UnresolvedInboundEventError
 from agent_service.inbound.idempotency import InboundIdempotencyStore
 from agent_service.memory import (
@@ -41,6 +43,12 @@ SleepCallable = Callable[[float], Awaitable[None]]
 
 DEFAULT_AGENT_RETRY_BACKOFF_SECONDS = (1.0, 5.0, 15.0)
 DEFAULT_FALLBACK_TEXT = "Sorry, I could not process that message right now. Please try again later."
+
+
+class ThinkingIndicatorSender(Protocol):
+    async def send_thinking_indicator(self, event: InboundEvent) -> DeliveryResult:
+        """Best-effort transport-specific signal that processing has started."""
+        ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -74,6 +82,8 @@ class InboundWorker:
     fallback_text: str = DEFAULT_FALLBACK_TEXT
     error_backoff_seconds: float = 0.1
     outbound_publish_timeout_seconds: float = 5.0
+    thinking_indicator_sender: ThinkingIndicatorSender | None = None
+    thinking_indicator_timeout_seconds: float = 1.0
     compaction_queue: CompactionQueue | None = None
     compaction_policy: ConversationCompactionPolicyProtocol | None = None
     compaction_publish_timeout_seconds: float = 0.1
@@ -84,6 +94,8 @@ class InboundWorker:
             raise ValueError("Inbound worker error backoff must be greater than or equal to zero")
         if self.outbound_publish_timeout_seconds < 0:
             raise ValueError("Outbound publish timeout must be greater than or equal to zero")
+        if self.thinking_indicator_timeout_seconds <= 0:
+            raise ValueError("Thinking indicator timeout must be greater than zero")
         if self.compaction_publish_timeout_seconds < 0:
             raise ValueError("Compaction publish timeout must be greater than or equal to zero")
 
@@ -255,6 +267,7 @@ class InboundWorker:
                     snapshot_source=prepared_context.metadata.get("snapshot_source"),
                     snapshot_version=prepared_context.metadata.get("snapshot_version"),
                 )
+            await self._send_thinking_indicator(event)
             try:
                 response = await self._run_agent_with_retry(
                     request=self._agent_request(
@@ -414,6 +427,40 @@ class InboundWorker:
                     await self.sleep(delay_seconds)
         raise RuntimeError("Agent retry loop exited without a response")
 
+    async def _send_thinking_indicator(self, event: InboundEvent) -> None:
+        if self.thinking_indicator_sender is None:
+            return
+        try:
+            result = await asyncio.wait_for(
+                self.thinking_indicator_sender.send_thinking_indicator(event),
+                timeout=self.thinking_indicator_timeout_seconds,
+            )
+        except Exception as exc:
+            log_event(
+                logger,
+                logging.DEBUG,
+                "Thinking indicator send skipped",
+                event="thinking_indicator_send_skipped",
+                inbound_event_id=str(event.event_id),
+                channel=event.channel,
+                user_id=str(event.user_id) if event.user_id is not None else None,
+                error_type=type(exc).__name__,
+            )
+            return
+        if result.status is not DeliveryStatus.SENT:
+            log_event(
+                logger,
+                logging.DEBUG,
+                "Thinking indicator send skipped",
+                event="thinking_indicator_send_skipped",
+                inbound_event_id=str(event.event_id),
+                channel=event.channel,
+                user_id=str(event.user_id) if event.user_id is not None else None,
+                status=result.status.value,
+                error_code=result.error_code,
+                retry_after_seconds=result.retry_after_seconds,
+            )
+
     def _agent_request(
         self,
         *,
@@ -497,9 +544,7 @@ class InboundWorker:
                 inbound_event_id=str(inbound_event.event_id),
                 outbound_event_id=str(outbound_event.event_id),
                 conversation_id=str(conversation_id),
-                user_id=(
-                    str(inbound_event.user_id) if inbound_event.user_id is not None else None
-                ),
+                user_id=(str(inbound_event.user_id) if inbound_event.user_id is not None else None),
                 channel=outbound_event.channel,
                 queue_size=self.outbound_queue.stats.size,
                 queue_maxsize=self.outbound_queue.stats.maxsize,

@@ -241,3 +241,11 @@ async def test_pydantic_ai_compactor_rejects_empty_safe_transcript() -> None:
 
     with pytest.raises(ValueError, match="user or assistant messages"):
         await compactor.compact(request=request)
+
+
+def test_pydantic_ai_compactor_rejects_invalid_timeout() -> None:
+    with pytest.raises(ValueError, match="timeout_seconds"):
+        PydanticAIConversationCompactor(
+            agent=FakeSummaryAgent(output=ConversationSummaryOutput()),
+            timeout_seconds=0,
+        )

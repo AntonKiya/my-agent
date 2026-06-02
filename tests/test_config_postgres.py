@@ -12,6 +12,17 @@ def test_postgres_pool_settings_have_safe_defaults() -> None:
     assert settings.postgres_dsn is None
     assert settings.telegram_bot_token is None
     assert settings.telegram_webhook_secret_token is None
+    assert settings.telegram_http_connect_timeout_seconds == 10.0
+    assert settings.telegram_http_read_timeout_seconds == 15.0
+    assert settings.telegram_http_write_timeout_seconds == 10.0
+    assert settings.telegram_http_pool_timeout_seconds == 10.0
+    assert settings.telegram_http_keepalive_expiry_seconds == 60.0
+    assert not settings.telegram_thinking_draft_enabled
+    assert settings.telegram_thinking_draft_timeout_seconds == 1.0
+    assert settings.openrouter_http_connect_timeout_seconds == 10.0
+    assert settings.openrouter_http_write_timeout_seconds == 10.0
+    assert settings.openrouter_http_pool_timeout_seconds == 10.0
+    assert settings.openrouter_http_keepalive_expiry_seconds == 60.0
     assert settings.inbound_worker_count == 8
     assert settings.inbound_publish_timeout_seconds == 1.0
     assert settings.inbound_worker_error_backoff_seconds == 0.1
@@ -38,6 +49,7 @@ def test_postgres_pool_settings_have_safe_defaults() -> None:
     assert settings.memory_compaction_worker_count == 0
     assert settings.memory_compaction_worker_error_backoff_seconds == 0.1
     assert settings.memory_compaction_publish_timeout_seconds == 0.1
+    assert settings.memory_compaction_timeout_seconds == 120.0
     assert settings.memory_compaction_target_summary_tokens == 1000
     assert settings.memory_compaction_model is None
 
@@ -121,6 +133,9 @@ def test_postgres_pool_settings_are_validated() -> None:
         AppSettings(environment="test", memory_compaction_publish_timeout_seconds=-1)
 
     with pytest.raises(ValidationError):
+        AppSettings(environment="test", memory_compaction_timeout_seconds=0)
+
+    with pytest.raises(ValidationError):
         AppSettings(environment="test", memory_compaction_target_summary_tokens=0)
 
     with pytest.raises(ValidationError):
@@ -132,6 +147,36 @@ def test_postgres_pool_settings_are_validated() -> None:
             postgres_pool_min_size=20,
             postgres_pool_max_size=10,
         )
+
+    with pytest.raises(ValidationError):
+        AppSettings(environment="test", telegram_http_connect_timeout_seconds=0)
+
+    with pytest.raises(ValidationError):
+        AppSettings(environment="test", telegram_http_read_timeout_seconds=0)
+
+    with pytest.raises(ValidationError):
+        AppSettings(environment="test", telegram_http_write_timeout_seconds=0)
+
+    with pytest.raises(ValidationError):
+        AppSettings(environment="test", telegram_http_pool_timeout_seconds=0)
+
+    with pytest.raises(ValidationError):
+        AppSettings(environment="test", telegram_http_keepalive_expiry_seconds=-1)
+
+    with pytest.raises(ValidationError):
+        AppSettings(environment="test", telegram_thinking_draft_timeout_seconds=0)
+
+    with pytest.raises(ValidationError):
+        AppSettings(environment="test", openrouter_http_connect_timeout_seconds=0)
+
+    with pytest.raises(ValidationError):
+        AppSettings(environment="test", openrouter_http_write_timeout_seconds=0)
+
+    with pytest.raises(ValidationError):
+        AppSettings(environment="test", openrouter_http_pool_timeout_seconds=0)
+
+    with pytest.raises(ValidationError):
+        AppSettings(environment="test", openrouter_http_keepalive_expiry_seconds=-1)
 
 
 def test_agent_settings_accept_openrouter_configuration() -> None:
