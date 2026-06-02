@@ -7,12 +7,14 @@ from uuid import uuid4
 import pytest
 from pydantic_ai.messages import ModelMessage, ModelRequest, UserPromptPart
 
+import agent_service.agents.pydantic_ai as pydantic_ai_module
 from agent_service.agents import (
     AgentRequest,
     EmptyAgentResponseError,
     PydanticAIAgentBoundary,
     PydanticAIRunContext,
     UnsupportedAgentRequestError,
+    build_openrouter_agent_boundary,
 )
 from agent_service.channels import Attachment, AttachmentType
 
@@ -111,6 +113,28 @@ def agent_request(
         metadata=metadata if metadata is not None else {"idempotency_key": "telegram:123:42"},
         trace_id="trace-1",
     )
+
+
+def test_build_openrouter_agent_boundary_wires_builtin_skill_capabilities(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    created_agents: list[dict[str, Any]] = []
+
+    def fake_agent_factory(model: object, **kwargs: Any) -> object:
+        created_agents.append({"model": model, **kwargs})
+        return FakePydanticAIAgent()
+
+    monkeypatch.setattr(pydantic_ai_module, "Agent", fake_agent_factory)
+
+    boundary = build_openrouter_agent_boundary(model_name="openai/gpt-4o-mini", api_key="key")
+
+    assert isinstance(boundary, PydanticAIAgentBoundary)
+    assert len(created_agents) == 1
+    assert created_agents[0]["output_type"] is str
+    capabilities = created_agents[0]["capabilities"]
+    assert len(capabilities) == 1
+    assert capabilities[0].id == "vkusvill-shopping"
+    assert capabilities[0].defer_loading is True
 
 
 async def test_pydantic_ai_agent_boundary_passes_prepared_context() -> None:

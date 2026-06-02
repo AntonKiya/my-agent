@@ -11,6 +11,7 @@ from pydantic_ai.providers.openrouter import OpenRouterProvider
 
 from agent_service.agents.interfaces import AgentBoundary
 from agent_service.agents.models import AgentRequest, AgentResponse, AgentUsage
+from agent_service.skills import load_builtin_skill_capabilities
 
 SAFE_REQUEST_METADATA_KEYS = frozenset({"retry_attempt"})
 SAFE_CONTEXT_METADATA_KEYS = frozenset(
@@ -117,7 +118,10 @@ def build_openrouter_agent_boundary(
         provider=OpenRouterProvider(api_key=api_key, http_client=http_client),
     )
     return PydanticAIAgentBoundary(
-        agent=cast(PydanticAIAgent, Agent(model, output_type=str)),
+        agent=cast(
+            PydanticAIAgent,
+            Agent(model, output_type=str, capabilities=load_builtin_skill_capabilities()),
+        ),
         timeout_seconds=timeout_seconds,
     )
 
