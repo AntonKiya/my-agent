@@ -62,6 +62,8 @@ class AppSettings(BaseSettings):
     telegram_bot_token: SecretStr | None = None
     telegram_webhook_secret_token: SecretStr | None = None
     telegram_render_markdown: bool = False
+    telegram_thinking_draft_enabled: bool = False
+    telegram_thinking_draft_timeout_seconds: float = Field(default=1.0, gt=0)
     telegram_http_connect_timeout_seconds: float = Field(default=10.0, gt=0)
     telegram_http_read_timeout_seconds: float = Field(default=15.0, gt=0)
     telegram_http_write_timeout_seconds: float = Field(default=10.0, gt=0)

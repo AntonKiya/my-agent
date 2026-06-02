@@ -1,5 +1,6 @@
 import asyncio
 from contextlib import AbstractAsyncContextManager
+from typing import Any, cast
 from uuid import UUID, uuid4
 
 import pytest
@@ -231,6 +232,40 @@ async def test_container_registers_telegram_adapter_when_token_is_configured() -
 
     assert telegram_http_client.is_closed
     assert container._telegram_http_client is None
+
+
+async def test_container_wires_telegram_thinking_draft_sender_when_enabled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured_workers: list[dict[str, Any]] = []
+
+    class CapturingInboundWorker:
+        def __init__(self, **kwargs: Any) -> None:
+            captured_workers.append(kwargs)
+
+        async def run_forever(self) -> None:
+            return None
+
+    monkeypatch.setattr("agent_service.container.InboundWorker", CapturingInboundWorker)
+    settings = AppSettings(
+        environment="test",
+        telegram_bot_token=SecretStr("token"),
+        telegram_thinking_draft_enabled=True,
+        telegram_thinking_draft_timeout_seconds=0.25,
+        inbound_worker_count=1,
+    )
+    container = AppContainer(settings=settings)
+    container.conversation_resolver = cast(ConversationResolverProtocol, object())
+    container.memory_service = FakeMemoryService()
+    container.agent_boundary = FakeAgentBoundary()
+
+    container._start_inbound_workers()
+
+    assert len(captured_workers) == 1
+    assert captured_workers[0]["thinking_indicator_sender"] is container.telegram_adapter
+    assert captured_workers[0]["thinking_indicator_timeout_seconds"] == 0.25
+
+    await container.stop()
 
 
 async def test_container_does_not_build_agent_boundary_without_complete_agent_config() -> None:

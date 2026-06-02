@@ -17,6 +17,8 @@ def test_postgres_pool_settings_have_safe_defaults() -> None:
     assert settings.telegram_http_write_timeout_seconds == 10.0
     assert settings.telegram_http_pool_timeout_seconds == 10.0
     assert settings.telegram_http_keepalive_expiry_seconds == 60.0
+    assert not settings.telegram_thinking_draft_enabled
+    assert settings.telegram_thinking_draft_timeout_seconds == 1.0
     assert settings.openrouter_http_connect_timeout_seconds == 10.0
     assert settings.openrouter_http_write_timeout_seconds == 10.0
     assert settings.openrouter_http_pool_timeout_seconds == 10.0
@@ -160,6 +162,9 @@ def test_postgres_pool_settings_are_validated() -> None:
 
     with pytest.raises(ValidationError):
         AppSettings(environment="test", telegram_http_keepalive_expiry_seconds=-1)
+
+    with pytest.raises(ValidationError):
+        AppSettings(environment="test", telegram_thinking_draft_timeout_seconds=0)
 
     with pytest.raises(ValidationError):
         AppSettings(environment="test", openrouter_http_connect_timeout_seconds=0)

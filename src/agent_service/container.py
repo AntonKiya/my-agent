@@ -338,8 +338,12 @@ class AppContainer:
                 idempotency_store=self.inbound_idempotency_store,
                 retry_policy=retry_policy,
                 error_backoff_seconds=self.settings.inbound_worker_error_backoff_seconds,
-                outbound_publish_timeout_seconds=(
-                    self.settings.outbound_publish_timeout_seconds
+                outbound_publish_timeout_seconds=self.settings.outbound_publish_timeout_seconds,
+                thinking_indicator_sender=(
+                    self.telegram_adapter if self.settings.telegram_thinking_draft_enabled else None
+                ),
+                thinking_indicator_timeout_seconds=(
+                    self.settings.telegram_thinking_draft_timeout_seconds
                 ),
                 compaction_queue=(
                     self.compaction_queue if self._compaction_processing_enabled() else None

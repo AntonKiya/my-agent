@@ -6,7 +6,13 @@ import httpx
 import pytest
 
 from agent_service.channels import Attachment, ChannelAdapter
-from agent_service.channels.telegram.adapter import TELEGRAM_TEXT_LIMIT, TelegramAdapter
+from agent_service.channels.models import InboundEvent
+from agent_service.channels.telegram.adapter import (
+    TELEGRAM_TEXT_LIMIT,
+    TELEGRAM_THINKING_DRAFT_TEXT,
+    TelegramAdapter,
+    telegram_draft_id,
+)
 from agent_service.channels.telegram.formatting import markdown_to_telegram_html
 from agent_service.delivery import DeliveryStatus
 from agent_service.outbound import OutboundEvent
@@ -24,6 +30,23 @@ def make_outbound_event(
         conversation_id=uuid4(),
         external_chat_id=external_chat_id,
         text=text,
+    )
+
+
+def make_inbound_event(
+    *,
+    channel: str = "telegram",
+    external_chat_id: str = "12345",
+    thread_id: str | None = None,
+) -> InboundEvent:
+    return InboundEvent(
+        channel=channel,
+        external_user_id="67890",
+        external_chat_id=external_chat_id,
+        external_message_id="42",
+        idempotency_key=f"{channel}:{external_chat_id}:42",
+        text="hello",
+        thread_id=thread_id,
     )
 
 
@@ -62,6 +85,49 @@ async def test_telegram_adapter_satisfies_channel_adapter_protocol() -> None:
         adapter: ChannelAdapter = TelegramAdapter(bot_token="token", client=client)
 
     assert isinstance(adapter, ChannelAdapter)
+
+
+async def test_telegram_adapter_sends_thinking_draft_text() -> None:
+    requests: list[httpx.Request] = []
+    inbound = make_inbound_event(thread_id="11")
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(200, json={"ok": True, "result": True})
+
+    async with make_client(handler) as client:
+        adapter = TelegramAdapter(bot_token="token", client=client)
+        result = await adapter.send_thinking_indicator(inbound)
+
+    assert result.status is DeliveryStatus.SENT
+    assert len(requests) == 1
+    assert str(requests[0].url) == "https://api.telegram.org/bottoken/sendMessageDraft"
+    assert _request_json(requests[0]) == {
+        "chat_id": "12345",
+        "draft_id": telegram_draft_id(inbound.event_id),
+        "message_thread_id": 11,
+        "text": TELEGRAM_THINKING_DRAFT_TEXT,
+    }
+
+
+async def test_telegram_adapter_reports_thinking_draft_errors() -> None:
+    async with make_client(
+        lambda _request: httpx.Response(
+            429,
+            json={
+                "ok": False,
+                "error_code": 429,
+                "description": "Too Many Requests",
+                "parameters": {"retry_after": 3},
+            },
+        )
+    ) as client:
+        adapter = TelegramAdapter(bot_token="token", client=client)
+        result = await adapter.send_thinking_indicator(make_inbound_event())
+
+    assert result.status is DeliveryStatus.FAILED_RETRYABLE
+    assert result.error_code == "telegram_429"
+    assert result.retry_after_seconds == 3
 
 
 async def test_telegram_adapter_splits_long_text_messages() -> None:
@@ -276,7 +342,7 @@ async def test_telegram_adapter_can_render_markdown_as_telegram_html() -> None:
     async with make_client(handler) as client:
         adapter = TelegramAdapter(bot_token="token", client=client, render_markdown=True)
         result = await adapter.send(
-            make_outbound_event(text='## Несколько мыслей\n**Позиционирование:** <safe>')
+            make_outbound_event(text="## Несколько мыслей\n**Позиционирование:** <safe>")
         )
 
     assert result.status is DeliveryStatus.SENT

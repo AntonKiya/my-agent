@@ -1,10 +1,12 @@
 from dataclasses import dataclass
 from typing import Any
+from uuid import UUID
 
 import httpx
 from pydantic import SecretStr
 
 from agent_service.channels.interfaces import ChannelAdapter
+from agent_service.channels.models import InboundEvent
 from agent_service.channels.telegram.formatting import (
     TELEGRAM_HTML_PARSE_MODE,
     markdown_to_telegram_html,
@@ -15,6 +17,9 @@ from agent_service.outbound.models import OutboundEvent
 TELEGRAM_CHANNEL = "telegram"
 TELEGRAM_TEXT_LIMIT = 4096
 TELEGRAM_SEND_MESSAGE_METHOD = "sendMessage"
+TELEGRAM_SEND_MESSAGE_DRAFT_METHOD = "sendMessageDraft"
+TELEGRAM_MAX_DRAFT_ID = 2_147_483_647
+TELEGRAM_THINKING_DRAFT_TEXT = "Думаю 🤔"
 
 
 @dataclass(slots=True)
@@ -93,6 +98,31 @@ class TelegramAdapter(ChannelAdapter):
             external_message_ids=external_message_ids,
         )
 
+    async def send_thinking_indicator(self, event: InboundEvent) -> DeliveryResult:
+        if event.channel != self.channel:
+            return DeliveryResult(
+                event_id=event.event_id,
+                channel=self.channel,
+                status=DeliveryStatus.DEAD_LETTER,
+                error_code="unsupported_channel",
+                error_message=f"Telegram adapter cannot draft channel {event.channel!r}",
+            )
+
+        attempt = await self._send_message_draft(
+            event,
+            text=TELEGRAM_THINKING_DRAFT_TEXT,
+            draft_id=telegram_draft_id(event.event_id),
+        )
+        return DeliveryResult(
+            event_id=event.event_id,
+            channel=self.channel,
+            status=attempt.status,
+            error_code=attempt.error_code,
+            error_message=attempt.error_message,
+            retry_after_seconds=attempt.retry_after_seconds,
+            metadata=attempt.metadata or {},
+        )
+
     async def _send_chunk(self, event: OutboundEvent, text: str) -> TelegramSendAttempt:
         try:
             response = await self.client.post(
@@ -107,6 +137,31 @@ class TelegramAdapter(ChannelAdapter):
                 metadata={"error_type": type(exc).__name__},
             )
 
+        return self._send_attempt_from_response(response)
+
+    async def _send_message_draft(
+        self,
+        event: InboundEvent,
+        *,
+        text: str,
+        draft_id: int,
+    ) -> TelegramSendAttempt:
+        try:
+            response = await self.client.post(
+                self._method_url(TELEGRAM_SEND_MESSAGE_DRAFT_METHOD),
+                json=self._send_message_draft_payload(event, text=text, draft_id=draft_id),
+            )
+        except httpx.TransportError as exc:
+            return TelegramSendAttempt(
+                status=DeliveryStatus.FAILED_RETRYABLE,
+                error_code=_transport_error_code(exc),
+                error_message=_transport_error_message(exc),
+                metadata={"error_type": type(exc).__name__},
+            )
+
+        return self._send_attempt_from_response(response)
+
+    def _send_attempt_from_response(self, response: httpx.Response) -> TelegramSendAttempt:
         body = self._response_json(response)
         if response.status_code >= 500 or response.status_code == 429:
             return TelegramSendAttempt(
@@ -144,6 +199,25 @@ class TelegramAdapter(ChannelAdapter):
             status=DeliveryStatus.SENT,
             external_message_id=external_message_id,
         )
+
+    def _send_message_draft_payload(
+        self,
+        event: InboundEvent,
+        *,
+        text: str,
+        draft_id: int,
+    ) -> dict[str, Any]:
+        payload: dict[str, Any] = {
+            "chat_id": event.external_chat_id,
+            "draft_id": draft_id,
+            "text": text,
+        }
+
+        thread_id = _numeric_string_to_int(event.thread_id)
+        if thread_id is not None:
+            payload["message_thread_id"] = thread_id
+
+        return payload
 
     def _send_message_payload(self, event: OutboundEvent, text: str) -> dict[str, Any]:
         payload: dict[str, Any] = {
@@ -222,6 +296,10 @@ def split_telegram_text(text: str, limit: int = TELEGRAM_TEXT_LIMIT) -> list[str
     if limit < 1:
         raise ValueError("Telegram text split limit must be greater than zero")
     return [text[index : index + limit] for index in range(0, len(text), limit)]
+
+
+def telegram_draft_id(event_id: UUID) -> int:
+    return event_id.int % TELEGRAM_MAX_DRAFT_ID + 1
 
 
 def _numeric_string_to_int(value: str | None) -> int | None:

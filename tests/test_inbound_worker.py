@@ -15,6 +15,7 @@ from agent_service.agents import (
 )
 from agent_service.channels import InboundEvent, InboundEventStatus
 from agent_service.conversations import AsyncioConversationLockManager, Conversation
+from agent_service.delivery import DeliveryResult, DeliveryStatus
 from agent_service.inbound import (
     AgentRetryPolicy,
     InboundIdempotencyClaim,
@@ -197,6 +198,22 @@ class FakeAgentBoundary:
 
 
 @dataclass(slots=True)
+class FakeThinkingIndicatorSender:
+    errors: list[BaseException] = field(default_factory=list)
+    events: list[InboundEvent] = field(default_factory=list)
+
+    async def send_thinking_indicator(self, event: InboundEvent) -> DeliveryResult:
+        self.events.append(event)
+        if self.errors:
+            raise self.errors.pop(0)
+        return DeliveryResult(
+            event_id=event.event_id,
+            channel=event.channel,
+            status=DeliveryStatus.SENT,
+        )
+
+
+@dataclass(slots=True)
 class TrackingAgentBoundary:
     entered: asyncio.Event
     release: asyncio.Event
@@ -276,6 +293,7 @@ def worker(
     compaction_policy: ConversationCompactionPolicy | None = None,
     idempotency_store: InboundIdempotencyStore | None = None,
     retry_policy: AgentRetryPolicy | None = None,
+    thinking_indicator_sender: FakeThinkingIndicatorSender | None = None,
     sleep: Callable[[float], Awaitable[None]] | None = None,
 ) -> tuple[InboundWorker, AsyncioInboundQueue, AsyncioOutboundQueue, FakeMemoryService]:
     inbound_queue = AsyncioInboundQueue()
@@ -291,6 +309,7 @@ def worker(
             lock_manager=AsyncioConversationLockManager(),
             idempotency_store=idempotency_store,
             retry_policy=retry_policy or AgentRetryPolicy(max_attempts=1),
+            thinking_indicator_sender=thinking_indicator_sender,
             compaction_queue=compaction_queue,
             compaction_policy=compaction_policy,
             sleep=sleep or asyncio.sleep,
@@ -328,6 +347,47 @@ async def test_inbound_worker_processes_event_to_outbound_queue() -> None:
     assert agent.requests[0].pydantic_ai.user_prompt == "hello"
     assert "external_chat_id" not in agent.requests[0].model_dump()
     assert "raw_update" not in agent.requests[0].model_dump()
+
+
+async def test_inbound_worker_sends_best_effort_thinking_indicator() -> None:
+    user_id = uuid4()
+    resolved_conversation = conversation(user_id=user_id)
+    thinking_sender = FakeThinkingIndicatorSender()
+    inbound_worker, _inbound_queue, outbound_queue, _memory = worker(
+        conversations_by_chat_id={"12345": resolved_conversation},
+        agent_boundary=FakeAgentBoundary(responses=[AgentResponse(text="answer")]),
+        thinking_indicator_sender=thinking_sender,
+    )
+    event = inbound_event(user_id=user_id)
+
+    await inbound_worker.process_event(event)
+
+    outbound = await outbound_queue.consume()
+    assert thinking_sender.events == [event]
+    assert outbound.text == "answer"
+    assert event.status is InboundEventStatus.COMPLETED
+
+
+async def test_inbound_worker_continues_when_thinking_indicator_fails() -> None:
+    user_id = uuid4()
+    resolved_conversation = conversation(user_id=user_id)
+    thinking_sender = FakeThinkingIndicatorSender(errors=[RuntimeError("draft down")])
+    agent = FakeAgentBoundary(responses=[AgentResponse(text="answer")])
+    inbound_worker, _inbound_queue, outbound_queue, memory = worker(
+        conversations_by_chat_id={"12345": resolved_conversation},
+        agent_boundary=agent,
+        thinking_indicator_sender=thinking_sender,
+    )
+    event = inbound_event(user_id=user_id)
+
+    await inbound_worker.process_event(event)
+
+    outbound = await outbound_queue.consume()
+    assert thinking_sender.events == [event]
+    assert outbound.text == "answer"
+    assert len(agent.requests) == 1
+    assert len(memory.assistant_messages) == 1
+    assert event.status is InboundEventStatus.COMPLETED
 
 
 async def test_inbound_worker_updates_persistent_idempotency_statuses() -> None:
