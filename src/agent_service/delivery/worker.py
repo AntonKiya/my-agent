@@ -175,6 +175,9 @@ class DeliveryWorker:
                     attempt=attempt_number,
                     status=result.status.value,
                     error_code=result.error_code,
+                    error_message=result.error_message,
+                    error_type=result.metadata.get("error_type"),
+                    partial_delivery=result.metadata.get("partial_delivery"),
                     duration_ms=elapsed_ms(started_at),
                 )
 
@@ -196,6 +199,8 @@ class DeliveryWorker:
                     attempt=attempt_number,
                     delay_seconds=delay_seconds,
                     error_code=result.error_code,
+                    error_message=result.error_message,
+                    error_type=result.metadata.get("error_type"),
                 )
                 await self.sleep(delay_seconds)
 

@@ -24,6 +24,7 @@ class TelegramSendAttempt:
     error_code: str | None = None
     error_message: str | None = None
     retry_after_seconds: float | None = None
+    metadata: dict[str, Any] | None = None
 
 
 @dataclass(slots=True)
@@ -77,7 +78,10 @@ class TelegramAdapter(ChannelAdapter):
                     error_code=attempt.error_code,
                     error_message=attempt.error_message,
                     retry_after_seconds=attempt.retry_after_seconds,
-                    metadata={"partial_delivery": bool(external_message_ids)},
+                    metadata={
+                        **(attempt.metadata or {}),
+                        "partial_delivery": bool(external_message_ids),
+                    },
                 )
             if attempt.external_message_id is not None:
                 external_message_ids.append(attempt.external_message_id)
@@ -98,8 +102,9 @@ class TelegramAdapter(ChannelAdapter):
         except httpx.TransportError as exc:
             return TelegramSendAttempt(
                 status=DeliveryStatus.FAILED_RETRYABLE,
-                error_code="telegram_transport_error",
-                error_message=str(exc),
+                error_code=_transport_error_code(exc),
+                error_message=_transport_error_message(exc),
+                metadata={"error_type": type(exc).__name__},
             )
 
         body = self._response_json(response)
@@ -225,3 +230,43 @@ def _numeric_string_to_int(value: str | None) -> int | None:
     if not value.isdecimal():
         return None
     return int(value)
+
+
+def _transport_error_code(exc: httpx.TransportError) -> str:
+    if isinstance(exc, httpx.ConnectTimeout):
+        return "telegram_connect_timeout"
+    if isinstance(exc, httpx.ReadTimeout):
+        return "telegram_read_timeout"
+    if isinstance(exc, httpx.WriteTimeout):
+        return "telegram_write_timeout"
+    if isinstance(exc, httpx.PoolTimeout):
+        return "telegram_pool_timeout"
+    if isinstance(exc, httpx.TimeoutException):
+        return "telegram_timeout"
+    if isinstance(exc, httpx.NetworkError):
+        return "telegram_network_error"
+    if isinstance(exc, httpx.ProtocolError):
+        return "telegram_protocol_error"
+    return "telegram_transport_error"
+
+
+def _transport_error_message(exc: httpx.TransportError) -> str:
+    message = str(exc)
+    error_type = type(exc).__name__
+    if not message:
+        return f"Telegram API transport error ({error_type})"
+    return f"Telegram API transport error ({error_type}): {_redact_bot_token(message)}"
+
+
+def _redact_bot_token(message: str) -> str:
+    marker = "/bot"
+    method_separator = "/"
+    start = message.find(marker)
+    if start == -1:
+        return message
+
+    token_start = start + len(marker)
+    token_end = message.find(method_separator, token_start)
+    if token_end == -1:
+        return f"{message[:token_start]}<redacted>"
+    return f"{message[:token_start]}<redacted>{message[token_end:]}"

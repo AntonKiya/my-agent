@@ -1,3 +1,5 @@
+from collections.abc import Generator
+
 import pytest
 
 from agent_service.config import AppSettings, get_settings
@@ -5,7 +7,9 @@ from agent_service.observability.events import disable_business_spans_for_tests
 
 
 @pytest.fixture(autouse=True)
-def isolate_app_settings_from_local_env(monkeypatch: pytest.MonkeyPatch) -> None:
+def isolate_app_settings_from_local_env(
+    monkeypatch: pytest.MonkeyPatch,
+) -> Generator[None]:
     get_settings.cache_clear()
     disable_business_spans_for_tests()
     monkeypatch.setitem(AppSettings.model_config, "env_file", None)
