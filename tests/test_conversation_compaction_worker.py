@@ -43,7 +43,6 @@ class RecordingMemoryService:
             sequence=compact_through_sequence or 1,
             role=ConversationMemoryRole.USER,
             text="old context",
-            token_count=12,
         )
         request = ConversationCompactionRequest(
             conversation_id=conversation.id,

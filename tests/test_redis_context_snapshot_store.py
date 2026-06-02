@@ -55,7 +55,6 @@ def snapshot() -> ConversationContextSnapshot:
         sequence=10,
         role=ConversationMemoryRole.USER,
         text="hello",
-        token_count=3,
         created_at=datetime(2026, 5, 30, 12, 0, tzinfo=UTC),
     )
     return ConversationContextSnapshot(

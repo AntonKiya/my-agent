@@ -5,6 +5,10 @@ import httpx
 from pydantic import SecretStr
 
 from agent_service.channels.interfaces import ChannelAdapter
+from agent_service.channels.telegram.formatting import (
+    TELEGRAM_HTML_PARSE_MODE,
+    markdown_to_telegram_html,
+)
 from agent_service.delivery.models import DeliveryResult, DeliveryStatus
 from agent_service.outbound.models import OutboundEvent
 
@@ -28,6 +32,7 @@ class TelegramAdapter(ChannelAdapter):
     client: httpx.AsyncClient
     api_base_url: str = "https://api.telegram.org"
     parse_mode: str | None = None
+    render_markdown: bool = False
     channel: str = TELEGRAM_CHANNEL
 
     def __post_init__(self) -> None:
@@ -62,7 +67,7 @@ class TelegramAdapter(ChannelAdapter):
 
         external_message_ids: list[str] = []
         for chunk in split_telegram_text(event.text):
-            attempt = await self._send_chunk(event, chunk)
+            attempt = await self._send_chunk(event, self._format_text(chunk))
             if attempt.status is not DeliveryStatus.SENT:
                 return DeliveryResult(
                     event_id=event.event_id,
@@ -142,6 +147,8 @@ class TelegramAdapter(ChannelAdapter):
         }
         if self.parse_mode is not None:
             payload["parse_mode"] = self.parse_mode
+        elif self.render_markdown:
+            payload["parse_mode"] = TELEGRAM_HTML_PARSE_MODE
 
         thread_id = _numeric_string_to_int(event.thread_id)
         if thread_id is not None:
@@ -152,6 +159,11 @@ class TelegramAdapter(ChannelAdapter):
             payload["reply_to_message_id"] = reply_to_message_id
 
         return payload
+
+    def _format_text(self, text: str) -> str:
+        if not self.render_markdown:
+            return text
+        return markdown_to_telegram_html(text)
 
     def _method_url(self, method: str) -> str:
         return f"{self.api_base_url.rstrip('/')}/bot{self.token}/{method}"

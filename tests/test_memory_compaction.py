@@ -25,7 +25,6 @@ def memory_message(
     user_id: UUID,
     sequence: int,
     text: str | None = "hello",
-    token_count: int | None = None,
 ) -> ConversationMemoryMessage:
     return ConversationMemoryMessage(
         conversation_id=conversation_id,
@@ -43,7 +42,6 @@ def memory_message(
             if role in {ConversationMemoryRole.TOOL_CALL, ConversationMemoryRole.TOOL_RESULT}
             else None
         ),
-        token_count=token_count,
         created_at=datetime(2026, 5, 30, 12, sequence, tzinfo=UTC),
     )
 
@@ -213,28 +211,24 @@ def test_compaction_policy_uses_token_trigger_and_retains_recent_tail_by_tokens(
             conversation_id=conversation_id,
             user_id=user_id,
             sequence=1,
-            token_count=20,
         ),
         memory_message(
             role=ConversationMemoryRole.ASSISTANT,
             conversation_id=conversation_id,
             user_id=user_id,
             sequence=2,
-            token_count=20,
         ),
         memory_message(
             role=ConversationMemoryRole.USER,
             conversation_id=conversation_id,
             user_id=user_id,
             sequence=3,
-            token_count=25,
         ),
         memory_message(
             role=ConversationMemoryRole.ASSISTANT,
             conversation_id=conversation_id,
             user_id=user_id,
             sequence=4,
-            token_count=25,
         ),
     ]
     snapshot = ConversationContextSnapshot(
@@ -273,7 +267,6 @@ def test_compaction_policy_does_not_trigger_below_token_threshold() -> None:
         conversation_id=conversation_id,
         user_id=user_id,
         sequence=1,
-        token_count=10,
     )
     snapshot = ConversationContextSnapshot(
         conversation_id=conversation_id,

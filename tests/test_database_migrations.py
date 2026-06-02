@@ -10,6 +10,7 @@ def test_users_migration_defines_identity_tables_and_constraints() -> None:
         "0003_conversation_messages.sql",
         "0004_conversation_summaries.sql",
         "0005_inbound_idempotency.sql",
+        "0006_drop_conversation_messages_token_count.sql",
     ]
 
     sql = migrations[0].sql
@@ -43,6 +44,7 @@ def test_migrations_are_loaded_in_version_order() -> None:
         "0003",
         "0004",
         "0005",
+        "0006",
     )
 
 
@@ -63,7 +65,7 @@ def test_conversation_messages_migration_defines_history_table_and_indexes() -> 
     assert "UNIQUE (conversation_id, sequence)" in sql
     assert "conversation_messages_conversation_sequence_idx" in sql
     assert "conversation_messages_tool_call_id_idx" in sql
-    assert "token_count integer CHECK (token_count IS NULL OR token_count >= 0)" in sql
+    assert "token_count" not in sql
 
 
 def test_conversation_summaries_migration_defines_compaction_state_table() -> None:
@@ -108,3 +110,11 @@ def test_inbound_idempotency_migration_defines_processing_gate() -> None:
         "status IN (\n            'queued',\n            'processing',\n            'completed',"
         in sql
     )
+
+
+def test_drop_conversation_message_token_count_migration_removes_unused_column() -> None:
+    migrations = load_sql_migrations()
+
+    sql = migrations[5].sql
+    assert "ALTER TABLE conversation_messages" in sql
+    assert "DROP COLUMN IF EXISTS token_count" in sql

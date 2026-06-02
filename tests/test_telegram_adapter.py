@@ -7,6 +7,7 @@ import pytest
 
 from agent_service.channels import Attachment, ChannelAdapter
 from agent_service.channels.telegram.adapter import TELEGRAM_TEXT_LIMIT, TelegramAdapter
+from agent_service.channels.telegram.formatting import markdown_to_telegram_html
 from agent_service.delivery import DeliveryStatus
 from agent_service.outbound import OutboundEvent
 
@@ -244,6 +245,33 @@ async def test_telegram_adapter_includes_optional_thread_and_reply_ids() -> None
             "reply_to_message_id": 22,
         }
     ]
+
+
+async def test_telegram_adapter_can_render_markdown_as_telegram_html() -> None:
+    payloads: list[dict[str, object]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        payloads.append(_request_json(request))
+        return httpx.Response(200, json={"ok": True, "result": {"message_id": 100}})
+
+    async with make_client(handler) as client:
+        adapter = TelegramAdapter(bot_token="token", client=client, render_markdown=True)
+        result = await adapter.send(
+            make_outbound_event(text='## Несколько мыслей\n**Позиционирование:** <safe>')
+        )
+
+    assert result.status is DeliveryStatus.SENT
+    assert payloads == [
+        {
+            "chat_id": "12345",
+            "text": "<b>Несколько мыслей</b>\n<b>Позиционирование:</b> &lt;safe&gt;",
+            "parse_mode": "HTML",
+        }
+    ]
+
+
+def test_markdown_to_telegram_html_escapes_plain_text() -> None:
+    assert markdown_to_telegram_html("2 < 3 & **yes**") == "2 &lt; 3 &amp; <b>yes</b>"
 
 
 def test_telegram_adapter_rejects_invalid_configuration() -> None:

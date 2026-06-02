@@ -109,7 +109,6 @@ def memory_message(
         ],
         inbound_event_id=uuid4(),
         trace_id="trace-1",
-        token_count=3,
         metadata={"channel": "telegram"},
         created_at=datetime(2026, 5, 30, 12, 0, tzinfo=UTC),
     )
@@ -137,7 +136,6 @@ def message_row(
         "inbound_event_id": None,
         "outbound_event_id": None,
         "trace_id": "trace-1",
-        "token_count": None,
         "metadata": {},
         "created_at": datetime(2026, 5, 30, 12, 0, tzinfo=UTC),
     }

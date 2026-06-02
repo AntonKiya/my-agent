@@ -402,14 +402,12 @@ async def test_memory_service_rebuilds_snapshot_from_latest_summary_and_recent_t
         sequence=2,
         text="old compacted answer",
     )
-    compacted.token_count = 30
     recent = memory_message(
         resolved_conversation=resolved_conversation,
         role=ConversationMemoryRole.USER,
         sequence=3,
         text="latest",
     )
-    recent.token_count = 7
     memory_store = FakeMemoryStore(messages={resolved_conversation.id: [compacted, recent]})
     snapshot_store = FakeSnapshotStore()
     summary_store = FakeSummaryStore(
@@ -586,7 +584,6 @@ async def test_memory_service_records_assistant_message_with_usage_and_tool_info
 
     assert stored.sequence == 1
     assert stored.role is ConversationMemoryRole.ASSISTANT
-    assert stored.token_count is None
     assert stored.trace_id == "trace-response"
     assert stored.metadata["model"] == "test"
     assert stored.metadata["usage"]["output_tokens"] == 5
@@ -694,21 +691,18 @@ async def test_memory_service_records_compaction_result_and_updates_hot_snapshot
         sequence=1,
         text="first",
     )
-    first.token_count = 10
     second = memory_message(
         resolved_conversation=resolved_conversation,
         role=ConversationMemoryRole.ASSISTANT,
         sequence=2,
         text="second",
     )
-    second.token_count = 12
     recent = memory_message(
         resolved_conversation=resolved_conversation,
         role=ConversationMemoryRole.USER,
         sequence=3,
         text="recent",
     )
-    recent.token_count = 5
     memory_store = FakeMemoryStore(messages={resolved_conversation.id: [first, second, recent]})
     snapshot_store = FakeSnapshotStore(
         snapshots={
@@ -854,8 +848,6 @@ async def test_memory_service_evaluates_compaction_policy_from_fresh_snapshot() 
             text="answer",
         ),
     ]
-    messages[0].token_count = 45
-    messages[1].token_count = 45
     memory_store = FakeMemoryStore(messages={resolved_conversation.id: messages})
     snapshot_store = FakeSnapshotStore(
         snapshots={

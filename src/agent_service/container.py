@@ -223,6 +223,7 @@ class AppContainer:
         return TelegramAdapter(
             bot_token=self.settings.telegram_bot_token,
             client=self._telegram_http_client,
+            render_markdown=self.settings.telegram_render_markdown,
         )
 
     def _build_agent_boundary(self) -> AgentBoundary | None:

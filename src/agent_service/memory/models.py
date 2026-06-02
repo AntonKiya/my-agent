@@ -46,7 +46,6 @@ class ConversationMemoryMessage(MemoryModel):
     inbound_event_id: UUID | None = None
     outbound_event_id: UUID | None = None
     trace_id: str | None = None
-    token_count: int | None = Field(default=None, ge=0)
     metadata: MemoryMetadata = Field(default_factory=dict)
     created_at: datetime = Field(default_factory=utc_now)
 
