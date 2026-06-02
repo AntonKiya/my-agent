@@ -60,6 +60,7 @@ class AppSettings(BaseSettings):
     memory_compaction_model: str | None = None
     telegram_bot_token: SecretStr | None = None
     telegram_webhook_secret_token: SecretStr | None = None
+    telegram_render_markdown: bool = False
     openrouter_api_key: SecretStr | None = None
     logfire_token: SecretStr | None = None
 

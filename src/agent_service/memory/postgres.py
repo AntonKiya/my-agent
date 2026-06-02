@@ -37,10 +37,9 @@ INSERT INTO conversation_messages (
     inbound_event_id,
     outbound_event_id,
     trace_id,
-    token_count,
     metadata,
     created_at
-) VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9, $10, $11, $12, $13, $14::jsonb, $15)
+) VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9, $10, $11, $12, $13::jsonb, $14)
 """
 
 RECENT_MESSAGES_SQL = """
@@ -57,7 +56,6 @@ SELECT
     inbound_event_id,
     outbound_event_id,
     trace_id,
-    token_count,
     metadata,
     created_at
 FROM (
@@ -84,7 +82,6 @@ SELECT
     inbound_event_id,
     outbound_event_id,
     trace_id,
-    token_count,
     metadata,
     created_at
 FROM (
@@ -288,7 +285,6 @@ class PostgresConversationMemoryStore(ConversationMemoryStore):
                     stored.inbound_event_id,
                     stored.outbound_event_id,
                     stored.trace_id,
-                    stored.token_count,
                     _jsonb(stored.metadata),
                     stored.created_at,
                 )
@@ -449,7 +445,6 @@ def _message_from_row(row: Mapping[str, object]) -> ConversationMemoryMessage:
         inbound_event_id=_optional_uuid(row["inbound_event_id"]),
         outbound_event_id=_optional_uuid(row["outbound_event_id"]),
         trace_id=_optional_str(row["trace_id"]),
-        token_count=_optional_int(row["token_count"]),
         metadata=_metadata(row["metadata"]),
         created_at=_datetime(row["created_at"]),
     )

@@ -212,7 +212,6 @@ def test_context_snapshot_models_redis_working_state_shape() -> None:
         user_id=user_id,
         role=ConversationMemoryRole.USER,
         text="hello",
-        token_count=3,
     )
 
     snapshot = ConversationContextSnapshot(
