@@ -359,6 +359,66 @@ def test_markdown_to_telegram_html_escapes_plain_text() -> None:
     assert markdown_to_telegram_html("2 < 3 & **yes**") == "2 &lt; 3 &amp; <b>yes</b>"
 
 
+def test_markdown_to_telegram_html_renders_useful_markdown_subset() -> None:
+    text = "\n".join(
+        [
+            "*Курсив italic* и _курсив italic_",
+            "`inline <code>`",
+            "```",
+            "code <block>",
+            "```",
+            "[OpenAI](https://openai.com)",
+            "> **Цитата**",
+            "~~Зачеркнутый~~",
+            "||spoiler||",
+        ]
+    )
+
+    assert markdown_to_telegram_html(text) == "\n".join(
+        [
+            "<i>Курсив italic</i> и <i>курсив italic</i>",
+            "<code>inline &lt;code&gt;</code>",
+            "<pre>code &lt;block&gt;\n</pre>",
+            '<a href="https://openai.com">OpenAI</a>',
+            "<blockquote><b>Цитата</b></blockquote>",
+            "<s>Зачеркнутый</s>",
+            "<tg-spoiler>spoiler</tg-spoiler>",
+        ]
+    )
+
+
+def test_markdown_to_telegram_html_leaves_unclosed_or_unsafe_markup_as_text() -> None:
+    text = "\n".join(
+        [
+            "* Список со звездочкой",
+            "`unclosed code",
+            "``",
+            "```\n```",
+            ">",
+            "****",
+            "~~~~",
+            "||||",
+            "[bad](javascript:alert(1))",
+            "snake_case_name",
+        ]
+    )
+
+    assert markdown_to_telegram_html(text) == "\n".join(
+        [
+            "* Список со звездочкой",
+            "`unclosed code",
+            "``",
+            "```\n```",
+            "&gt;",
+            "****",
+            "~~~~",
+            "||||",
+            "[bad](javascript:alert(1))",
+            "snake_case_name",
+        ]
+    )
+
+
 def test_telegram_adapter_rejects_invalid_configuration() -> None:
     client = make_client(lambda _request: httpx.Response(200))
 
