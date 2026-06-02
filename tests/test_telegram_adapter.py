@@ -9,11 +9,15 @@ from agent_service.channels import Attachment, ChannelAdapter
 from agent_service.channels.models import InboundEvent
 from agent_service.channels.telegram.adapter import (
     TELEGRAM_TEXT_LIMIT,
+    TELEGRAM_THINKING_DRAFT_CUSTOM_EMOJI_ID,
     TELEGRAM_THINKING_DRAFT_TEXT,
     TelegramAdapter,
     telegram_draft_id,
 )
-from agent_service.channels.telegram.formatting import markdown_to_telegram_html
+from agent_service.channels.telegram.formatting import (
+    TELEGRAM_HTML_PARSE_MODE,
+    markdown_to_telegram_html,
+)
 from agent_service.delivery import DeliveryStatus
 from agent_service.outbound import OutboundEvent
 
@@ -106,8 +110,11 @@ async def test_telegram_adapter_sends_thinking_draft_text() -> None:
         "chat_id": "12345",
         "draft_id": telegram_draft_id(inbound.event_id),
         "message_thread_id": 11,
+        "parse_mode": TELEGRAM_HTML_PARSE_MODE,
         "text": TELEGRAM_THINKING_DRAFT_TEXT,
     }
+    assert TELEGRAM_THINKING_DRAFT_CUSTOM_EMOJI_ID in TELEGRAM_THINKING_DRAFT_TEXT
+    assert ">💬</tg-emoji>" in TELEGRAM_THINKING_DRAFT_TEXT
 
 
 async def test_telegram_adapter_reports_thinking_draft_errors() -> None:

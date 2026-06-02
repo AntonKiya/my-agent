@@ -19,7 +19,10 @@ TELEGRAM_TEXT_LIMIT = 4096
 TELEGRAM_SEND_MESSAGE_METHOD = "sendMessage"
 TELEGRAM_SEND_MESSAGE_DRAFT_METHOD = "sendMessageDraft"
 TELEGRAM_MAX_DRAFT_ID = 2_147_483_647
-TELEGRAM_THINKING_DRAFT_TEXT = "Думаю 🤔"
+TELEGRAM_THINKING_DRAFT_CUSTOM_EMOJI_ID = "5443038326535759644"
+TELEGRAM_THINKING_DRAFT_TEXT = (
+    f'<tg-emoji emoji-id="{TELEGRAM_THINKING_DRAFT_CUSTOM_EMOJI_ID}">💬</tg-emoji>'
+)
 
 
 @dataclass(slots=True)
@@ -210,6 +213,7 @@ class TelegramAdapter(ChannelAdapter):
         payload: dict[str, Any] = {
             "chat_id": event.external_chat_id,
             "draft_id": draft_id,
+            "parse_mode": TELEGRAM_HTML_PARSE_MODE,
             "text": text,
         }
 
