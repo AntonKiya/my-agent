@@ -94,4 +94,5 @@ class AgentResponse(AgentModel):
     metadata: AgentMetadata = Field(default_factory=dict)
     usage: AgentUsage | None = None
     tool_info: list[AgentToolInfo] | None = None
+    pydantic_ai_new_messages: list[PydanticAIMessage] = Field(default_factory=list)
     trace_id: str | None = None

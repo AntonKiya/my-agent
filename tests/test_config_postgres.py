@@ -158,6 +158,49 @@ def test_agent_settings_accept_partial_provider_configuration() -> None:
     assert settings.openrouter_api_key is None
 
 
+def test_vkusvill_mcp_settings_accept_stdio_configuration() -> None:
+    settings = AppSettings(
+        environment="test",
+        vkusvill_mcp_command="uvx",
+        vkusvill_mcp_args=("vkusvill-mcp",),
+        vkusvill_mcp_env={"TOKEN": "secret"},
+    )
+
+    assert settings.vkusvill_mcp_command == "uvx"
+    assert settings.vkusvill_mcp_args == ("vkusvill-mcp",)
+    assert settings.vkusvill_mcp_env == {"TOKEN": "secret"}
+    assert settings.vkusvill_mcp_url is None
+
+
+def test_vkusvill_mcp_settings_accept_url_configuration() -> None:
+    settings = AppSettings(
+        environment="test",
+        vkusvill_mcp_url="http://localhost:8765/mcp",
+        vkusvill_mcp_headers={"Authorization": "Bearer token"},
+    )
+
+    assert settings.vkusvill_mcp_url == "http://localhost:8765/mcp"
+    assert settings.vkusvill_mcp_headers == {"Authorization": "Bearer token"}
+    assert settings.vkusvill_mcp_command is None
+
+
+def test_vkusvill_mcp_settings_reject_conflicting_transports() -> None:
+    with pytest.raises(ValidationError, match="either vkusvill_mcp_command or vkusvill_mcp_url"):
+        AppSettings(
+            environment="test",
+            vkusvill_mcp_command="uvx",
+            vkusvill_mcp_url="http://localhost:8765/mcp",
+        )
+
+
+def test_vkusvill_mcp_settings_reject_stdio_options_without_command() -> None:
+    with pytest.raises(ValidationError, match="vkusvill_mcp_args requires"):
+        AppSettings(environment="test", vkusvill_mcp_args=("vkusvill-mcp",))
+
+    with pytest.raises(ValidationError, match="vkusvill_mcp_env requires"):
+        AppSettings(environment="test", vkusvill_mcp_env={"TOKEN": "secret"})
+
+
 def test_prod_telegram_bot_requires_webhook_secret() -> None:
     with pytest.raises(ValidationError, match="telegram_webhook_secret_token is required"):
         AppSettings(environment="prod", telegram_bot_token=SecretStr("bot-token"))

@@ -1,12 +1,15 @@
 import json
 import logging
 import os
+import warnings
 from typing import Any
 
 import pytest
 from fastapi import FastAPI
+from opentelemetry import context as otel_context
 from pydantic import SecretStr
 
+import agent_service.observability.events as events_module
 from agent_service.config import AppSettings
 from agent_service.observability import logfire_integration
 from agent_service.observability.events import elapsed_ms, log_event, start_timer
@@ -111,6 +114,25 @@ def test_elapsed_ms_returns_non_negative_duration() -> None:
     started_at = start_timer()
 
     assert elapsed_ms(started_at) >= 0
+
+
+def test_attached_trace_context_suppresses_logfire_propagated_context_warning(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fake_extract(_carrier: dict[str, str]) -> otel_context.Context:
+        warnings.warn("Found propagated trace context.", RuntimeWarning, stacklevel=2)
+        return otel_context.get_current()
+
+    monkeypatch.setattr(events_module, "extract", fake_extract)
+
+    with warnings.catch_warnings(record=True) as captured:
+        warnings.simplefilter("always")
+        with events_module.attached_trace_context(
+            {events_module.TRACE_CONTEXT_METADATA_KEY: {"traceparent": "value"}}
+        ):
+            pass
+
+    assert captured == []
 
 
 class FakeLogfire:

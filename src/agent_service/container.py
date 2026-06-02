@@ -34,6 +34,7 @@ from agent_service.inbound import (
     InboundWorker,
     PostgresInboundIdempotencyStore,
 )
+from agent_service.mcp import VKUSVILL_SHOPPING_SKILL_ID, build_vkusvill_mcp_toolsets
 from agent_service.memory import (
     ConversationCompactionPolicy,
     ConversationCompactionStore,
@@ -233,11 +234,19 @@ class AppContainer:
             return None
 
         self._agent_http_client = httpx.AsyncClient()
+        vkusvill_toolsets = build_vkusvill_mcp_toolsets(self.settings)
+        enabled_skill_ids: set[str] = set()
+        capability_toolsets = None
+        if vkusvill_toolsets:
+            enabled_skill_ids.add(VKUSVILL_SHOPPING_SKILL_ID)
+            capability_toolsets = {VKUSVILL_SHOPPING_SKILL_ID: vkusvill_toolsets}
         return build_openrouter_agent_boundary(
             model_name=self.settings.agent_model,
             api_key=self.settings.openrouter_api_key.get_secret_value(),
             http_client=self._agent_http_client,
             timeout_seconds=self.settings.agent_timeout_seconds,
+            capability_toolsets=capability_toolsets,
+            enabled_skill_ids=enabled_skill_ids,
         )
 
     def _build_conversation_compactor(self) -> ConversationCompactor | None:

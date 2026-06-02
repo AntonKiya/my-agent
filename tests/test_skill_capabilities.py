@@ -22,6 +22,15 @@ def test_builtin_skills_include_vkusvill_shopping_as_deferred_capability() -> No
     assert "`mcp_vkusvill_vkusvill_cart_link_create`" in instructions[0]
 
 
+def test_builtin_skills_can_be_filtered_by_enabled_skill_ids() -> None:
+    assert load_builtin_skill_capabilities(enabled_skill_ids=set()) == ()
+
+    capabilities = load_builtin_skill_capabilities(enabled_skill_ids={"vkusvill-shopping"})
+
+    assert len(capabilities) == 1
+    assert capabilities[0].id == "vkusvill-shopping"
+
+
 def test_skill_loader_rejects_paths_outside_skills_directory() -> None:
     with pytest.raises(ValueError, match="must stay within"):
         skills_loader._resolve_skill_path(Path("../config.py"))

@@ -1,18 +1,36 @@
+from collections.abc import Collection, Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
 import yaml  # type: ignore[import-untyped]
 from pydantic_ai.capabilities import Capability
+from pydantic_ai.toolsets import AgentToolset
 
 _SKILLS_DIR = Path(__file__).parent.resolve()
 _BUILTIN_SKILL_PATHS = (Path("vkusvill-shopping/SKILL.md"),)
 
 
-def load_builtin_skill_capabilities() -> tuple[Capability, ...]:
-    return tuple(_load_skill_capability(path) for path in _BUILTIN_SKILL_PATHS)
+def load_builtin_skill_capabilities(
+    *,
+    toolsets_by_skill_id: Mapping[str, Sequence[AgentToolset[Any]]] | None = None,
+    enabled_skill_ids: Collection[str] | None = None,
+) -> tuple[Capability, ...]:
+    toolsets_by_skill_id = toolsets_by_skill_id or {}
+    enabled_skill_ids = frozenset(enabled_skill_ids) if enabled_skill_ids is not None else None
+    capabilities = []
+    for path in _BUILTIN_SKILL_PATHS:
+        capability = _load_skill_capability(path, toolsets_by_skill_id=toolsets_by_skill_id)
+        if enabled_skill_ids is not None and capability.id not in enabled_skill_ids:
+            continue
+        capabilities.append(capability)
+    return tuple(capabilities)
 
 
-def _load_skill_capability(relative_path: Path) -> Capability:
+def _load_skill_capability(
+    relative_path: Path,
+    *,
+    toolsets_by_skill_id: Mapping[str, Sequence[AgentToolset[Any]]],
+) -> Capability:
     path = _resolve_skill_path(relative_path)
     metadata, instructions = _read_skill_markdown(path)
     skill_id = metadata.get("name")
@@ -27,6 +45,7 @@ def _load_skill_capability(relative_path: Path) -> Capability:
         id=skill_id.strip(),
         description=description.strip(),
         instructions=instructions.strip(),
+        toolsets=toolsets_by_skill_id.get(skill_id.strip(), ()),
         defer_loading=True,
     )
 

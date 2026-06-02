@@ -1,0 +1,228 @@
+import json
+import logging
+from collections.abc import Callable, Collection, Mapping, Sequence
+from dataclasses import dataclass, field
+from typing import Any
+
+from fastmcp.client.transports import StdioTransport
+from pydantic_ai import RunContext
+from pydantic_ai.mcp import MCPToolset
+from pydantic_ai.tools import ToolDefinition
+from pydantic_ai.toolsets import AbstractToolset, ToolsetTool, WrapperToolset
+
+from agent_service.memory.tokens import estimate_text_tokens
+from agent_service.observability.events import elapsed_ms, log_event, start_timer
+
+logger = logging.getLogger(__name__)
+ToolResultTransformer = Callable[[Any], Any]
+MAX_LOG_ERROR_MESSAGE_CHARS = 500
+
+
+@dataclass(frozen=True, slots=True)
+class PrefixedMCPToolsetConfig:
+    server_id: str
+    prefix: str
+    command: str | None = None
+    args: Sequence[str] = ()
+    env: Mapping[str, str] = field(default_factory=dict)
+    url: str | None = None
+    headers: Mapping[str, str] = field(default_factory=dict)
+    init_timeout_seconds: float = 5.0
+    read_timeout_seconds: float = 300.0
+    allowed_raw_tool_names: Collection[str] | None = None
+
+
+def build_prefixed_mcp_toolset(config: PrefixedMCPToolsetConfig) -> AbstractToolset[Any]:
+    if config.command is not None and config.url is not None:
+        raise ValueError("configure either command or url, not both")
+    if config.command is None and config.url is None:
+        raise ValueError("configure command or url")
+
+    if config.command is not None:
+        base_toolset = MCPToolset(
+            StdioTransport(
+                command=config.command,
+                args=list(config.args),
+                env=dict(config.env) or None,
+            ),
+            id=config.server_id,
+            init_timeout=config.init_timeout_seconds,
+            read_timeout=config.read_timeout_seconds,
+        )
+    else:
+        assert config.url is not None
+        base_toolset = MCPToolset(
+            config.url,
+            id=config.server_id,
+            headers=dict(config.headers) or None,
+            init_timeout=config.init_timeout_seconds,
+            read_timeout=config.read_timeout_seconds,
+        )
+
+    prefixed = base_toolset.prefixed(config.prefix)
+    if config.allowed_raw_tool_names is None:
+        return prefixed
+
+    allowed_tool_names = prefixed_tool_names(config.prefix, config.allowed_raw_tool_names)
+    return prefixed.filtered(_allow_tool_names(allowed_tool_names))
+
+
+@dataclass(slots=True)
+class TransformingToolset(WrapperToolset[Any]):
+    result_transformers: Mapping[str, ToolResultTransformer] = field(default_factory=dict)
+
+    async def call_tool(
+        self,
+        name: str,
+        tool_args: dict[str, Any],
+        ctx: RunContext[Any],
+        tool: ToolsetTool[Any],
+    ) -> Any:
+        started_at = start_timer()
+        tool_args_size = _payload_size(tool_args)
+        log_event(
+            logger,
+            logging.INFO,
+            "MCP tool call started",
+            event="mcp_tool_call_started",
+            tool_name=name,
+            tool_args_keys=sorted(tool_args),
+            tool_args_size=tool_args_size,
+            tool_args_estimated_tokens=_payload_token_count(tool_args),
+        )
+
+        try:
+            result = await self.wrapped.call_tool(name, tool_args, ctx, tool)
+        except Exception as exc:
+            log_event(
+                logger,
+                logging.WARNING,
+                "MCP tool call failed",
+                event="mcp_tool_call_failed",
+                tool_name=name,
+                tool_args_keys=sorted(tool_args),
+                tool_args_size=tool_args_size,
+                duration_ms=elapsed_ms(started_at),
+                error_type=type(exc).__name__,
+                error_message=_safe_error_message(exc),
+            )
+            raise
+
+        transformer = self.result_transformers.get(name)
+        original_size = _payload_size(result)
+        original_tokens = _payload_token_count(result)
+        if transformer is None:
+            log_event(
+                logger,
+                logging.INFO,
+                "MCP tool call completed",
+                event="mcp_tool_call_completed",
+                tool_name=name,
+                duration_ms=elapsed_ms(started_at),
+                original_size=original_size,
+                transformed_size=original_size,
+                original_estimated_tokens=original_tokens,
+                transformed_estimated_tokens=original_tokens,
+                transformed=False,
+            )
+            return result
+
+        try:
+            transformed = transformer(result)
+        except Exception as exc:
+            log_event(
+                logger,
+                logging.WARNING,
+                "MCP tool result transform failed",
+                event="mcp_tool_result_transform_failed",
+                tool_name=name,
+                error_type=type(exc).__name__,
+                error_message=_safe_error_message(exc),
+                original_size=original_size,
+            )
+            log_event(
+                logger,
+                logging.INFO,
+                "MCP tool call completed",
+                event="mcp_tool_call_completed",
+                tool_name=name,
+                duration_ms=elapsed_ms(started_at),
+                original_size=original_size,
+                transformed_size=original_size,
+                original_estimated_tokens=original_tokens,
+                transformed_estimated_tokens=original_tokens,
+                transformed=False,
+            )
+            return result
+
+        transformed_size = _payload_size(transformed)
+        transformed_tokens = _payload_token_count(transformed)
+        log_event(
+            logger,
+            logging.INFO,
+            "MCP tool result transformed",
+            event="mcp_tool_result_transformed",
+            tool_name=name,
+            original_size=original_size,
+            transformed_size=transformed_size,
+            transformed=transformed != result,
+        )
+        log_event(
+            logger,
+            logging.INFO,
+            "MCP tool call completed",
+            event="mcp_tool_call_completed",
+            tool_name=name,
+            duration_ms=elapsed_ms(started_at),
+            original_size=original_size,
+            transformed_size=transformed_size,
+            original_estimated_tokens=original_tokens,
+            transformed_estimated_tokens=transformed_tokens,
+            transformed=transformed != result,
+        )
+        return transformed
+
+
+def prefixed_tool_names(prefix: str, raw_tool_names: Collection[str]) -> frozenset[str]:
+    return frozenset(f"{prefix}_{name}" for name in raw_tool_names)
+
+
+def _allow_tool_names(
+    allowed_tool_names: Collection[str],
+) -> Callable[[object, ToolDefinition], bool]:
+    def is_allowed(_ctx: object, tool_definition: ToolDefinition) -> bool:
+        return tool_definition.name in allowed_tool_names
+
+    return is_allowed
+
+
+def _payload_size(value: Any) -> int | None:
+    text = _payload_text(value)
+    if text is None:
+        return None
+    return len(text)
+
+
+def _payload_token_count(value: Any) -> int | None:
+    text = _payload_text(value)
+    if text is None:
+        return None
+    return estimate_text_tokens(text)
+
+
+def _payload_text(value: Any) -> str | None:
+    if isinstance(value, str):
+        return value
+    try:
+        return json.dumps(value, ensure_ascii=False, default=str, separators=(",", ":"))
+    except (TypeError, ValueError):
+        return None
+
+
+def _safe_error_message(exc: Exception) -> str | None:
+    message = str(exc).strip()
+    if not message:
+        return None
+    if len(message) <= MAX_LOG_ERROR_MESSAGE_CHARS:
+        return message
+    return f"{message[:MAX_LOG_ERROR_MESSAGE_CHARS]}..."

@@ -31,7 +31,10 @@ from agent_service.memory.models import (
     ConversationSummary,
     PreparedConversationContext,
 )
-from agent_service.memory.pydantic_ai import pydantic_ai_history_from_memory
+from agent_service.memory.pydantic_ai import (
+    pydantic_ai_history_from_memory,
+    pydantic_ai_tool_messages_to_memory,
+)
 from agent_service.memory.tokens import (
     estimate_messages_tokens,
     estimate_text_tokens,
@@ -183,6 +186,47 @@ class DefaultConversationMemoryService(ConversationMemoryService):
             metadata["tool_info"] = [
                 tool_info.model_dump(mode="json") for tool_info in response.tool_info
             ]
+
+        tool_messages = pydantic_ai_tool_messages_to_memory(
+            response.pydantic_ai_new_messages,
+            conversation_id=conversation.id,
+            user_id=conversation.user_id,
+            trace_id=trace_id or response.trace_id,
+        )
+        stored_tool_sequences: list[int] = []
+        for tool_message in tool_messages:
+            stored_tool_message = await self.memory_store.append_message(message=tool_message)
+            if stored_tool_message.sequence is not None:
+                stored_tool_sequences.append(stored_tool_message.sequence)
+            await self._extend_snapshot_if_fresh(stored_tool_message)
+        if tool_messages:
+            log_event(
+                logger,
+                logging.INFO,
+                "Pydantic AI tool history recorded",
+                event="pydantic_ai_tool_history_recorded",
+                conversation_id=str(conversation.id),
+                user_id=str(conversation.user_id),
+                trace_id=trace_id or response.trace_id,
+                tool_message_count=len(tool_messages),
+                tool_call_count=sum(
+                    message.role is ConversationMemoryRole.TOOL_CALL
+                    for message in tool_messages
+                ),
+                tool_result_count=sum(
+                    message.role is ConversationMemoryRole.TOOL_RESULT
+                    for message in tool_messages
+                ),
+                tool_names=sorted(
+                    {
+                        message.tool_name
+                        for message in tool_messages
+                        if message.tool_name is not None
+                    }
+                ),
+                first_sequence=min(stored_tool_sequences) if stored_tool_sequences else None,
+                last_sequence=max(stored_tool_sequences) if stored_tool_sequences else None,
+            )
 
         message = await self.memory_store.append_message(
             message=ConversationMemoryMessage(
