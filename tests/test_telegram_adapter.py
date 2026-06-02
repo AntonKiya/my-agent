@@ -120,6 +120,25 @@ async def test_telegram_adapter_returns_retryable_failure_for_temporary_errors()
     assert result.error_code == "telegram_http_503"
 
 
+async def test_telegram_adapter_classifies_transport_timeouts_without_leaking_token() -> None:
+    def handler(_request: httpx.Request) -> httpx.Response:
+        raise httpx.ReadTimeout(
+            "timed out while requesting https://api.telegram.org/botsecret-token/sendMessage"
+        )
+
+    async with make_client(handler) as client:
+        adapter = TelegramAdapter(bot_token="secret-token", client=client)
+        result = await adapter.send(make_outbound_event())
+
+    assert result.status is DeliveryStatus.FAILED_RETRYABLE
+    assert result.error_code == "telegram_read_timeout"
+    assert result.error_message is not None
+    assert "ReadTimeout" in result.error_message
+    assert "secret-token" not in result.error_message
+    assert "bot<redacted>/sendMessage" in result.error_message
+    assert result.metadata["error_type"] == "ReadTimeout"
+
+
 async def test_telegram_adapter_dead_letters_non_retryable_errors() -> None:
     async with make_client(
         lambda _request: httpx.Response(
