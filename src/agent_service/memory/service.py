@@ -53,6 +53,12 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_RECENT_MESSAGE_LIMIT = 100
 CONTEXT_SNAPSHOT_VERSION = 1
+DIALOG_MEMORY_ROLES = frozenset(
+    {
+        ConversationMemoryRole.USER,
+        ConversationMemoryRole.ASSISTANT,
+    }
+)
 
 
 class ConversationMemoryServiceError(Exception):
@@ -140,6 +146,7 @@ class DefaultConversationMemoryService(ConversationMemoryService):
         history_messages = [
             message for message in snapshot.recent_messages if message.id != latest_user_message.id
         ]
+        model_context_messages = _dialog_memory_messages(history_messages)
         summary_parts = [snapshot.summary] if snapshot.summary else []
         agent_context = AgentContext(
             system_prompt_parts=summary_parts,
@@ -155,7 +162,7 @@ class DefaultConversationMemoryService(ConversationMemoryService):
         )
         pydantic_ai = PydanticAIRunContext(
             user_prompt=latest_user_message.text,
-            message_history=pydantic_ai_history_from_memory(history_messages),
+            message_history=pydantic_ai_history_from_memory(model_context_messages),
             conversation_id=str(conversation.id),
             instructions=snapshot.summary,
             metadata={
@@ -787,6 +794,12 @@ def _agent_context_message(message: ConversationMemoryMessage) -> AgentContextMe
         },
         created_at=message.created_at,
     )
+
+
+def _dialog_memory_messages(
+    messages: list[ConversationMemoryMessage],
+) -> list[ConversationMemoryMessage]:
+    return [message for message in messages if message.role in DIALOG_MEMORY_ROLES]
 
 
 def _agent_context_role(role: ConversationMemoryRole) -> AgentContextRole:

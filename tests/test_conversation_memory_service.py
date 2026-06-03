@@ -515,7 +515,7 @@ async def test_memory_service_rejects_latest_message_from_another_user() -> None
         )
 
 
-async def test_memory_service_keeps_tool_messages_in_active_context() -> None:
+async def test_memory_service_excludes_tool_messages_from_model_context() -> None:
     resolved_conversation = conversation()
     tool_call = ConversationMemoryMessage(
         conversation_id=resolved_conversation.id,
@@ -556,16 +556,73 @@ async def test_memory_service_keeps_tool_messages_in_active_context() -> None:
         "tool_result",
         "user",
     ]
-    tool_call_message = prepared.pydantic_ai.message_history[0]
-    tool_result_message = prepared.pydantic_ai.message_history[1]
-    assert isinstance(tool_call_message, ModelResponse)
-    assert isinstance(tool_call_message.parts[0], ToolCallPart)
-    assert tool_call_message.parts[0].tool_name == "search"
-    assert tool_call_message.parts[0].args == {"query": "weather"}
-    assert isinstance(tool_result_message, ModelRequest)
-    assert isinstance(tool_result_message.parts[0], ToolReturnPart)
-    assert tool_result_message.parts[0].tool_name == "search"
-    assert tool_result_message.parts[0].content == "sunny"
+    assert prepared.pydantic_ai.message_history == []
+
+
+async def test_memory_service_model_context_includes_only_user_and_assistant_roles() -> None:
+    resolved_conversation = conversation()
+    old_user = memory_message(
+        resolved_conversation=resolved_conversation,
+        role=ConversationMemoryRole.USER,
+        sequence=1,
+        text="old question",
+    )
+    tool_call = ConversationMemoryMessage(
+        conversation_id=resolved_conversation.id,
+        user_id=resolved_conversation.user_id,
+        sequence=2,
+        role=ConversationMemoryRole.TOOL_CALL,
+        tool_name="search",
+        tool_call_id="call-1",
+    )
+    tool_result = ConversationMemoryMessage(
+        conversation_id=resolved_conversation.id,
+        user_id=resolved_conversation.user_id,
+        sequence=3,
+        role=ConversationMemoryRole.TOOL_RESULT,
+        text="tool output",
+        tool_name="search",
+        tool_call_id="call-1",
+    )
+    old_assistant = memory_message(
+        resolved_conversation=resolved_conversation,
+        role=ConversationMemoryRole.ASSISTANT,
+        sequence=4,
+        text="old answer",
+    )
+    latest = memory_message(
+        resolved_conversation=resolved_conversation,
+        role=ConversationMemoryRole.USER,
+        sequence=5,
+        text="latest question",
+    )
+    memory_store = FakeMemoryStore(
+        messages={
+            resolved_conversation.id: [
+                old_user,
+                tool_call,
+                tool_result,
+                old_assistant,
+                latest,
+            ]
+        }
+    )
+    service = DefaultConversationMemoryService(memory_store, FakeSnapshotStore())
+
+    prepared = await service.prepare_agent_context(
+        conversation=resolved_conversation,
+        latest_user_message=latest,
+    )
+
+    assert len(prepared.pydantic_ai.message_history) == 2
+    user_message = prepared.pydantic_ai.message_history[0]
+    assistant_message = prepared.pydantic_ai.message_history[1]
+    assert isinstance(user_message, ModelRequest)
+    assert isinstance(user_message.parts[0], UserPromptPart)
+    assert user_message.parts[0].content == "old question"
+    assert isinstance(assistant_message, ModelResponse)
+    assert isinstance(assistant_message.parts[0], TextPart)
+    assert assistant_message.parts[0].content == "old answer"
 
 
 async def test_memory_service_preserves_tool_run_when_recent_limit_cuts_inside_it() -> None:
@@ -617,11 +674,7 @@ async def test_memory_service_preserves_tool_run_when_recent_limit_cuts_inside_i
     assert memory_store.recent_calls == [(resolved_conversation.id, 4)]
     assert prepared.snapshot is not None
     assert prepared.snapshot.recent_messages == [tool_call, tool_result, latest]
-    assert len(prepared.pydantic_ai.message_history) == 2
-    assert isinstance(prepared.pydantic_ai.message_history[0], ModelResponse)
-    assert isinstance(prepared.pydantic_ai.message_history[0].parts[0], ToolCallPart)
-    assert isinstance(prepared.pydantic_ai.message_history[1], ModelRequest)
-    assert isinstance(prepared.pydantic_ai.message_history[1].parts[0], ToolReturnPart)
+    assert prepared.pydantic_ai.message_history == []
 
 
 async def test_memory_service_expands_rebuild_fetch_until_tool_run_start() -> None:
@@ -707,7 +760,7 @@ async def test_memory_service_expands_rebuild_fetch_until_tool_run_start() -> No
         second_result,
         latest,
     ]
-    assert len(prepared.pydantic_ai.message_history) == 4
+    assert prepared.pydantic_ai.message_history == []
 
 
 async def test_memory_service_records_assistant_message_with_usage_and_tool_info() -> None:
