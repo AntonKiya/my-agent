@@ -566,6 +566,7 @@ async def test_container_passes_redis_snapshot_store_to_memory_service(
         environment="test",
         postgres_dsn="postgresql://agent:secret@localhost:5432/agent",
         redis_dsn="redis://127.0.0.1:6379/0",
+        recent_message_limit=37,
         memory_compaction_enabled=True,
         memory_model_context_window_tokens=100_000,
         memory_reserved_output_tokens=8_000,
@@ -579,6 +580,7 @@ async def test_container_passes_redis_snapshot_store_to_memory_service(
     assert isinstance(container.memory_service, DefaultConversationMemoryService)
     assert container.memory_service.snapshot_store is container.conversation_snapshot_store
     assert container.memory_service.compaction_store is container.conversation_compaction_store
+    assert container.memory_service.recent_message_limit == 37
     assert container.conversation_compaction_policy.enabled
     assert container.conversation_compaction_policy.context_window_tokens == 100_000
     assert container.conversation_compaction_policy.reserved_output_tokens == 8_000

@@ -54,6 +54,7 @@ class AppSettings(BaseSettings):
     postgres_command_timeout_seconds: float = Field(default=30.0, gt=0)
     redis_dsn: str | None = None
     redis_context_snapshot_ttl_seconds: int = Field(default=24 * 60 * 60, gt=0)
+    recent_message_limit: int = Field(default=100, gt=0)
     memory_compaction_enabled: bool = False
     memory_model_context_window_tokens: int = Field(default=196_600, gt=0)
     memory_reserved_output_tokens: int = Field(default=16_384, ge=0)

@@ -322,6 +322,7 @@ class AppContainer:
             memory_store=self.conversation_memory_store,
             snapshot_store=self.conversation_snapshot_store,
             compaction_store=self.conversation_compaction_store,
+            recent_message_limit=self.settings.recent_message_limit,
         )
 
     def _start_inbound_workers(self) -> None:

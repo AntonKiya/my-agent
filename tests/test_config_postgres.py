@@ -40,6 +40,7 @@ def test_postgres_pool_settings_have_safe_defaults() -> None:
     assert settings.postgres_command_timeout_seconds == 30.0
     assert settings.redis_dsn is None
     assert settings.redis_context_snapshot_ttl_seconds == 24 * 60 * 60
+    assert settings.recent_message_limit == 100
     assert not settings.memory_compaction_enabled
     assert settings.memory_model_context_window_tokens == 196_600
     assert settings.memory_reserved_output_tokens == 16_384
@@ -93,6 +94,9 @@ def test_postgres_pool_settings_are_validated() -> None:
 
     with pytest.raises(ValidationError):
         AppSettings(environment="test", redis_context_snapshot_ttl_seconds=0)
+
+    with pytest.raises(ValidationError):
+        AppSettings(environment="test", recent_message_limit=0)
 
     with pytest.raises(ValidationError):
         AppSettings(environment="test", memory_model_context_window_tokens=0)
