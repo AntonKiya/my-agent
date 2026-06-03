@@ -1,4 +1,5 @@
 import logging
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
@@ -40,6 +41,11 @@ from agent_service.memory.tokens import (
     estimate_text_tokens,
     usage_token_count,
     usage_total_token_count,
+)
+from agent_service.memory.tool_history import (
+    is_tool_message,
+    retain_recent_messages_preserving_tool_runs,
+    tool_history_fetch_limit,
 )
 from agent_service.observability.events import TRACE_CONTEXT_METADATA_KEY, log_event
 
@@ -210,12 +216,10 @@ class DefaultConversationMemoryService(ConversationMemoryService):
                 trace_id=trace_id or response.trace_id,
                 tool_message_count=len(tool_messages),
                 tool_call_count=sum(
-                    message.role is ConversationMemoryRole.TOOL_CALL
-                    for message in tool_messages
+                    message.role is ConversationMemoryRole.TOOL_CALL for message in tool_messages
                 ),
                 tool_result_count=sum(
-                    message.role is ConversationMemoryRole.TOOL_RESULT
-                    for message in tool_messages
+                    message.role is ConversationMemoryRole.TOOL_RESULT for message in tool_messages
                 ),
                 tool_names=sorted(
                     {
@@ -352,26 +356,37 @@ class DefaultConversationMemoryService(ConversationMemoryService):
     ) -> ConversationContextSnapshot:
         latest_summary = await self._get_latest_completed_summary(conversation)
         if latest_summary is None:
-            messages = await self.memory_store.list_recent_messages(
-                conversation_id=conversation.id,
-                limit=self.recent_message_limit,
+            messages = await _load_messages_with_tool_run_context(
+                min_sequence=1,
+                current_sequence=current_sequence,
+                recent_message_limit=self.recent_message_limit,
+                load=lambda limit: self.memory_store.list_recent_messages(
+                    conversation_id=conversation.id,
+                    limit=limit,
+                ),
             )
         else:
             if latest_summary.to_sequence > current_sequence:
                 raise ConversationMemoryServiceError(
                     "Latest conversation summary is ahead of message sequence"
                 )
-            messages = await self.memory_store.list_messages_after_sequence(
-                conversation_id=conversation.id,
-                user_id=conversation.user_id,
-                after_sequence=latest_summary.to_sequence,
-                limit=self.recent_message_limit,
+            messages = await _load_messages_with_tool_run_context(
+                min_sequence=latest_summary.to_sequence + 1,
+                current_sequence=current_sequence,
+                recent_message_limit=self.recent_message_limit,
+                load=lambda limit: self.memory_store.list_messages_after_sequence(
+                    conversation_id=conversation.id,
+                    user_id=conversation.user_id,
+                    after_sequence=latest_summary.to_sequence,
+                    limit=limit,
+                ),
             )
         snapshot = _snapshot_from_messages(
             conversation=conversation,
             messages=messages,
             current_sequence=current_sequence,
             summary=latest_summary,
+            recent_message_limit=self.recent_message_limit,
         )
         await self._save_snapshot(snapshot)
         return snapshot
@@ -391,7 +406,10 @@ class DefaultConversationMemoryService(ConversationMemoryService):
             await self._delete_snapshot(message.conversation_id)
             return
 
-        recent_messages = [*snapshot.recent_messages, message][-self.recent_message_limit :]
+        recent_messages = retain_recent_messages_preserving_tool_runs(
+            [*snapshot.recent_messages, message],
+            limit=self.recent_message_limit,
+        )
         updated = snapshot.model_copy(
             update={
                 "recent_messages": recent_messages,
@@ -478,6 +496,10 @@ class DefaultConversationMemoryService(ConversationMemoryService):
             for message in snapshot.recent_messages
             if message.sequence is not None and message.sequence > summary.to_sequence
         ]
+        recent_messages = retain_recent_messages_preserving_tool_runs(
+            recent_messages,
+            limit=self.recent_message_limit,
+        )
         updated = snapshot.model_copy(
             update={
                 "summary": summary.summary,
@@ -572,7 +594,12 @@ def _snapshot_from_messages(
     messages: list[ConversationMemoryMessage],
     current_sequence: int,
     summary: ConversationSummary | None = None,
+    recent_message_limit: int = DEFAULT_RECENT_MESSAGE_LIMIT,
 ) -> ConversationContextSnapshot:
+    messages = retain_recent_messages_preserving_tool_runs(
+        messages,
+        limit=recent_message_limit,
+    )
     last_message = messages[-1] if messages else None
     return ConversationContextSnapshot(
         conversation_id=conversation.id,
@@ -612,6 +639,52 @@ def _snapshot_from_messages(
     )
 
 
+async def _load_messages_with_tool_run_context(
+    *,
+    min_sequence: int,
+    current_sequence: int,
+    recent_message_limit: int,
+    load: Callable[[int], Awaitable[list[ConversationMemoryMessage]]],
+) -> list[ConversationMemoryMessage]:
+    available_count = current_sequence - min_sequence + 1
+    if available_count <= 0:
+        return []
+
+    limit = min(
+        tool_history_fetch_limit(recent_message_limit),
+        available_count,
+    )
+    while True:
+        messages = await load(limit)
+        if not _may_start_inside_tool_run(
+            messages,
+            min_sequence=min_sequence,
+            requested_limit=limit,
+        ):
+            return messages
+
+        next_limit = min(limit * 2, available_count)
+        if next_limit <= limit:
+            return messages
+        limit = next_limit
+
+
+def _may_start_inside_tool_run(
+    messages: list[ConversationMemoryMessage],
+    *,
+    min_sequence: int,
+    requested_limit: int,
+) -> bool:
+    if not messages or len(messages) < requested_limit:
+        return False
+    first_message = messages[0]
+    if not is_tool_message(first_message):
+        return False
+    if first_message.sequence is None:
+        return False
+    return first_message.sequence > min_sequence
+
+
 def _summary_from_compaction_result(
     *,
     conversation: Conversation,
@@ -643,14 +716,10 @@ def _summary_from_compaction_result(
     model = result.metadata.get("model")
     usage = result.metadata.get("usage")
     input_token_count = (
-        usage_token_count(usage, "input_tokens")
-        if isinstance(usage, dict)
-        else None
+        usage_token_count(usage, "input_tokens") if isinstance(usage, dict) else None
     )
     output_token_count = (
-        usage_token_count(usage, "output_tokens")
-        if isinstance(usage, dict)
-        else None
+        usage_token_count(usage, "output_tokens") if isinstance(usage, dict) else None
     )
     if input_token_count is None or output_token_count is None:
         log_event(

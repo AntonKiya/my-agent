@@ -10,6 +10,7 @@ from agent_service.memory.models import (
     ConversationMemoryRole,
 )
 from agent_service.memory.tokens import estimate_message_tokens, estimate_messages_tokens
+from agent_service.memory.tool_history import expand_tail_to_tool_run_start
 
 COMPACTABLE_ROLES = frozenset(
     {
@@ -211,4 +212,4 @@ def _retained_tail_by_token_budget(
         retained.append(message)
         total += token_count
     retained.reverse()
-    return retained
+    return expand_tail_to_tool_run_start(messages, retained)
