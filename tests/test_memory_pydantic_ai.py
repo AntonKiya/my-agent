@@ -175,9 +175,7 @@ def test_pydantic_ai_tool_messages_to_memory_extracts_only_tool_parts() -> None:
     assert memory_messages[0].metadata["tool_kind"] == "capability-load"
     assert memory_messages[1].metadata["content"] == {"instructions": "Use VkusVill tools."}
     assert memory_messages[2].metadata["args"] == {"query": "сок"}
-    assert memory_messages[3].metadata["content"] == {
-        "items": [{"xml_id": "123", "name": "Сок"}]
-    }
+    assert memory_messages[3].metadata["content"] == {"items": [{"xml_id": "123", "name": "Сок"}]}
 
 
 def test_pydantic_ai_history_preserves_memory_order() -> None:
@@ -189,3 +187,74 @@ def test_pydantic_ai_history_preserves_memory_order() -> None:
     assert len(history) == 2
     assert isinstance(history[0], ModelRequest)
     assert isinstance(history[1], ModelResponse)
+
+
+def test_pydantic_ai_history_groups_complete_parallel_tool_round() -> None:
+    first_call = memory_message(role=ConversationMemoryRole.TOOL_CALL, text=None)
+    first_call.tool_call_id = "call-a"
+    first_call.metadata = {"args": {"query": "juice"}}
+    second_call = memory_message(role=ConversationMemoryRole.TOOL_CALL, text=None)
+    second_call.tool_call_id = "call-b"
+    second_call.metadata = {"args": {"query": "milk"}}
+    first_result = memory_message(role=ConversationMemoryRole.TOOL_RESULT, text="juice")
+    first_result.tool_call_id = "call-a"
+    second_result = memory_message(role=ConversationMemoryRole.TOOL_RESULT, text="milk")
+    second_result.tool_call_id = "call-b"
+
+    history = pydantic_ai_history_from_memory(
+        [first_call, second_call, first_result, second_result]
+    )
+
+    assert len(history) == 2
+    assert isinstance(history[0], ModelResponse)
+    assert [part.tool_call_id for part in history[0].parts] == ["call-a", "call-b"]
+    assert isinstance(history[1], ModelRequest)
+    assert [part.tool_call_id for part in history[1].parts] == ["call-a", "call-b"]
+
+
+def test_pydantic_ai_history_preserves_separate_tool_rounds() -> None:
+    load_call = memory_message(role=ConversationMemoryRole.TOOL_CALL, text=None)
+    load_call.tool_name = "load_capability"
+    load_call.tool_call_id = "load-1"
+    load_call.metadata = {
+        "tool_kind": "capability-load",
+        "args": {"id": "vkusvill-shopping"},
+    }
+    load_result = memory_message(role=ConversationMemoryRole.TOOL_RESULT, text=None)
+    load_result.tool_name = "load_capability"
+    load_result.tool_call_id = "load-1"
+    load_result.metadata = {
+        "tool_kind": "capability-load",
+        "content": {"instructions": "Use VkusVill tools."},
+    }
+    search_call = memory_message(role=ConversationMemoryRole.TOOL_CALL, text=None)
+    search_call.tool_call_id = "call-1"
+    search_result = memory_message(role=ConversationMemoryRole.TOOL_RESULT, text="found")
+    search_result.tool_call_id = "call-1"
+
+    history = pydantic_ai_history_from_memory([load_call, load_result, search_call, search_result])
+
+    assert len(history) == 4
+    assert isinstance(history[0], ModelResponse)
+    assert isinstance(history[0].parts[0], LoadCapabilityCallPart)
+    assert isinstance(history[1], ModelRequest)
+    assert isinstance(history[1].parts[0], LoadCapabilityReturnPart)
+    assert isinstance(history[2], ModelResponse)
+    assert isinstance(history[2].parts[0], ToolCallPart)
+    assert isinstance(history[3], ModelRequest)
+    assert isinstance(history[3].parts[0], ToolReturnPart)
+
+
+def test_pydantic_ai_history_drops_incomplete_tool_pairs() -> None:
+    orphan_result = memory_message(role=ConversationMemoryRole.TOOL_RESULT, text="orphan")
+    orphan_result.tool_call_id = "missing-call"
+    unmatched_call = memory_message(role=ConversationMemoryRole.TOOL_CALL, text=None)
+    unmatched_call.tool_call_id = "missing-result"
+    user_message = memory_message(role=ConversationMemoryRole.USER, text="next")
+
+    history = pydantic_ai_history_from_memory([orphan_result, unmatched_call, user_message])
+
+    assert len(history) == 1
+    assert isinstance(history[0], ModelRequest)
+    assert isinstance(history[0].parts[0], UserPromptPart)
+    assert history[0].parts[0].content == "next"

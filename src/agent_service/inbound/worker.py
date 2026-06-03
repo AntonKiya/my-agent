@@ -276,7 +276,7 @@ class InboundWorker:
                         prepared_context=prepared_context,
                     )
                 )
-            except Exception:
+            except Exception as exc:
                 logger.exception(
                     "Agent call failed after retries",
                     extra={
@@ -284,6 +284,7 @@ class InboundWorker:
                         "inbound_event_id": str(event.event_id),
                         "conversation_id": str(conversation.id),
                         "user_id": str(event.user_id),
+                        **_agent_error_log_fields(exc),
                     },
                 )
                 await self._publish_fallback_event(event, conversation_id=conversation.id)
@@ -404,8 +405,8 @@ class InboundWorker:
                             user_id=str(request.user_id),
                             channel=request.channel,
                             attempt=attempt_number,
-                            error_type=type(exc).__name__,
                             duration_ms=elapsed_ms(started_at),
+                            **_agent_error_log_fields(exc),
                         )
                         raise
                     request.metadata["retry_attempt"] = attempt_number
@@ -420,9 +421,9 @@ class InboundWorker:
                         user_id=str(request.user_id),
                         channel=request.channel,
                         attempt=attempt_number,
-                        error_type=type(exc).__name__,
                         delay_seconds=delay_seconds,
                         duration_ms=elapsed_ms(started_at),
+                        **_agent_error_log_fields(exc),
                     )
                     await self.sleep(delay_seconds)
         raise RuntimeError("Agent retry loop exited without a response")
@@ -714,3 +715,53 @@ def _pydantic_ai_new_message_counts(response: AgentResponse) -> dict[str, int]:
         "pydantic_ai_tool_call_count": tool_call_count,
         "pydantic_ai_tool_result_count": tool_result_count,
     }
+
+
+def _agent_error_log_fields(exc: BaseException) -> dict[str, object]:
+    fields: dict[str, object] = {
+        "error_type": type(exc).__name__,
+        "error_message": str(exc),
+    }
+    for attr, field_name in (
+        ("status_code", "error_status_code"),
+        ("model_name", "error_model_name"),
+        ("body", "error_body"),
+    ):
+        value = getattr(exc, attr, None)
+        if value is not None:
+            fields[field_name] = value
+            if attr == "body":
+                fields["error_body_type"] = type(value).__name__
+
+    response = getattr(exc, "response", None)
+    if response is not None:
+        status_code = getattr(response, "status_code", None)
+        if status_code is not None:
+            fields["error_response_status_code"] = status_code
+        text = getattr(response, "text", None)
+        if isinstance(text, str) and text:
+            fields["error_response_text"] = _truncate_log_text(text)
+        headers = getattr(response, "headers", None)
+        if headers is not None:
+            for header_name in (
+                "x-request-id",
+                "x-openrouter-request-id",
+                "cf-ray",
+            ):
+                header_value = headers.get(header_name)
+                if header_value:
+                    fields[f"error_response_header_{header_name.replace('-', '_')}"] = header_value
+
+    cause = exc.__cause__
+    if cause is not None:
+        fields["error_cause_type"] = type(cause).__name__
+        fields["error_cause_message"] = str(cause)
+
+    return fields
+
+
+def _truncate_log_text(value: str, *, max_length: int = 8000) -> str:
+    if len(value) <= max_length:
+        return value
+    omitted = len(value) - max_length
+    return f"{value[:max_length]}...[truncated {omitted} chars]"

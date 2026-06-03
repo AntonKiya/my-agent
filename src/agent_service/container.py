@@ -1,4 +1,5 @@
 import asyncio
+import json
 import logging
 from collections.abc import Awaitable
 from dataclasses import dataclass, field
@@ -63,6 +64,8 @@ from agent_service.runtime.lifecycle import TaskSupervisor
 from agent_service.users import PostgresPool, PostgresUserStore, UserResolver
 
 logger = logging.getLogger(__name__)
+
+OPENROUTER_ERROR_RESPONSE_LOG_BODY_LIMIT = 12000
 
 
 class ManagedPostgresPool(PostgresPool, Protocol):
@@ -499,6 +502,7 @@ def _create_openrouter_http_client(
         pool_timeout_seconds=settings.openrouter_http_pool_timeout_seconds,
         keepalive_expiry_seconds=settings.openrouter_http_keepalive_expiry_seconds,
         worker_count=worker_count,
+        event_hooks={"response": [_log_openrouter_error_response]},
     )
 
 
@@ -510,6 +514,7 @@ def _create_external_http_client(
     pool_timeout_seconds: float,
     keepalive_expiry_seconds: float,
     worker_count: int,
+    event_hooks: dict[str, list[object]] | None = None,
 ) -> httpx.AsyncClient:
     return httpx.AsyncClient(
         timeout=httpx.Timeout(
@@ -522,7 +527,75 @@ def _create_external_http_client(
             worker_count=worker_count,
             keepalive_expiry_seconds=keepalive_expiry_seconds,
         ),
+        event_hooks=event_hooks,
     )
+
+
+async def _log_openrouter_error_response(response: httpx.Response) -> None:
+    if response.status_code < 400:
+        body = await response.aread()
+        error = _openrouter_response_error(body)
+        if error is None:
+            return
+    else:
+        body = await response.aread()
+        error = _openrouter_response_error(body)
+
+    text = body.decode(response.encoding or "utf-8", errors="replace")
+    logger.warning(
+        "OpenRouter error response received",
+        extra={
+            "event": "openrouter_error_response_received",
+            "http_method": response.request.method,
+            "http_url_path": response.request.url.path,
+            "http_status_code": response.status_code,
+            "openrouter_error_code": _mapping_value(error, "code"),
+            "openrouter_error_message": _mapping_value(error, "message"),
+            "openrouter_response_body": _truncate_log_text(
+                text,
+                max_length=OPENROUTER_ERROR_RESPONSE_LOG_BODY_LIMIT,
+            ),
+            **_openrouter_response_header_fields(response),
+        },
+    )
+
+
+def _openrouter_response_error(body: bytes) -> object | None:
+    if not body:
+        return None
+    try:
+        decoded = json.loads(body)
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(decoded, dict):
+        return None
+    return decoded.get("error")
+
+
+def _mapping_value(value: object, key: str) -> object | None:
+    if isinstance(value, dict):
+        return value.get(key)
+    return None
+
+
+def _openrouter_response_header_fields(response: httpx.Response) -> dict[str, str]:
+    fields: dict[str, str] = {}
+    for header_name in (
+        "x-request-id",
+        "x-openrouter-request-id",
+        "cf-ray",
+    ):
+        header_value = response.headers.get(header_name)
+        if header_value:
+            fields[f"http_response_header_{header_name.replace('-', '_')}"] = header_value
+    return fields
+
+
+def _truncate_log_text(value: str, *, max_length: int) -> str:
+    if len(value) <= max_length:
+        return value
+    omitted = len(value) - max_length
+    return f"{value[:max_length]}...[truncated {omitted} chars]"
 
 
 def _external_http_limits(

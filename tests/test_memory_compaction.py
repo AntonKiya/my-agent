@@ -259,6 +259,61 @@ def test_compaction_policy_uses_token_trigger_and_retains_recent_tail_by_tokens(
     assert decision.retained_tail_token_count == estimate_messages_tokens(messages[3:])
 
 
+def test_compaction_policy_extends_recent_tail_to_tool_run_start() -> None:
+    conversation_id = uuid4()
+    user_id = uuid4()
+    messages = [
+        memory_message(
+            role=ConversationMemoryRole.USER,
+            conversation_id=conversation_id,
+            user_id=user_id,
+            sequence=1,
+        ),
+        memory_message(
+            role=ConversationMemoryRole.ASSISTANT,
+            conversation_id=conversation_id,
+            user_id=user_id,
+            sequence=2,
+        ),
+        memory_message(
+            role=ConversationMemoryRole.TOOL_CALL,
+            conversation_id=conversation_id,
+            user_id=user_id,
+            sequence=3,
+            text=None,
+        ),
+        memory_message(
+            role=ConversationMemoryRole.TOOL_RESULT,
+            conversation_id=conversation_id,
+            user_id=user_id,
+            sequence=4,
+            text="tool result",
+        ),
+    ]
+    snapshot = ConversationContextSnapshot(
+        conversation_id=conversation_id,
+        user_id=user_id,
+        recent_messages=messages,
+        last_seen_message_id=messages[-1].id,
+        last_seen_sequence=4,
+        token_count=90,
+    )
+    policy = ConversationCompactionPolicy(
+        enabled=True,
+        context_window_tokens=100,
+        reserved_output_tokens=0,
+        trigger_fraction=0.80,
+        recent_tail_fraction=0.10,
+    )
+
+    decision = policy.decide(snapshot=snapshot)
+
+    assert decision.should_compact
+    assert decision.compact_through_sequence == 2
+    assert decision.keep_from_sequence == 3
+    assert decision.retained_tail_token_count == estimate_messages_tokens(messages[2:])
+
+
 def test_compaction_policy_does_not_trigger_below_token_threshold() -> None:
     conversation_id = uuid4()
     user_id = uuid4()

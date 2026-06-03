@@ -396,7 +396,7 @@ async def test_memory_service_rebuilds_and_replaces_stale_snapshot() -> None:
     )
 
     assert snapshot_store.delete_calls == [resolved_conversation.id]
-    assert memory_store.recent_calls == [(resolved_conversation.id, 100)]
+    assert memory_store.recent_calls == [(resolved_conversation.id, 2)]
     assert snapshot_store.save_calls[-1].last_seen_sequence == 2
     assert prepared.snapshot == snapshot_store.save_calls[-1]
     assert prepared.metadata["snapshot_source"] == "postgres"
@@ -443,7 +443,7 @@ async def test_memory_service_rebuilds_snapshot_from_latest_summary_and_recent_t
 
     assert memory_store.recent_calls == []
     assert memory_store.after_sequence_calls == [
-        (resolved_conversation.id, resolved_conversation.user_id, 2, 100)
+        (resolved_conversation.id, resolved_conversation.user_id, 2, 1)
     ]
     assert prepared.snapshot is not None
     assert prepared.snapshot.summary == "compressed old context"
@@ -566,6 +566,148 @@ async def test_memory_service_keeps_tool_messages_in_active_context() -> None:
     assert isinstance(tool_result_message.parts[0], ToolReturnPart)
     assert tool_result_message.parts[0].tool_name == "search"
     assert tool_result_message.parts[0].content == "sunny"
+
+
+async def test_memory_service_preserves_tool_run_when_recent_limit_cuts_inside_it() -> None:
+    resolved_conversation = conversation()
+    old_user = memory_message(
+        resolved_conversation=resolved_conversation,
+        role=ConversationMemoryRole.USER,
+        sequence=1,
+        text="old",
+    )
+    tool_call = ConversationMemoryMessage(
+        conversation_id=resolved_conversation.id,
+        user_id=resolved_conversation.user_id,
+        sequence=2,
+        role=ConversationMemoryRole.TOOL_CALL,
+        tool_name="search",
+        tool_call_id="call-1",
+        metadata={"args": {"query": "weather"}},
+    )
+    tool_result = ConversationMemoryMessage(
+        conversation_id=resolved_conversation.id,
+        user_id=resolved_conversation.user_id,
+        sequence=3,
+        role=ConversationMemoryRole.TOOL_RESULT,
+        text="sunny",
+        tool_name="search",
+        tool_call_id="call-1",
+    )
+    latest = memory_message(
+        resolved_conversation=resolved_conversation,
+        role=ConversationMemoryRole.USER,
+        sequence=4,
+        text="thanks",
+    )
+    memory_store = FakeMemoryStore(
+        messages={resolved_conversation.id: [old_user, tool_call, tool_result, latest]}
+    )
+    service = DefaultConversationMemoryService(
+        memory_store,
+        FakeSnapshotStore(),
+        recent_message_limit=2,
+    )
+
+    prepared = await service.prepare_agent_context(
+        conversation=resolved_conversation,
+        latest_user_message=latest,
+    )
+
+    assert memory_store.recent_calls == [(resolved_conversation.id, 4)]
+    assert prepared.snapshot is not None
+    assert prepared.snapshot.recent_messages == [tool_call, tool_result, latest]
+    assert len(prepared.pydantic_ai.message_history) == 2
+    assert isinstance(prepared.pydantic_ai.message_history[0], ModelResponse)
+    assert isinstance(prepared.pydantic_ai.message_history[0].parts[0], ToolCallPart)
+    assert isinstance(prepared.pydantic_ai.message_history[1], ModelRequest)
+    assert isinstance(prepared.pydantic_ai.message_history[1].parts[0], ToolReturnPart)
+
+
+async def test_memory_service_expands_rebuild_fetch_until_tool_run_start() -> None:
+    resolved_conversation = conversation()
+    old_user = memory_message(
+        resolved_conversation=resolved_conversation,
+        role=ConversationMemoryRole.USER,
+        sequence=1,
+        text="old",
+    )
+    first_call = ConversationMemoryMessage(
+        conversation_id=resolved_conversation.id,
+        user_id=resolved_conversation.user_id,
+        sequence=2,
+        role=ConversationMemoryRole.TOOL_CALL,
+        tool_name="search",
+        tool_call_id="call-1",
+    )
+    first_result = ConversationMemoryMessage(
+        conversation_id=resolved_conversation.id,
+        user_id=resolved_conversation.user_id,
+        sequence=3,
+        role=ConversationMemoryRole.TOOL_RESULT,
+        text="first",
+        tool_name="search",
+        tool_call_id="call-1",
+    )
+    second_call = ConversationMemoryMessage(
+        conversation_id=resolved_conversation.id,
+        user_id=resolved_conversation.user_id,
+        sequence=4,
+        role=ConversationMemoryRole.TOOL_CALL,
+        tool_name="search",
+        tool_call_id="call-2",
+    )
+    second_result = ConversationMemoryMessage(
+        conversation_id=resolved_conversation.id,
+        user_id=resolved_conversation.user_id,
+        sequence=5,
+        role=ConversationMemoryRole.TOOL_RESULT,
+        text="second",
+        tool_name="search",
+        tool_call_id="call-2",
+    )
+    latest = memory_message(
+        resolved_conversation=resolved_conversation,
+        role=ConversationMemoryRole.USER,
+        sequence=6,
+        text="thanks",
+    )
+    memory_store = FakeMemoryStore(
+        messages={
+            resolved_conversation.id: [
+                old_user,
+                first_call,
+                first_result,
+                second_call,
+                second_result,
+                latest,
+            ]
+        }
+    )
+    service = DefaultConversationMemoryService(
+        memory_store,
+        FakeSnapshotStore(),
+        recent_message_limit=2,
+    )
+
+    prepared = await service.prepare_agent_context(
+        conversation=resolved_conversation,
+        latest_user_message=latest,
+    )
+
+    assert memory_store.recent_calls == [
+        (resolved_conversation.id, 4),
+        (resolved_conversation.id, 6),
+    ]
+    assert prepared.snapshot is not None
+    assert prepared.snapshot.recent_messages == [
+        first_call,
+        first_result,
+        second_call,
+        second_result,
+        latest,
+    ]
+    assert len(prepared.pydantic_ai.message_history) == 4
 
 
 async def test_memory_service_records_assistant_message_with_usage_and_tool_info() -> None:
