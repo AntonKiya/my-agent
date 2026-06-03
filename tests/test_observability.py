@@ -1,8 +1,9 @@
 import json
 import logging
 import os
+import sys
 import warnings
-from typing import Any
+from typing import Any, cast
 
 import pytest
 from fastapi import FastAPI
@@ -17,7 +18,7 @@ from agent_service.observability.logfire_integration import (
     configure_logfire,
     reset_logfire_integration_for_tests,
 )
-from agent_service.observability.logging import configure_logging
+from agent_service.observability.logging import JsonLogFormatter, configure_logging
 from agent_service.observability.tracing import (
     create_trace_id,
     get_trace_id,
@@ -108,6 +109,46 @@ def test_log_event_omits_none_fields_and_preserves_safe_metadata(
     assert payload["conversation_id"] == "conversation-1"
     assert payload["duration_ms"] == 1.25
     assert "user_id" not in payload
+
+
+def test_json_log_formatter_outputs_valid_exception_info() -> None:
+    formatter = JsonLogFormatter()
+    try:
+        raise RuntimeError("observability failed")
+    except RuntimeError:
+        record = logging.LogRecord(
+            name="agent_service.tests",
+            level=logging.ERROR,
+            pathname=__file__,
+            lineno=0,
+            msg="Observed exception",
+            args=(),
+            exc_info=sys.exc_info(),
+        )
+
+    payload = json.loads(formatter.format(record))
+
+    assert payload["level"] == "ERROR"
+    assert payload["message"] == "Observed exception"
+    assert "RuntimeError: observability failed" in payload["exception"]
+
+
+def test_json_log_formatter_ignores_invalid_exc_info_without_crashing() -> None:
+    record = logging.LogRecord(
+        name="agent_service.tests",
+        level=logging.ERROR,
+        pathname=__file__,
+        lineno=0,
+        msg="Task was destroyed but it is pending",
+        args=(),
+        exc_info=cast(Any, True),
+    )
+
+    payload = json.loads(JsonLogFormatter().format(record))
+
+    assert payload["level"] == "ERROR"
+    assert payload["message"] == "Task was destroyed but it is pending"
+    assert "exception" not in payload
 
 
 def test_elapsed_ms_returns_non_negative_duration() -> None:

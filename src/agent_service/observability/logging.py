@@ -2,6 +2,7 @@ import json
 import logging
 import sys
 from datetime import UTC, datetime
+from types import TracebackType
 from typing import Any
 
 from agent_service.config import AppSettings
@@ -52,8 +53,9 @@ class JsonLogFormatter(logging.Formatter):
             if key not in _RESERVED_LOG_RECORD_FIELDS and not key.startswith("_"):
                 payload[key] = value
 
-        if record.exc_info is not None:
-            payload["exception"] = self.formatException(record.exc_info)
+        exception_text = _exception_text(self, record)
+        if exception_text is not None:
+            payload["exception"] = exception_text
 
         return json.dumps(payload, ensure_ascii=False, default=str)
 
@@ -74,3 +76,31 @@ def configure_logging(settings: AppSettings) -> None:
 def configure_observability(settings: AppSettings) -> None:
     configure_logging(settings)
     configure_logfire(settings)
+
+
+def _exception_text(formatter: logging.Formatter, record: logging.LogRecord) -> str | None:
+    exc_info = _exception_info(record.exc_info)
+    if exc_info is not None:
+        return formatter.formatException(exc_info)
+    if isinstance(record.exc_text, str) and record.exc_text:
+        return record.exc_text
+    return None
+
+
+def _exception_info(
+    exc_info: object,
+) -> tuple[type[BaseException], BaseException, TracebackType | None] | None:
+    if isinstance(exc_info, BaseException):
+        return (type(exc_info), exc_info, exc_info.__traceback__)
+    if not isinstance(exc_info, tuple) or len(exc_info) != 3:
+        return None
+
+    exc_type, exc, traceback = exc_info
+    if not isinstance(exc_type, type) or not issubclass(exc_type, BaseException):
+        return None
+    if not isinstance(exc, BaseException):
+        return None
+    if traceback is not None and not isinstance(traceback, TracebackType):
+        return None
+
+    return (exc_type, exc, traceback)
