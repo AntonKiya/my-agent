@@ -5,7 +5,7 @@ from typing import Any, Protocol, cast
 
 import httpx
 from pydantic_ai import Agent
-from pydantic_ai.messages import ModelMessage
+from pydantic_ai.messages import ModelMessage, ModelResponse
 from pydantic_ai.models.openrouter import OpenRouterModel
 from pydantic_ai.providers.openrouter import OpenRouterProvider
 from pydantic_ai.toolsets import AgentToolset
@@ -99,6 +99,9 @@ class PydanticAIAgentBoundary(AgentBoundary):
                 metadata=metadata,
             )
 
+        usage = _result_usage(result)
+        new_messages = _agent_new_messages(result)
+        response_usage = _latest_model_response_usage(new_messages) or usage
         text = _response_text(result.output)
         return AgentResponse(
             text=text,
@@ -106,8 +109,8 @@ class PydanticAIAgentBoundary(AgentBoundary):
                 "agent": "pydantic_ai",
                 **_safe_response_metadata(request),
             },
-            usage=_agent_usage(result),
-            pydantic_ai_new_messages=_agent_new_messages(result),
+            usage=_agent_usage_from_usage(response_usage),
+            pydantic_ai_new_messages=new_messages,
             trace_id=request.trace_id,
         )
 
@@ -176,9 +179,17 @@ def _response_text(output: Any) -> str:
 
 
 def _agent_usage(result: PydanticAIRunResult) -> AgentUsage | None:
+    return _agent_usage_from_usage(_result_usage(result))
+
+
+def _result_usage(result: PydanticAIRunResult) -> Any:
     usage = result.usage
     if callable(usage) and not _has_usage_details(usage):
         usage = usage()
+    return usage
+
+
+def _agent_usage_from_usage(usage: Any) -> AgentUsage | None:
     input_tokens = _optional_int_attr(usage, "input_tokens")
     output_tokens = _optional_int_attr(usage, "output_tokens")
     total_tokens = _optional_int_attr(usage, "total_tokens")
@@ -235,6 +246,26 @@ def _agent_new_messages(result: PydanticAIRunResult) -> list[ModelMessage]:
     if not isinstance(messages, list):
         return []
     return messages
+
+
+def _latest_model_response_usage(messages: list[ModelMessage]) -> object | None:
+    for message in reversed(messages):
+        if not isinstance(message, ModelResponse):
+            continue
+        if _usage_has_tokens(message.usage):
+            return message.usage
+    return None
+
+
+def _usage_has_tokens(usage: object) -> bool:
+    return any(
+        (value is not None and value > 0)
+        for value in (
+            _optional_int_attr(usage, "input_tokens"),
+            _optional_int_attr(usage, "output_tokens"),
+            _optional_int_attr(usage, "total_tokens"),
+        )
+    )
 
 
 def _safe_metadata_subset(metadata: dict[str, Any], allowed_keys: frozenset[str]) -> dict[str, Any]:

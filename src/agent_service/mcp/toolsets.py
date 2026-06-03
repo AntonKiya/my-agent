@@ -10,7 +10,6 @@ from pydantic_ai.mcp import MCPToolset
 from pydantic_ai.tools import ToolDefinition
 from pydantic_ai.toolsets import AbstractToolset, ToolsetTool, WrapperToolset
 
-from agent_service.memory.tokens import estimate_text_tokens
 from agent_service.observability.events import elapsed_ms, log_event, start_timer
 
 logger = logging.getLogger(__name__)
@@ -88,7 +87,6 @@ class TransformingToolset(WrapperToolset[Any]):
             tool_name=name,
             tool_args_keys=sorted(tool_args),
             tool_args_size=tool_args_size,
-            tool_args_estimated_tokens=_payload_token_count(tool_args),
         )
 
         try:
@@ -110,7 +108,6 @@ class TransformingToolset(WrapperToolset[Any]):
 
         transformer = self.result_transformers.get(name)
         original_size = _payload_size(result)
-        original_tokens = _payload_token_count(result)
         if transformer is None:
             log_event(
                 logger,
@@ -121,8 +118,6 @@ class TransformingToolset(WrapperToolset[Any]):
                 duration_ms=elapsed_ms(started_at),
                 original_size=original_size,
                 transformed_size=original_size,
-                original_estimated_tokens=original_tokens,
-                transformed_estimated_tokens=original_tokens,
                 transformed=False,
             )
             return result
@@ -149,14 +144,11 @@ class TransformingToolset(WrapperToolset[Any]):
                 duration_ms=elapsed_ms(started_at),
                 original_size=original_size,
                 transformed_size=original_size,
-                original_estimated_tokens=original_tokens,
-                transformed_estimated_tokens=original_tokens,
                 transformed=False,
             )
             return result
 
         transformed_size = _payload_size(transformed)
-        transformed_tokens = _payload_token_count(transformed)
         log_event(
             logger,
             logging.INFO,
@@ -176,8 +168,6 @@ class TransformingToolset(WrapperToolset[Any]):
             duration_ms=elapsed_ms(started_at),
             original_size=original_size,
             transformed_size=transformed_size,
-            original_estimated_tokens=original_tokens,
-            transformed_estimated_tokens=transformed_tokens,
             transformed=transformed != result,
         )
         return transformed
@@ -201,13 +191,6 @@ def _payload_size(value: Any) -> int | None:
     if text is None:
         return None
     return len(text)
-
-
-def _payload_token_count(value: Any) -> int | None:
-    text = _payload_text(value)
-    if text is None:
-        return None
-    return estimate_text_tokens(text)
 
 
 def _payload_text(value: Any) -> str | None:

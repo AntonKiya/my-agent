@@ -6,6 +6,7 @@ from uuid import uuid4
 
 import pytest
 from pydantic_ai.messages import ModelMessage, ModelRequest, ModelResponse, TextPart, UserPromptPart
+from pydantic_ai.usage import RequestUsage
 
 import agent_service.agents.pydantic_ai as pydantic_ai_module
 from agent_service.agents import (
@@ -243,6 +244,35 @@ async def test_pydantic_ai_agent_boundary_returns_new_messages() -> None:
     response = await boundary.run(agent_request())
 
     assert response.pydantic_ai_new_messages == new_messages
+
+
+async def test_pydantic_ai_agent_boundary_uses_latest_response_usage() -> None:
+    new_messages = [
+        ModelResponse(
+            parts=[TextPart(content="tool calls")],
+            usage=RequestUsage(input_tokens=20_783, output_tokens=262),
+        ),
+        ModelRequest(parts=[UserPromptPart(content="tool results")]),
+        ModelResponse(
+            parts=[TextPart(content="final")],
+            usage=RequestUsage(input_tokens=23_904, output_tokens=179),
+        ),
+    ]
+    agent = FakePydanticAIAgent(
+        result=FakeRunResult(
+            output="ok",
+            run_usage=FakeUsage(input_tokens=68_450, output_tokens=753, requests=3),
+            messages=new_messages,
+        ),
+    )
+    boundary = PydanticAIAgentBoundary(agent=agent)
+
+    response = await boundary.run(agent_request())
+
+    assert response.usage is not None
+    assert response.usage.input_tokens == 23_904
+    assert response.usage.output_tokens == 179
+    assert response.usage.total_tokens == 24_083
 
 
 async def test_pydantic_ai_agent_boundary_does_not_call_usage_property_object() -> None:
