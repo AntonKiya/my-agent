@@ -6,6 +6,8 @@ from dataclasses import dataclass, field
 from typing import Protocol
 from uuid import UUID
 
+from pydantic_ai.messages import ToolCallPart, ToolReturnPart
+
 from agent_service.agents import AgentBoundary, AgentRequest, AgentResponse
 from agent_service.channels import InboundEvent, InboundEventStatus
 from agent_service.conversations import (
@@ -369,6 +371,26 @@ class InboundWorker:
                         channel=request.channel,
                         attempt=attempt_number,
                         duration_ms=elapsed_ms(started_at),
+                        usage_input_tokens=(
+                            response.usage.input_tokens if response.usage is not None else None
+                        ),
+                        usage_output_tokens=(
+                            response.usage.output_tokens if response.usage is not None else None
+                        ),
+                        usage_total_tokens=(
+                            response.usage.total_tokens if response.usage is not None else None
+                        ),
+                        usage_requests=(
+                            response.usage.metadata.get("requests")
+                            if response.usage is not None
+                            else None
+                        ),
+                        usage_tool_calls=(
+                            response.usage.metadata.get("tool_calls")
+                            if response.usage is not None
+                            else None
+                        ),
+                        **_pydantic_ai_new_message_counts(response),
                     )
                     return response
                 except Exception as exc:
@@ -672,3 +694,23 @@ class InboundWorker:
             status=event.status,
             failure_reason=failure_reason,
         )
+
+
+def _pydantic_ai_new_message_counts(response: AgentResponse) -> dict[str, int]:
+    message_count = len(response.pydantic_ai_new_messages)
+    part_count = 0
+    tool_call_count = 0
+    tool_result_count = 0
+    for message in response.pydantic_ai_new_messages:
+        for part in message.parts:
+            part_count += 1
+            if isinstance(part, ToolCallPart):
+                tool_call_count += 1
+            elif isinstance(part, ToolReturnPart):
+                tool_result_count += 1
+    return {
+        "pydantic_ai_new_message_count": message_count,
+        "pydantic_ai_new_part_count": part_count,
+        "pydantic_ai_tool_call_count": tool_call_count,
+        "pydantic_ai_tool_result_count": tool_result_count,
+    }

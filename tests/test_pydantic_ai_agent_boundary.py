@@ -5,14 +5,17 @@ from typing import Any
 from uuid import uuid4
 
 import pytest
-from pydantic_ai.messages import ModelMessage, ModelRequest, UserPromptPart
+from pydantic_ai.messages import ModelMessage, ModelRequest, ModelResponse, TextPart, UserPromptPart
+from pydantic_ai.usage import RequestUsage
 
+import agent_service.agents.pydantic_ai as pydantic_ai_module
 from agent_service.agents import (
     AgentRequest,
     EmptyAgentResponseError,
     PydanticAIAgentBoundary,
     PydanticAIRunContext,
     UnsupportedAgentRequestError,
+    build_openrouter_agent_boundary,
 )
 from agent_service.channels import Attachment, AttachmentType
 
@@ -34,9 +37,22 @@ class FakeUsage:
 class FakeRunResult:
     output: Any
     run_usage: FakeUsage = field(default_factory=FakeUsage)
+    messages: list[ModelMessage] = field(default_factory=list)
 
     def usage(self) -> FakeUsage:
         return self.run_usage
+
+    def new_messages(self) -> list[ModelMessage]:
+        return self.messages
+
+
+@dataclass(slots=True)
+class CallableUsage(FakeUsage):
+    called: bool = False
+
+    def __call__(self) -> "CallableUsage":
+        self.called = True
+        return self
 
 
 @dataclass(slots=True)
@@ -113,6 +129,55 @@ def agent_request(
     )
 
 
+def test_build_openrouter_agent_boundary_wires_builtin_skill_capabilities(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    created_agents: list[dict[str, Any]] = []
+
+    def fake_agent_factory(model: object, **kwargs: Any) -> object:
+        created_agents.append({"model": model, **kwargs})
+        return FakePydanticAIAgent()
+
+    monkeypatch.setattr(pydantic_ai_module, "Agent", fake_agent_factory)
+    toolsets = [object()]
+
+    boundary = build_openrouter_agent_boundary(
+        model_name="openai/gpt-4o-mini",
+        api_key="key",
+        capability_toolsets={"vkusvill-shopping": toolsets},  # type: ignore[dict-item]
+    )
+
+    assert isinstance(boundary, PydanticAIAgentBoundary)
+    assert len(created_agents) == 1
+    assert created_agents[0]["output_type"] is str
+    capabilities = created_agents[0]["capabilities"]
+    assert len(capabilities) == 1
+    assert capabilities[0].id == "vkusvill-shopping"
+    assert capabilities[0].defer_loading is True
+    assert capabilities[0].toolsets == tuple(toolsets)
+
+
+def test_build_openrouter_agent_boundary_respects_enabled_skill_ids(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    created_agents: list[dict[str, Any]] = []
+
+    def fake_agent_factory(model: object, **kwargs: Any) -> object:
+        created_agents.append({"model": model, **kwargs})
+        return FakePydanticAIAgent()
+
+    monkeypatch.setattr(pydantic_ai_module, "Agent", fake_agent_factory)
+
+    boundary = build_openrouter_agent_boundary(
+        model_name="openai/gpt-4o-mini",
+        api_key="key",
+        enabled_skill_ids=set(),
+    )
+
+    assert isinstance(boundary, PydanticAIAgentBoundary)
+    assert created_agents[0]["capabilities"] == ()
+
+
 async def test_pydantic_ai_agent_boundary_passes_prepared_context() -> None:
     history: list[ModelMessage] = [ModelRequest(parts=[UserPromptPart(content="previous")])]
     agent = FakePydanticAIAgent(
@@ -167,6 +232,61 @@ async def test_pydantic_ai_agent_boundary_passes_prepared_context() -> None:
             },
         }
     ]
+
+
+async def test_pydantic_ai_agent_boundary_returns_new_messages() -> None:
+    new_messages = [ModelResponse(parts=[TextPart(content="ok")])]
+    agent = FakePydanticAIAgent(
+        result=FakeRunResult(output="ok", messages=new_messages),
+    )
+    boundary = PydanticAIAgentBoundary(agent=agent)
+
+    response = await boundary.run(agent_request())
+
+    assert response.pydantic_ai_new_messages == new_messages
+
+
+async def test_pydantic_ai_agent_boundary_uses_latest_response_usage() -> None:
+    new_messages = [
+        ModelResponse(
+            parts=[TextPart(content="tool calls")],
+            usage=RequestUsage(input_tokens=20_783, output_tokens=262),
+        ),
+        ModelRequest(parts=[UserPromptPart(content="tool results")]),
+        ModelResponse(
+            parts=[TextPart(content="final")],
+            usage=RequestUsage(input_tokens=23_904, output_tokens=179),
+        ),
+    ]
+    agent = FakePydanticAIAgent(
+        result=FakeRunResult(
+            output="ok",
+            run_usage=FakeUsage(input_tokens=68_450, output_tokens=753, requests=3),
+            messages=new_messages,
+        ),
+    )
+    boundary = PydanticAIAgentBoundary(agent=agent)
+
+    response = await boundary.run(agent_request())
+
+    assert response.usage is not None
+    assert response.usage.input_tokens == 23_904
+    assert response.usage.output_tokens == 179
+    assert response.usage.total_tokens == 24_083
+
+
+async def test_pydantic_ai_agent_boundary_does_not_call_usage_property_object() -> None:
+    usage = CallableUsage(input_tokens=3, output_tokens=4, requests=1)
+    agent = FakePydanticAIAgent(result=FakeRunResult(output="ok", run_usage=usage))
+    boundary = PydanticAIAgentBoundary(agent=agent)
+
+    response = await boundary.run(agent_request())
+
+    assert usage.called is False
+    assert response.usage is not None
+    assert response.usage.input_tokens == 3
+    assert response.usage.output_tokens == 4
+    assert response.usage.total_tokens == 7
 
 
 async def test_pydantic_ai_agent_boundary_falls_back_to_request_text() -> None:

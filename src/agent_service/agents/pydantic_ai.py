@@ -1,16 +1,18 @@
 import asyncio
-from collections.abc import Sequence
+from collections.abc import Collection, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any, Protocol, cast
 
 import httpx
 from pydantic_ai import Agent
-from pydantic_ai.messages import ModelMessage
+from pydantic_ai.messages import ModelMessage, ModelResponse
 from pydantic_ai.models.openrouter import OpenRouterModel
 from pydantic_ai.providers.openrouter import OpenRouterProvider
+from pydantic_ai.toolsets import AgentToolset
 
 from agent_service.agents.interfaces import AgentBoundary
 from agent_service.agents.models import AgentRequest, AgentResponse, AgentUsage
+from agent_service.skills import load_builtin_skill_capabilities
 
 SAFE_REQUEST_METADATA_KEYS = frozenset({"retry_attempt"})
 SAFE_CONTEXT_METADATA_KEYS = frozenset(
@@ -39,6 +41,10 @@ class PydanticAIRunResult(Protocol):
 
     def usage(self) -> Any:
         """Return Pydantic AI usage details when available."""
+        ...
+
+    def new_messages(self) -> list[ModelMessage]:
+        """Return messages produced during this Pydantic AI run."""
         ...
 
 
@@ -93,6 +99,9 @@ class PydanticAIAgentBoundary(AgentBoundary):
                 metadata=metadata,
             )
 
+        usage = _result_usage(result)
+        new_messages = _agent_new_messages(result)
+        response_usage = _latest_model_response_usage(new_messages) or usage
         text = _response_text(result.output)
         return AgentResponse(
             text=text,
@@ -100,7 +109,8 @@ class PydanticAIAgentBoundary(AgentBoundary):
                 "agent": "pydantic_ai",
                 **_safe_response_metadata(request),
             },
-            usage=_agent_usage(result),
+            usage=_agent_usage_from_usage(response_usage),
+            pydantic_ai_new_messages=new_messages,
             trace_id=request.trace_id,
         )
 
@@ -111,13 +121,25 @@ def build_openrouter_agent_boundary(
     api_key: str,
     http_client: httpx.AsyncClient | None = None,
     timeout_seconds: float = 60.0,
+    capability_toolsets: Mapping[str, Sequence[AgentToolset[Any]]] | None = None,
+    enabled_skill_ids: Collection[str] | None = None,
 ) -> PydanticAIAgentBoundary:
     model = OpenRouterModel(
         model_name,
         provider=OpenRouterProvider(api_key=api_key, http_client=http_client),
     )
     return PydanticAIAgentBoundary(
-        agent=cast(PydanticAIAgent, Agent(model, output_type=str)),
+        agent=cast(
+            PydanticAIAgent,
+            Agent(
+                model,
+                output_type=str,
+                capabilities=load_builtin_skill_capabilities(
+                    toolsets_by_skill_id=capability_toolsets,
+                    enabled_skill_ids=enabled_skill_ids,
+                ),
+            ),
+        ),
         timeout_seconds=timeout_seconds,
     )
 
@@ -157,9 +179,17 @@ def _response_text(output: Any) -> str:
 
 
 def _agent_usage(result: PydanticAIRunResult) -> AgentUsage | None:
+    return _agent_usage_from_usage(_result_usage(result))
+
+
+def _result_usage(result: PydanticAIRunResult) -> Any:
     usage = result.usage
-    if callable(usage):
+    if callable(usage) and not _has_usage_details(usage):
         usage = usage()
+    return usage
+
+
+def _agent_usage_from_usage(usage: Any) -> AgentUsage | None:
     input_tokens = _optional_int_attr(usage, "input_tokens")
     output_tokens = _optional_int_attr(usage, "output_tokens")
     total_tokens = _optional_int_attr(usage, "total_tokens")
@@ -171,6 +201,20 @@ def _agent_usage(result: PydanticAIRunResult) -> AgentUsage | None:
         output_tokens=output_tokens,
         total_tokens=total_tokens,
         metadata=metadata,
+    )
+
+
+def _has_usage_details(value: object) -> bool:
+    return any(
+        getattr(value, attr, None) is not None
+        for attr in (
+            "input_tokens",
+            "output_tokens",
+            "total_tokens",
+            "requests",
+            "tool_calls",
+            "details",
+        )
     )
 
 
@@ -192,6 +236,36 @@ def _usage_metadata(usage: object) -> dict[str, Any]:
         if value:
             metadata[attr] = value
     return metadata
+
+
+def _agent_new_messages(result: PydanticAIRunResult) -> list[ModelMessage]:
+    new_messages = getattr(result, "new_messages", None)
+    if not callable(new_messages):
+        return []
+    messages = new_messages()
+    if not isinstance(messages, list):
+        return []
+    return messages
+
+
+def _latest_model_response_usage(messages: list[ModelMessage]) -> object | None:
+    for message in reversed(messages):
+        if not isinstance(message, ModelResponse):
+            continue
+        if _usage_has_tokens(message.usage):
+            return message.usage
+    return None
+
+
+def _usage_has_tokens(usage: object) -> bool:
+    return any(
+        (value is not None and value > 0)
+        for value in (
+            _optional_int_attr(usage, "input_tokens"),
+            _optional_int_attr(usage, "output_tokens"),
+            _optional_int_attr(usage, "total_tokens"),
+        )
+    )
 
 
 def _safe_metadata_subset(metadata: dict[str, Any], allowed_keys: frozenset[str]) -> dict[str, Any]:

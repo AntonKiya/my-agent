@@ -40,6 +40,7 @@ def test_postgres_pool_settings_have_safe_defaults() -> None:
     assert settings.postgres_command_timeout_seconds == 30.0
     assert settings.redis_dsn is None
     assert settings.redis_context_snapshot_ttl_seconds == 24 * 60 * 60
+    assert settings.recent_message_limit == 100
     assert not settings.memory_compaction_enabled
     assert settings.memory_model_context_window_tokens == 196_600
     assert settings.memory_reserved_output_tokens == 16_384
@@ -93,6 +94,9 @@ def test_postgres_pool_settings_are_validated() -> None:
 
     with pytest.raises(ValidationError):
         AppSettings(environment="test", redis_context_snapshot_ttl_seconds=0)
+
+    with pytest.raises(ValidationError):
+        AppSettings(environment="test", recent_message_limit=0)
 
     with pytest.raises(ValidationError):
         AppSettings(environment="test", memory_model_context_window_tokens=0)
@@ -201,6 +205,49 @@ def test_agent_settings_accept_partial_provider_configuration() -> None:
     assert settings.agent_provider == "openrouter"
     assert settings.agent_model is None
     assert settings.openrouter_api_key is None
+
+
+def test_vkusvill_mcp_settings_accept_stdio_configuration() -> None:
+    settings = AppSettings(
+        environment="test",
+        vkusvill_mcp_command="uvx",
+        vkusvill_mcp_args=("vkusvill-mcp",),
+        vkusvill_mcp_env={"TOKEN": "secret"},
+    )
+
+    assert settings.vkusvill_mcp_command == "uvx"
+    assert settings.vkusvill_mcp_args == ("vkusvill-mcp",)
+    assert settings.vkusvill_mcp_env == {"TOKEN": "secret"}
+    assert settings.vkusvill_mcp_url is None
+
+
+def test_vkusvill_mcp_settings_accept_url_configuration() -> None:
+    settings = AppSettings(
+        environment="test",
+        vkusvill_mcp_url="http://localhost:8765/mcp",
+        vkusvill_mcp_headers={"Authorization": "Bearer token"},
+    )
+
+    assert settings.vkusvill_mcp_url == "http://localhost:8765/mcp"
+    assert settings.vkusvill_mcp_headers == {"Authorization": "Bearer token"}
+    assert settings.vkusvill_mcp_command is None
+
+
+def test_vkusvill_mcp_settings_reject_conflicting_transports() -> None:
+    with pytest.raises(ValidationError, match="either vkusvill_mcp_command or vkusvill_mcp_url"):
+        AppSettings(
+            environment="test",
+            vkusvill_mcp_command="uvx",
+            vkusvill_mcp_url="http://localhost:8765/mcp",
+        )
+
+
+def test_vkusvill_mcp_settings_reject_stdio_options_without_command() -> None:
+    with pytest.raises(ValidationError, match="vkusvill_mcp_args requires"):
+        AppSettings(environment="test", vkusvill_mcp_args=("vkusvill-mcp",))
+
+    with pytest.raises(ValidationError, match="vkusvill_mcp_env requires"):
+        AppSettings(environment="test", vkusvill_mcp_env={"TOKEN": "secret"})
 
 
 def test_prod_telegram_bot_requires_webhook_secret() -> None:

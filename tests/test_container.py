@@ -6,6 +6,7 @@ from uuid import UUID, uuid4
 import pytest
 from pydantic import SecretStr
 
+import agent_service.container as container_module
 from agent_service.agents import AgentRequest, AgentResponse, PydanticAIAgentBoundary
 from agent_service.channels import (
     ChannelAdapterNotFoundError,
@@ -315,6 +316,73 @@ async def test_container_builds_openrouter_agent_boundary_when_configured() -> N
     assert container.agent_boundary is None
 
 
+async def test_container_passes_vkusvill_mcp_toolsets_to_openrouter_boundary(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, object] = {}
+
+    def fake_build_openrouter_agent_boundary(**kwargs: object) -> PydanticAIAgentBoundary:
+        captured.update(kwargs)
+        return PydanticAIAgentBoundary(agent=object())  # type: ignore[arg-type]
+
+    monkeypatch.setattr(
+        container_module,
+        "build_openrouter_agent_boundary",
+        fake_build_openrouter_agent_boundary,
+    )
+    settings = AppSettings(
+        environment="test",
+        agent_provider="openrouter",
+        agent_model="openai/gpt-4.1-mini",
+        openrouter_api_key=SecretStr("secret"),
+        vkusvill_mcp_url="http://localhost:8765/mcp",
+    )
+
+    container = AppContainer(settings=settings)
+
+    assert isinstance(container.agent_boundary, PydanticAIAgentBoundary)
+    assert captured["model_name"] == "openai/gpt-4.1-mini"
+    assert captured["timeout_seconds"] == 60.0
+    assert captured["enabled_skill_ids"] == {"vkusvill-shopping"}
+    capability_toolsets = captured["capability_toolsets"]
+    assert isinstance(capability_toolsets, dict)
+    toolsets = capability_toolsets["vkusvill-shopping"]
+    assert isinstance(toolsets, tuple)
+    assert len(toolsets) == 1
+
+    await container.stop()
+
+
+async def test_container_disables_vkusvill_skill_without_mcp_toolsets(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, object] = {}
+
+    def fake_build_openrouter_agent_boundary(**kwargs: object) -> PydanticAIAgentBoundary:
+        captured.update(kwargs)
+        return PydanticAIAgentBoundary(agent=object())  # type: ignore[arg-type]
+
+    monkeypatch.setattr(
+        container_module,
+        "build_openrouter_agent_boundary",
+        fake_build_openrouter_agent_boundary,
+    )
+    settings = AppSettings(
+        environment="test",
+        agent_provider="openrouter",
+        agent_model="openai/gpt-4.1-mini",
+        openrouter_api_key=SecretStr("secret"),
+    )
+
+    container = AppContainer(settings=settings)
+
+    assert isinstance(container.agent_boundary, PydanticAIAgentBoundary)
+    assert captured["capability_toolsets"] is None
+    assert captured["enabled_skill_ids"] == set()
+
+    await container.stop()
+
+
 async def test_container_builds_pydantic_ai_compactor_when_configured() -> None:
     settings = AppSettings(
         environment="test",
@@ -498,6 +566,7 @@ async def test_container_passes_redis_snapshot_store_to_memory_service(
         environment="test",
         postgres_dsn="postgresql://agent:secret@localhost:5432/agent",
         redis_dsn="redis://127.0.0.1:6379/0",
+        recent_message_limit=37,
         memory_compaction_enabled=True,
         memory_model_context_window_tokens=100_000,
         memory_reserved_output_tokens=8_000,
@@ -511,6 +580,7 @@ async def test_container_passes_redis_snapshot_store_to_memory_service(
     assert isinstance(container.memory_service, DefaultConversationMemoryService)
     assert container.memory_service.snapshot_store is container.conversation_snapshot_store
     assert container.memory_service.compaction_store is container.conversation_compaction_store
+    assert container.memory_service.recent_message_limit == 37
     assert container.conversation_compaction_policy.enabled
     assert container.conversation_compaction_policy.context_window_tokens == 100_000
     assert container.conversation_compaction_policy.reserved_output_tokens == 8_000

@@ -3,7 +3,16 @@ from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
 import pytest
-from pydantic_ai.messages import ModelRequest, ModelResponse, TextPart, ToolCallPart, ToolReturnPart
+from pydantic_ai.messages import (
+    LoadCapabilityCallPart,
+    LoadCapabilityReturnPart,
+    ModelRequest,
+    ModelResponse,
+    TextPart,
+    ToolCallPart,
+    ToolReturnPart,
+    UserPromptPart,
+)
 
 from agent_service.agents import AgentResponse, AgentToolInfo, AgentToolStatus, AgentUsage
 from agent_service.channels import InboundEvent
@@ -588,6 +597,76 @@ async def test_memory_service_records_assistant_message_with_usage_and_tool_info
     assert stored.metadata["model"] == "test"
     assert stored.metadata["usage"]["output_tokens"] == 5
     assert stored.metadata["tool_info"][0]["tool_name"] == "search"
+
+
+async def test_memory_service_records_pydantic_ai_tool_messages_before_assistant() -> None:
+    resolved_conversation = conversation()
+    memory_store = FakeMemoryStore()
+    service = DefaultConversationMemoryService(memory_store, FakeSnapshotStore())
+
+    stored = await service.record_assistant_message(
+        conversation=resolved_conversation,
+        response=AgentResponse(
+            text="done",
+            pydantic_ai_new_messages=[
+                ModelRequest(parts=[UserPromptPart(content="добавь сок")]),
+                ModelResponse(
+                    parts=[
+                        LoadCapabilityCallPart(
+                            args={"id": "vkusvill-shopping"},
+                            tool_call_id="load-1",
+                        )
+                    ]
+                ),
+                ModelRequest(
+                    parts=[
+                        LoadCapabilityReturnPart(
+                            content={"instructions": "Use VkusVill tools."},
+                            tool_call_id="load-1",
+                        )
+                    ]
+                ),
+                ModelResponse(
+                    parts=[
+                        ToolCallPart(
+                            tool_name="mcp_vkusvill_vkusvill_products_search",
+                            args={"query": "сок"},
+                            tool_call_id="call-1",
+                        )
+                    ]
+                ),
+                ModelRequest(
+                    parts=[
+                        ToolReturnPart(
+                            tool_name="mcp_vkusvill_vkusvill_products_search",
+                            content={"items": [{"xml_id": "123"}]},
+                            tool_call_id="call-1",
+                        )
+                    ]
+                ),
+                ModelResponse(parts=[TextPart(content="done")]),
+            ],
+            trace_id="trace-1",
+        ),
+        trace_id="trace-1",
+    )
+
+    assert stored.role is ConversationMemoryRole.ASSISTANT
+    assert stored.text == "done"
+    assert [message.role for message in memory_store.append_calls] == [
+        ConversationMemoryRole.TOOL_CALL,
+        ConversationMemoryRole.TOOL_RESULT,
+        ConversationMemoryRole.TOOL_CALL,
+        ConversationMemoryRole.TOOL_RESULT,
+        ConversationMemoryRole.ASSISTANT,
+    ]
+    assert memory_store.append_calls[0].tool_name == "load_capability"
+    assert memory_store.append_calls[0].metadata["tool_kind"] == "capability-load"
+    assert memory_store.append_calls[1].metadata["content"] == {
+        "instructions": "Use VkusVill tools."
+    }
+    assert memory_store.append_calls[2].metadata["args"] == {"query": "сок"}
+    assert memory_store.append_calls[3].metadata["content"] == {"items": [{"xml_id": "123"}]}
 
 
 async def test_memory_service_uses_latest_assistant_usage_for_snapshot_tokens() -> None:

@@ -34,6 +34,7 @@ from agent_service.inbound import (
     InboundWorker,
     PostgresInboundIdempotencyStore,
 )
+from agent_service.mcp import VKUSVILL_SHOPPING_SKILL_ID, build_vkusvill_mcp_toolsets
 from agent_service.memory import (
     ConversationCompactionPolicy,
     ConversationCompactionStore,
@@ -232,6 +233,12 @@ class AppContainer:
         if self.settings.agent_model is None or self.settings.openrouter_api_key is None:
             return None
 
+        vkusvill_toolsets = build_vkusvill_mcp_toolsets(self.settings)
+        enabled_skill_ids: set[str] = set()
+        capability_toolsets = None
+        if vkusvill_toolsets:
+            enabled_skill_ids.add(VKUSVILL_SHOPPING_SKILL_ID)
+            capability_toolsets = {VKUSVILL_SHOPPING_SKILL_ID: vkusvill_toolsets}
         self._agent_http_client = _create_openrouter_http_client(
             self.settings,
             read_timeout_seconds=self.settings.agent_timeout_seconds,
@@ -242,6 +249,8 @@ class AppContainer:
             api_key=self.settings.openrouter_api_key.get_secret_value(),
             http_client=self._agent_http_client,
             timeout_seconds=self.settings.agent_timeout_seconds,
+            capability_toolsets=capability_toolsets,
+            enabled_skill_ids=enabled_skill_ids,
         )
 
     def _build_conversation_compactor(self) -> ConversationCompactor | None:
@@ -313,6 +322,7 @@ class AppContainer:
             memory_store=self.conversation_memory_store,
             snapshot_store=self.conversation_snapshot_store,
             compaction_store=self.conversation_compaction_store,
+            recent_message_limit=self.settings.recent_message_limit,
         )
 
     def _start_inbound_workers(self) -> None:

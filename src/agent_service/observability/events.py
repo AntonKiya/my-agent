@@ -1,4 +1,5 @@
 import logging
+import warnings
 from collections.abc import Iterator, Mapping, MutableMapping
 from contextlib import contextmanager, nullcontext
 from importlib import import_module
@@ -89,7 +90,14 @@ def attached_trace_context(metadata: Mapping[str, object]) -> Iterator[None]:
         yield
         return
 
-    token = otel_context.attach(extract(trace_carrier))
+    with warnings.catch_warnings():
+        warnings.filterwarnings(
+            "ignore",
+            message="Found propagated trace context.*",
+            category=RuntimeWarning,
+        )
+        context = extract(trace_carrier)
+    token = otel_context.attach(context)
     try:
         yield
     finally:

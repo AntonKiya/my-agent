@@ -36,6 +36,7 @@ from agent_service.memory.postgres import (
 from agent_service.memory.pydantic_ai import (
     pydantic_ai_history_from_memory,
     pydantic_ai_message_from_memory,
+    pydantic_ai_tool_messages_to_memory,
 )
 from agent_service.memory.redis import (
     DEFAULT_CONTEXT_SNAPSHOT_KEY_PREFIX,
@@ -101,6 +102,7 @@ __all__ = [
     "PreparedConversationContext",
     "pydantic_ai_history_from_memory",
     "pydantic_ai_message_from_memory",
+    "pydantic_ai_tool_messages_to_memory",
     "compactable_messages_from_snapshot",
     "compaction_request_from_snapshot",
     "render_conversation_summary",

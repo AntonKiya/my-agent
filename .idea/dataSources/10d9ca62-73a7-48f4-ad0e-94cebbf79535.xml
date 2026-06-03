@@ -3,9 +3,8 @@
   <database-model serializer="dbm" dbms="POSTGRES" family-id="POSTGRES" format-version="4.53">
     <root id="1">
       <DateStyle>mdy</DateStyle>
-      <IntrospectionStateNumber>779</IntrospectionStateNumber>
       <ServerVersion>17.10</ServerVersion>
-      <StartupTime>1780304555</StartupTime>
+      <StartupTime>1780407201</StartupTime>
       <TimeZones>true ACDT
 true ACSST
 false ACST
@@ -802,18 +801,17 @@ true posixrules
 13280||10|C|G
 13280||-9223372036854775808|U|G
 13280||10|U|G</Grants>
-      <IntrospectionStateNumber>779</IntrospectionStateNumber>
       <ObjectId>16385</ObjectId>
       <OwnerName>agent_service</OwnerName>
     </database>
-    <database id="3" parent="1" name="agent_service_test">
-      <ObjectId>16387</ObjectId>
-      <OwnerName>agent_service_test</OwnerName>
-    </database>
-    <database id="4" parent="1" name="postgres">
+    <database id="3" parent="1" name="postgres">
       <Comment>default administrative connection database</Comment>
       <ObjectId>5</ObjectId>
       <OwnerName>agent_service_admin</OwnerName>
+    </database>
+    <database id="4" parent="1" name="agent_service_test">
+      <ObjectId>16387</ObjectId>
+      <OwnerName>agent_service_test</OwnerName>
     </database>
     <role id="5" parent="1" name="agent_service">
       <CanLogin>1</CanLogin>
@@ -4241,7 +4239,6 @@ true posixrules
     <schema id="268" parent="2" name="public">
       <Comment>standard public schema</Comment>
       <Current>1</Current>
-      <IntrospectionStateNumber>779</IntrospectionStateNumber>
       <LastIntrospectionLocalTimestamp>2026-06-01.09:34:19</LastIntrospectionLocalTimestamp>
       <ObjectId>2200</ObjectId>
       <StateNumber>532</StateNumber>
