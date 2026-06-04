@@ -13,13 +13,19 @@ def test_builtin_skills_include_vkusvill_shopping_as_deferred_capability() -> No
     capability = capabilities[0]
     assert capability.id == "vkusvill-shopping"
     assert capability.defer_loading is True
-    assert "TRIGGER when: the user wants to buy food" in capability.get_description()
+    description = capability.get_description()
+    assert isinstance(description, str)
+    assert "TRIGGER when: the user wants to buy food" in description
     instructions = capability.get_instructions()
+    assert isinstance(instructions, list)
     assert len(instructions) == 1
-    assert instructions[0].startswith("# VkusVill Shopping Skill")
-    assert "---" not in instructions[0]
-    assert "`mcp_vkusvill_vkusvill_products_search`" in instructions[0]
-    assert "`mcp_vkusvill_vkusvill_cart_link_create`" in instructions[0]
+    instruction = instructions[0]
+    assert isinstance(instruction, str)
+    assert instruction.startswith("# VkusVill Shopping Skill")
+    assert "---" not in instruction
+    assert "`mcp_vkusvill_vkusvill_products_batch_search`" in instruction
+    assert "`mcp_vkusvill_vkusvill_products_search`" not in instruction
+    assert "`mcp_vkusvill_vkusvill_cart_link_create`" in instruction
 
 
 def test_builtin_skills_can_be_filtered_by_enabled_skill_ids() -> None:

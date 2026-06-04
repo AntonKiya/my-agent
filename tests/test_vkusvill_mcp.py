@@ -2,10 +2,16 @@ import json
 from dataclasses import dataclass
 from typing import Any, cast
 
+from pydantic import TypeAdapter
 from pydantic_ai import RunContext
 from pydantic_ai.models.test import TestModel
 from pydantic_ai.tools import ToolDefinition
-from pydantic_ai.toolsets import AbstractToolset, FilteredToolset, PrefixedToolset
+from pydantic_ai.toolsets import (
+    AbstractToolset,
+    FilteredToolset,
+    PrefixedToolset,
+    ToolsetTool,
+)
 from pydantic_ai.usage import RunUsage
 
 from agent_service.config import AppSettings
@@ -14,8 +20,11 @@ from agent_service.mcp import (
     VKUSVILL_MCP_RESULT_TRANSFORMERS,
     VKUSVILL_MCP_TOOL_NAMES,
     VKUSVILL_MCP_TOOL_PREFIX,
+    VKUSVILL_PRODUCTS_BATCH_SEARCH_TOOL_NAME,
+    VKUSVILL_PRODUCTS_SEARCH_TOOL_NAME,
     PrefixedMCPToolsetConfig,
     TransformingToolset,
+    VkusVillBatchSearchToolset,
     build_prefixed_mcp_toolset,
     build_vkusvill_mcp_toolsets,
     prefixed_tool_names,
@@ -51,6 +60,37 @@ class FakeToolset(AbstractToolset[Any]):
         return self.result
 
 
+@dataclass
+class RecordingSearchToolset(AbstractToolset[Any]):
+    results: dict[str, Any]
+    calls: list[dict[str, Any]]
+
+    @property
+    def id(self) -> str | None:
+        return None
+
+    async def get_tools(self, ctx: RunContext[Any]) -> dict[str, ToolsetTool[Any]]:
+        return {
+            VKUSVILL_PRODUCTS_SEARCH_TOOL_NAME: ToolsetTool(
+                toolset=self,
+                tool_def=ToolDefinition(name=VKUSVILL_PRODUCTS_SEARCH_TOOL_NAME),
+                max_retries=2,
+                args_validator=cast(Any, TypeAdapter(dict[str, Any]).validator),
+            )
+        }
+
+    async def call_tool(
+        self,
+        name: str,
+        tool_args: dict[str, Any],
+        ctx: RunContext[Any],
+        tool: ToolsetTool[Any],
+    ) -> Any:
+        assert name == VKUSVILL_PRODUCTS_SEARCH_TOOL_NAME
+        self.calls.append(dict(tool_args))
+        return self.results[cast(str, tool_args.get("q"))]
+
+
 def test_vkusvill_mcp_toolsets_are_disabled_without_transport_config() -> None:
     assert build_vkusvill_mcp_toolsets(AppSettings(environment="test")) == ()
 
@@ -63,7 +103,7 @@ def test_vkusvill_mcp_toolset_uses_skill_tool_names_as_allowlist() -> None:
         "vkusvill_cart_link_create",
     }
     assert VKUSVILL_MCP_TOOL_NAMES == {
-        "mcp_vkusvill_vkusvill_products_search",
+        "mcp_vkusvill_vkusvill_products_batch_search",
         "mcp_vkusvill_vkusvill_product_details",
         "mcp_vkusvill_vkusvill_product_analogs",
         "mcp_vkusvill_vkusvill_cart_link_create",
@@ -98,8 +138,10 @@ def test_vkusvill_mcp_tool_filter_allows_only_wrapped_skill_tools() -> None:
     toolset = build_vkusvill_mcp_toolsets(
         AppSettings(environment="test", vkusvill_mcp_url="http://localhost:8765/mcp")
     )[0]
-    assert isinstance(toolset, TransformingToolset)
-    filtered = toolset.wrapped
+    assert isinstance(toolset, VkusVillBatchSearchToolset)
+    transforming = toolset.wrapped
+    assert isinstance(transforming, TransformingToolset)
+    filtered = transforming.wrapped
     assert isinstance(filtered, FilteredToolset)
 
     allowed = ToolDefinition(name="mcp_vkusvill_vkusvill_products_search")
@@ -121,7 +163,9 @@ def test_vkusvill_mcp_url_toolset_is_prefixed_then_filtered() -> None:
     )
 
     assert len(toolsets) == 1
-    transforming = toolsets[0]
+    batch = toolsets[0]
+    assert isinstance(batch, VkusVillBatchSearchToolset)
+    transforming = batch.wrapped
     assert isinstance(transforming, TransformingToolset)
     filtered = transforming.wrapped
     assert isinstance(filtered, FilteredToolset)
@@ -140,7 +184,9 @@ def test_vkusvill_mcp_stdio_toolset_is_prefixed_then_filtered() -> None:
     )
 
     assert len(toolsets) == 1
-    transforming = toolsets[0]
+    batch = toolsets[0]
+    assert isinstance(batch, VkusVillBatchSearchToolset)
+    transforming = batch.wrapped
     assert isinstance(transforming, TransformingToolset)
     filtered = transforming.wrapped
     assert isinstance(filtered, FilteredToolset)
@@ -181,6 +227,119 @@ async def test_transforming_toolset_leaves_unmapped_tools_unchanged() -> None:
     assert result == "raw-result"
 
 
+async def test_vkusvill_batch_search_toolset_hides_single_search_tool() -> None:
+    base = RecordingSearchToolset(results={}, calls=[])
+    toolset = VkusVillBatchSearchToolset(base)
+
+    tools = await toolset.get_tools(_run_context())
+
+    assert VKUSVILL_PRODUCTS_SEARCH_TOOL_NAME not in tools
+    assert VKUSVILL_PRODUCTS_BATCH_SEARCH_TOOL_NAME in tools
+    assert tools[VKUSVILL_PRODUCTS_BATCH_SEARCH_TOOL_NAME].max_retries == 2
+
+
+async def test_vkusvill_batch_search_calls_single_search_once_per_item() -> None:
+    raw_meat_payload = {
+        "ok": True,
+        "data": {
+            "meta": {"query": "стейк говяжий", "total": 1},
+            "items": [
+                {
+                    "id": 10,
+                    "xml_id": "100",
+                    "name": "Стейк говяжий",
+                    "description": "drop",
+                    "price": {"current": 453},
+                    "rating": {"average": 4.9},
+                }
+            ],
+        },
+    }
+    raw_fish_payload = {
+        "ok": True,
+        "data": {
+            "meta": {"query": "лосось слабосоленый", "total": 1},
+            "items": [
+                {
+                    "id": 20,
+                    "xml_id": "200",
+                    "name": "Лосось слабосоленый",
+                    "price": {"current": 339},
+                }
+            ],
+        },
+    }
+    base = RecordingSearchToolset(
+        results={
+            "стейк говяжий": raw_meat_payload,
+            "лосось слабосоленый": json.dumps(raw_fish_payload, ensure_ascii=False),
+        },
+        calls=[],
+    )
+    toolset = VkusVillBatchSearchToolset(
+        TransformingToolset(
+            base,
+            VKUSVILL_MCP_RESULT_TRANSFORMERS,
+        )
+    )
+
+    result = await toolset.call_tool(
+        VKUSVILL_PRODUCTS_BATCH_SEARCH_TOOL_NAME,
+        {
+            "items": [
+                {"item_id": "meat", "q": "стейк говяжий", "sort": "price_asc"},
+                {"item_id": "fish", "q": "лосось слабосоленый", "page": 1},
+            ]
+        },
+        _run_context(),
+        cast(Any, object()),
+    )
+
+    assert base.calls == [
+        {"q": "стейк говяжий", "sort": "price_asc"},
+        {"q": "лосось слабосоленый", "page": 1},
+    ]
+    assert result == {
+        "ok": True,
+        "results": [
+            {
+                "item_id": "meat",
+                "result": {
+                    "ok": True,
+                    "data": {
+                        "meta": {"query": "стейк говяжий", "total": 1},
+                        "items": [
+                            {
+                                "id": 10,
+                                "xml_id": "100",
+                                "name": "Стейк говяжий",
+                                "price": {"current": 453},
+                            }
+                        ],
+                    },
+                },
+            },
+            {
+                "item_id": "fish",
+                "result": {
+                    "ok": True,
+                    "data": {
+                        "meta": {"query": "лосось слабосоленый", "total": 1},
+                        "items": [
+                            {
+                                "id": 20,
+                                "xml_id": "200",
+                                "name": "Лосось слабосоленый",
+                                "price": {"current": 339},
+                            }
+                        ],
+                    },
+                },
+            },
+        ],
+    }
+
+
 def test_vkusvill_result_transformers_match_nanobot_scope() -> None:
     assert VKUSVILL_MCP_RESULT_TRANSFORMERS.keys() == {
         "mcp_vkusvill_vkusvill_products_search",
@@ -219,9 +378,7 @@ def test_vkusvill_products_search_compaction_keeps_only_model_relevant_fields() 
         },
     }
 
-    compacted = compact_vkusvill_products_search_result(
-        json.dumps(raw_payload, ensure_ascii=False)
-    )
+    compacted = compact_vkusvill_products_search_result(json.dumps(raw_payload, ensure_ascii=False))
 
     assert isinstance(compacted, str)
     payload = json.loads(compacted)

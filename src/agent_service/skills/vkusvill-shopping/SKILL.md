@@ -11,14 +11,14 @@ Turn a free-form food or grocery request into a VkusVill (grocery store) cart li
 
 1. Parse the request into a list of items with their attributes (type, quantity, required/excluded descriptors).
 2. If the request is materially ambiguous, ask one short clarification round (max 2–3 questions).
-3. For each item: search, select the best match, use analogs if needed.
+3. Search requested items with one batch search call when they are specific enough, select the best match, use analogs if needed.
 4. Build one cart link from all selected products.
 5. Return the link with a brief summary.
 
 ## Tools
 
 **Use:**
-- `mcp_vkusvill_vkusvill_products_search` — primary discovery for every item
+- `mcp_vkusvill_vkusvill_products_batch_search` — primary discovery for every item; pass one item when searching for one product
 - `mcp_vkusvill_vkusvill_product_details` — only when search results are insufficient to select confidently (dietary constraints, 2–3 very close candidates)
 - `mcp_vkusvill_vkusvill_product_analogs` — fallback when no good match is found in search
 - `mcp_vkusvill_vkusvill_cart_link_create` — final step only
@@ -42,11 +42,12 @@ Do not ask when:
 
 ## Search Policy
 
-For each item:
-1. Build a concise, specific query from the user's own wording.
-2. Run `products_search`. Review the full first page of results — do not just take the first item.
-3. If no result on the first page is a good match, run **one** rephrased query (synonym, different term order). No further retries after that.
-4. Never run more than 2 queries per item. Never paginate beyond the first page.
+For product discovery:
+1. Build one concise, specific query per requested item from the user's own wording.
+2. Run `products_batch_search` once with all sufficiently specific items. Use one batch item even for a single-product request.
+3. Review the full first page for each batch result — do not just take the first item.
+4. If no result for an item is a good match, run **one** more `products_batch_search` for only the failed/rephrased items (synonym, different term order). No further retries after that.
+5. Never run more than 2 queries per item. Never paginate beyond the first page.
 
 Sort order:
 - Default: `popularity`
@@ -83,6 +84,7 @@ Do not silently add a wrong product. Do not fabricate confidence.
 - One `cart_link_create` call supports 1–20 products.
 - If the list exceeds 20 items: ask the user to narrow it down. Do not silently drop items.
 - Default quantity is `1` when the user did not specify.
+- Never output, reuse, or invent a `share_basket` link unless `cart_link_create` succeeded in the current user turn. If cart creation failed or was not called, say so instead of showing a link.
 
 ## Response Format
 
