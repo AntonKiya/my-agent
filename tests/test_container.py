@@ -1,8 +1,10 @@
 import asyncio
+import logging
 from contextlib import AbstractAsyncContextManager
 from typing import Any, cast
 from uuid import UUID, uuid4
 
+import httpx
 import pytest
 from pydantic import SecretStr
 
@@ -314,6 +316,64 @@ async def test_container_builds_openrouter_agent_boundary_when_configured() -> N
 
     assert container._agent_http_client is None
     assert container.agent_boundary is None
+
+
+async def test_openrouter_http_client_wires_timing_and_error_hooks() -> None:
+    settings = AppSettings(environment="test")
+
+    client = container_module._create_openrouter_http_client(
+        settings,
+        read_timeout_seconds=12.5,
+        worker_count=1,
+    )
+
+    try:
+        assert client.event_hooks["request"] == [
+            container_module._mark_openrouter_request_started
+        ]
+        assert client.event_hooks["response"] == [
+            container_module._log_openrouter_response_timing,
+            container_module._log_openrouter_error_response,
+        ]
+    finally:
+        await client.aclose()
+
+
+async def test_openrouter_response_timing_hook_logs_duration_and_request_ids(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    request = httpx.Request("POST", "https://openrouter.ai/api/v1/chat/completions")
+    response = httpx.Response(
+        200,
+        headers={
+            "content-length": "123",
+            "x-openrouter-request-id": "or-request-1",
+            "cf-ray": "cf-ray-1",
+        },
+        request=request,
+    )
+
+    caplog.set_level(logging.INFO, logger="agent_service.container")
+    await container_module._mark_openrouter_request_started(request)
+    await container_module._log_openrouter_response_timing(response)
+
+    timing_record = next(
+        record
+        for record in caplog.records
+        if getattr(record, "event", None) == "openrouter_http_response_received"
+    )
+    duration_ms = getattr(timing_record, "duration_ms")
+    assert getattr(timing_record, "http_method") == "POST"
+    assert getattr(timing_record, "http_url_path") == "/api/v1/chat/completions"
+    assert getattr(timing_record, "http_status_code") == 200
+    assert isinstance(duration_ms, float)
+    assert duration_ms >= 0
+    assert getattr(timing_record, "http_response_content_length") == 123
+    assert (
+        getattr(timing_record, "http_response_header_x_openrouter_request_id")
+        == "or-request-1"
+    )
+    assert getattr(timing_record, "http_response_header_cf_ray") == "cf-ray-1"
 
 
 async def test_container_passes_vkusvill_mcp_toolsets_to_openrouter_boundary(

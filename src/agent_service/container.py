@@ -1,7 +1,7 @@
 import asyncio
 import json
 import logging
-from collections.abc import Awaitable
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import Protocol, cast
 
@@ -59,6 +59,7 @@ from agent_service.messaging.in_memory import (
     AsyncioOutboundQueue,
 )
 from agent_service.messaging.interfaces import CompactionQueue, InboundQueue
+from agent_service.observability.events import elapsed_ms, log_event, start_timer
 from agent_service.outbound import OutboundQueue
 from agent_service.runtime.lifecycle import TaskSupervisor
 from agent_service.users import PostgresPool, PostgresUserStore, UserResolver
@@ -66,6 +67,7 @@ from agent_service.users import PostgresPool, PostgresUserStore, UserResolver
 logger = logging.getLogger(__name__)
 
 OPENROUTER_ERROR_RESPONSE_LOG_BODY_LIMIT = 12000
+OPENROUTER_REQUEST_STARTED_AT_EXTENSION = "agent_service_openrouter_started_at"
 
 
 class ManagedPostgresPool(PostgresPool, Protocol):
@@ -502,7 +504,13 @@ def _create_openrouter_http_client(
         pool_timeout_seconds=settings.openrouter_http_pool_timeout_seconds,
         keepalive_expiry_seconds=settings.openrouter_http_keepalive_expiry_seconds,
         worker_count=worker_count,
-        event_hooks={"response": [_log_openrouter_error_response]},
+        event_hooks={
+            "request": [_mark_openrouter_request_started],
+            "response": [
+                _log_openrouter_response_timing,
+                _log_openrouter_error_response,
+            ],
+        },
     )
 
 
@@ -514,7 +522,7 @@ def _create_external_http_client(
     pool_timeout_seconds: float,
     keepalive_expiry_seconds: float,
     worker_count: int,
-    event_hooks: dict[str, list[object]] | None = None,
+    event_hooks: dict[str, list[Callable[..., object]]] | None = None,
 ) -> httpx.AsyncClient:
     return httpx.AsyncClient(
         timeout=httpx.Timeout(
@@ -528,6 +536,35 @@ def _create_external_http_client(
             keepalive_expiry_seconds=keepalive_expiry_seconds,
         ),
         event_hooks=event_hooks,
+    )
+
+
+async def _mark_openrouter_request_started(request: httpx.Request) -> None:
+    request.extensions[OPENROUTER_REQUEST_STARTED_AT_EXTENSION] = start_timer()
+    log_event(
+        logger,
+        logging.INFO,
+        "OpenRouter HTTP request started",
+        event="openrouter_http_request_started",
+        http_method=request.method,
+        http_url_path=request.url.path,
+    )
+
+
+async def _log_openrouter_response_timing(response: httpx.Response) -> None:
+    started_at = response.request.extensions.get(OPENROUTER_REQUEST_STARTED_AT_EXTENSION)
+    duration_ms = elapsed_ms(started_at) if isinstance(started_at, float) else None
+    log_event(
+        logger,
+        logging.INFO,
+        "OpenRouter HTTP response received",
+        event="openrouter_http_response_received",
+        http_method=response.request.method,
+        http_url_path=response.request.url.path,
+        http_status_code=response.status_code,
+        duration_ms=duration_ms,
+        http_response_content_length=_response_content_length(response),
+        **_openrouter_response_header_fields(response),
     )
 
 
@@ -589,6 +626,16 @@ def _openrouter_response_header_fields(response: httpx.Response) -> dict[str, st
         if header_value:
             fields[f"http_response_header_{header_name.replace('-', '_')}"] = header_value
     return fields
+
+
+def _response_content_length(response: httpx.Response) -> int | None:
+    content_length = response.headers.get("content-length")
+    if content_length is None:
+        return None
+    try:
+        return int(content_length)
+    except ValueError:
+        return None
 
 
 def _truncate_log_text(value: str, *, max_length: int) -> str:
