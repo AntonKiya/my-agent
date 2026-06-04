@@ -23,8 +23,8 @@ Turn a free-form food or grocery request into a VkusVill (grocery store) cart li
 - `mcp_vkusvill_vkusvill_product_analogs` — fallback when no good match is found in search
 - `mcp_vkusvill_vkusvill_cart_link_create` — final step only
 
-**Never use for shopping tasks:**
-- `web_search`, `web_fetch`, `exec` — forbidden, without exceptions
+**Never use for grocery shopping tasks:**
+- `web_search`, `web_fetch` — forbidden, without exceptions
 
 ## Clarification Policy
 
