@@ -4,6 +4,7 @@ from uuid import uuid4
 from pydantic_ai.messages import (
     LoadCapabilityCallPart,
     LoadCapabilityReturnPart,
+    ModelMessage,
     ModelRequest,
     ModelResponse,
     TextPart,
@@ -119,7 +120,7 @@ def test_load_capability_memory_messages_restore_typed_parts() -> None:
 def test_pydantic_ai_tool_messages_to_memory_extracts_only_tool_parts() -> None:
     conversation_id = uuid4()
     user_id = uuid4()
-    messages = [
+    messages: list[ModelMessage] = [
         ModelRequest(parts=[UserPromptPart(content="add juice")]),
         ModelResponse(
             parts=[
@@ -206,10 +207,16 @@ def test_pydantic_ai_history_groups_complete_parallel_tool_round() -> None:
     )
 
     assert len(history) == 2
-    assert isinstance(history[0], ModelResponse)
-    assert [part.tool_call_id for part in history[0].parts] == ["call-a", "call-b"]
-    assert isinstance(history[1], ModelRequest)
-    assert [part.tool_call_id for part in history[1].parts] == ["call-a", "call-b"]
+    response = history[0]
+    assert isinstance(response, ModelResponse)
+    tool_call_parts = [part for part in response.parts if isinstance(part, ToolCallPart)]
+    assert len(tool_call_parts) == len(response.parts)
+    assert [part.tool_call_id for part in tool_call_parts] == ["call-a", "call-b"]
+    request = history[1]
+    assert isinstance(request, ModelRequest)
+    tool_return_parts = [part for part in request.parts if isinstance(part, ToolReturnPart)]
+    assert len(tool_return_parts) == len(request.parts)
+    assert [part.tool_call_id for part in tool_return_parts] == ["call-a", "call-b"]
 
 
 def test_pydantic_ai_history_preserves_separate_tool_rounds() -> None:

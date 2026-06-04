@@ -3,7 +3,7 @@ import json
 import logging
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
-from typing import Protocol, cast
+from typing import Any, Protocol, cast
 
 import asyncpg
 import httpx
@@ -11,6 +11,7 @@ import redis.asyncio as redis
 from pydantic_ai import Agent
 from pydantic_ai.models.openrouter import OpenRouterModel
 from pydantic_ai.providers.openrouter import OpenRouterProvider
+from pydantic_ai.toolsets import AgentToolset
 
 from agent_service.agents import AgentBoundary, build_openrouter_agent_boundary
 from agent_service.channels import ChannelAdapterRegistry, InMemoryChannelAdapterRegistry
@@ -63,6 +64,10 @@ from agent_service.observability.events import elapsed_ms, log_event, start_time
 from agent_service.outbound import OutboundQueue
 from agent_service.runtime.lifecycle import TaskSupervisor
 from agent_service.users import PostgresPool, PostgresUserStore, UserResolver
+from agent_service.weather import (
+    WEATHER_FORECAST_SKILL_ID,
+    build_weather_forecast_toolsets,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -125,6 +130,7 @@ class AppContainer:
     _redis_client: ManagedRedisClient | None = field(default=None, init=False, repr=False)
     _telegram_http_client: httpx.AsyncClient | None = field(default=None, init=False, repr=False)
     _agent_http_client: httpx.AsyncClient | None = field(default=None, init=False, repr=False)
+    _weather_http_client: httpx.AsyncClient | None = field(default=None, init=False, repr=False)
     _compaction_http_client: httpx.AsyncClient | None = field(
         default=None,
         init=False,
@@ -202,6 +208,9 @@ class AppContainer:
             await self._agent_http_client.aclose()
             self._agent_http_client = None
             self.agent_boundary = None
+        if self._weather_http_client is not None:
+            await self._weather_http_client.aclose()
+            self._weather_http_client = None
         if self._compaction_http_client is not None:
             await self._compaction_http_client.aclose()
             self._compaction_http_client = None
@@ -238,24 +247,42 @@ class AppContainer:
         if self.settings.agent_model is None or self.settings.openrouter_api_key is None:
             return None
 
-        vkusvill_toolsets = build_vkusvill_mcp_toolsets(self.settings)
-        enabled_skill_ids: set[str] = set()
-        capability_toolsets = None
-        if vkusvill_toolsets:
-            enabled_skill_ids.add(VKUSVILL_SHOPPING_SKILL_ID)
-            capability_toolsets = {VKUSVILL_SHOPPING_SKILL_ID: vkusvill_toolsets}
         self._agent_http_client = _create_openrouter_http_client(
             self.settings,
             read_timeout_seconds=self.settings.agent_timeout_seconds,
             worker_count=self.settings.inbound_worker_count,
         )
+
+        enabled_skill_ids: set[str] = set()
+        capability_toolsets = {}
+
+        weather_toolsets = self._build_weather_forecast_toolsets()
+        if weather_toolsets:
+            enabled_skill_ids.add(WEATHER_FORECAST_SKILL_ID)
+            capability_toolsets[WEATHER_FORECAST_SKILL_ID] = weather_toolsets
+
+        vkusvill_toolsets = build_vkusvill_mcp_toolsets(self.settings)
+        if vkusvill_toolsets:
+            enabled_skill_ids.add(VKUSVILL_SHOPPING_SKILL_ID)
+            capability_toolsets[VKUSVILL_SHOPPING_SKILL_ID] = vkusvill_toolsets
         return build_openrouter_agent_boundary(
             model_name=self.settings.agent_model,
             api_key=self.settings.openrouter_api_key.get_secret_value(),
             http_client=self._agent_http_client,
             timeout_seconds=self.settings.agent_timeout_seconds,
-            capability_toolsets=capability_toolsets,
+            capability_toolsets=capability_toolsets or None,
             enabled_skill_ids=enabled_skill_ids,
+        )
+
+    def _build_weather_forecast_toolsets(self) -> tuple[AgentToolset[Any], ...]:
+        if not self.settings.weather_forecast_enabled:
+            return ()
+
+        weather_http_client = _create_weather_http_client(self.settings)
+        self._weather_http_client = weather_http_client
+        return build_weather_forecast_toolsets(
+            self.settings,
+            http_client=weather_http_client,
         )
 
     def _build_conversation_compactor(self) -> ConversationCompactor | None:
@@ -511,6 +538,17 @@ def _create_openrouter_http_client(
                 _log_openrouter_error_response,
             ],
         },
+    )
+
+
+def _create_weather_http_client(settings: AppSettings) -> httpx.AsyncClient:
+    return _create_external_http_client(
+        connect_timeout_seconds=settings.weather_http_connect_timeout_seconds,
+        read_timeout_seconds=settings.weather_http_read_timeout_seconds,
+        write_timeout_seconds=settings.weather_http_write_timeout_seconds,
+        pool_timeout_seconds=settings.weather_http_pool_timeout_seconds,
+        keepalive_expiry_seconds=settings.weather_http_keepalive_expiry_seconds,
+        worker_count=settings.inbound_worker_count,
     )
 
 

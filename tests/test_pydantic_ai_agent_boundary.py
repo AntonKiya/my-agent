@@ -90,10 +90,7 @@ class FakePydanticAIAgent:
         )
         self.active_count += 1
         self.max_active_count = max(self.max_active_count, self.active_count)
-        if (
-            self.active_count_reached is not None
-            and self.active_count >= self.active_count_target
-        ):
+        if self.active_count_reached is not None and self.active_count >= self.active_count_target:
             self.active_count_reached.set()
         if self.entered is not None:
             self.entered.set()
@@ -145,6 +142,7 @@ def test_build_openrouter_agent_boundary_wires_builtin_skill_capabilities(
         model_name="openai/gpt-4o-mini",
         api_key="key",
         capability_toolsets={"vkusvill-shopping": toolsets},  # type: ignore[dict-item]
+        enabled_skill_ids={"vkusvill-shopping"},
     )
 
     assert isinstance(boundary, PydanticAIAgentBoundary)
@@ -235,7 +233,7 @@ async def test_pydantic_ai_agent_boundary_passes_prepared_context() -> None:
 
 
 async def test_pydantic_ai_agent_boundary_returns_new_messages() -> None:
-    new_messages = [ModelResponse(parts=[TextPart(content="ok")])]
+    new_messages: list[ModelMessage] = [ModelResponse(parts=[TextPart(content="ok")])]
     agent = FakePydanticAIAgent(
         result=FakeRunResult(output="ok", messages=new_messages),
     )
@@ -247,7 +245,7 @@ async def test_pydantic_ai_agent_boundary_returns_new_messages() -> None:
 
 
 async def test_pydantic_ai_agent_boundary_uses_latest_response_usage() -> None:
-    new_messages = [
+    new_messages: list[ModelMessage] = [
         ModelResponse(
             parts=[TextPart(content="tool calls")],
             usage=RequestUsage(input_tokens=20_783, output_tokens=262),

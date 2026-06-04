@@ -340,9 +340,7 @@ async def test_openrouter_http_client_wires_timing_and_error_hooks() -> None:
     )
 
     try:
-        assert client.event_hooks["request"] == [
-            container_module._mark_openrouter_request_started
-        ]
+        assert client.event_hooks["request"] == [container_module._mark_openrouter_request_started]
         assert client.event_hooks["response"] == [
             container_module._log_openrouter_response_timing,
             container_module._log_openrouter_error_response,
@@ -379,18 +377,16 @@ async def test_openrouter_response_timing_hook_logs_duration_and_request_ids(
         for record in caplog.records
         if getattr(record, "event", None) == "openrouter_http_response_received"
     )
-    duration_ms = getattr(timing_record, "duration_ms")
-    assert getattr(timing_record, "http_method") == "POST"
-    assert getattr(timing_record, "http_url_path") == "/api/v1/chat/completions"
-    assert getattr(timing_record, "http_status_code") == 200
+    timing_record_data = cast(Any, timing_record)
+    duration_ms = timing_record_data.duration_ms
+    assert timing_record_data.http_method == "POST"
+    assert timing_record_data.http_url_path == "/api/v1/chat/completions"
+    assert timing_record_data.http_status_code == 200
     assert isinstance(duration_ms, float)
     assert duration_ms >= 0
-    assert getattr(timing_record, "http_response_content_length") == 123
-    assert (
-        getattr(timing_record, "http_response_header_x_openrouter_request_id")
-        == "or-request-1"
-    )
-    assert getattr(timing_record, "http_response_header_cf_ray") == "cf-ray-1"
+    assert timing_record_data.http_response_content_length == 123
+    assert timing_record_data.http_response_header_x_openrouter_request_id == "or-request-1"
+    assert timing_record_data.http_response_header_cf_ray == "cf-ray-1"
 
 
 async def test_container_passes_vkusvill_mcp_toolsets_to_openrouter_boundary(
@@ -420,12 +416,15 @@ async def test_container_passes_vkusvill_mcp_toolsets_to_openrouter_boundary(
     assert isinstance(container.agent_boundary, PydanticAIAgentBoundary)
     assert captured["model_name"] == "openai/gpt-4.1-mini"
     assert captured["timeout_seconds"] == 60.0
-    assert captured["enabled_skill_ids"] == {"vkusvill-shopping"}
+    assert captured["enabled_skill_ids"] == {"weather-forecast", "vkusvill-shopping"}
     capability_toolsets = captured["capability_toolsets"]
     assert isinstance(capability_toolsets, dict)
-    toolsets = capability_toolsets["vkusvill-shopping"]
-    assert isinstance(toolsets, tuple)
-    assert len(toolsets) == 1
+    weather_toolsets = capability_toolsets["weather-forecast"]
+    assert isinstance(weather_toolsets, tuple)
+    assert len(weather_toolsets) == 1
+    vkusvill_toolsets = capability_toolsets["vkusvill-shopping"]
+    assert isinstance(vkusvill_toolsets, tuple)
+    assert len(vkusvill_toolsets) == 1
 
     await container.stop()
 
@@ -449,6 +448,39 @@ async def test_container_disables_vkusvill_skill_without_mcp_toolsets(
         agent_provider="openrouter",
         agent_model="openai/gpt-4.1-mini",
         openrouter_api_key=SecretStr("secret"),
+    )
+
+    container = AppContainer(settings=settings)
+
+    assert isinstance(container.agent_boundary, PydanticAIAgentBoundary)
+    assert captured["enabled_skill_ids"] == {"weather-forecast"}
+    capability_toolsets = captured["capability_toolsets"]
+    assert isinstance(capability_toolsets, dict)
+    assert set(capability_toolsets) == {"weather-forecast"}
+
+    await container.stop()
+
+
+async def test_container_can_disable_weather_forecast_skill(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, object] = {}
+
+    def fake_build_openrouter_agent_boundary(**kwargs: object) -> PydanticAIAgentBoundary:
+        captured.update(kwargs)
+        return PydanticAIAgentBoundary(agent=object())  # type: ignore[arg-type]
+
+    monkeypatch.setattr(
+        container_module,
+        "build_openrouter_agent_boundary",
+        fake_build_openrouter_agent_boundary,
+    )
+    settings = AppSettings(
+        environment="test",
+        agent_provider="openrouter",
+        agent_model="openai/gpt-4.1-mini",
+        openrouter_api_key=SecretStr("secret"),
+        weather_forecast_enabled=False,
     )
 
     container = AppContainer(settings=settings)
