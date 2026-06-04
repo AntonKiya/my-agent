@@ -1,5 +1,6 @@
 import asyncio
 import logging
+from collections.abc import AsyncIterator
 from contextlib import AbstractAsyncContextManager
 from typing import Any, cast
 from uuid import UUID, uuid4
@@ -80,6 +81,17 @@ class FakeManagedRedisClient:
 
     async def aclose(self) -> None:
         self.closed = True
+
+
+class DelayedAsyncByteStream(httpx.AsyncByteStream):
+    def __init__(self, body: bytes) -> None:
+        self.body = body
+        self.was_read = False
+
+    async def __aiter__(self) -> AsyncIterator[bytes]:
+        await asyncio.sleep(0.001)
+        self.was_read = True
+        yield self.body
 
 
 class FakeAgentBoundary:
@@ -343,6 +355,7 @@ async def test_openrouter_response_timing_hook_logs_duration_and_request_ids(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     request = httpx.Request("POST", "https://openrouter.ai/api/v1/chat/completions")
+    stream = DelayedAsyncByteStream(b'{"ok":true}')
     response = httpx.Response(
         200,
         headers={
@@ -350,12 +363,16 @@ async def test_openrouter_response_timing_hook_logs_duration_and_request_ids(
             "x-openrouter-request-id": "or-request-1",
             "cf-ray": "cf-ray-1",
         },
+        stream=stream,
         request=request,
     )
 
     caplog.set_level(logging.INFO, logger="agent_service.container")
     await container_module._mark_openrouter_request_started(request)
     await container_module._log_openrouter_response_timing(response)
+
+    assert stream.was_read
+    assert response.content == b'{"ok":true}'
 
     timing_record = next(
         record

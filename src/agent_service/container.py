@@ -552,6 +552,7 @@ async def _mark_openrouter_request_started(request: httpx.Request) -> None:
 
 
 async def _log_openrouter_response_timing(response: httpx.Response) -> None:
+    await response.aread()
     started_at = response.request.extensions.get(OPENROUTER_REQUEST_STARTED_AT_EXTENSION)
     duration_ms = elapsed_ms(started_at) if isinstance(started_at, float) else None
     log_event(
