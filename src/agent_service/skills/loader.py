@@ -7,7 +7,10 @@ from pydantic_ai.capabilities import Capability
 from pydantic_ai.toolsets import AgentToolset
 
 _SKILLS_DIR = Path(__file__).parent.resolve()
-_BUILTIN_SKILL_PATHS = (Path("vkusvill-shopping/SKILL.md"),)
+_BUILTIN_SKILL_PATHS = (
+    Path("vkusvill-shopping/SKILL.md"),
+    Path("weather-forecast/SKILL.md"),
+)
 
 
 def load_builtin_skill_capabilities(

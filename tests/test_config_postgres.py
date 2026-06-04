@@ -250,6 +250,27 @@ def test_vkusvill_mcp_settings_reject_stdio_options_without_command() -> None:
         AppSettings(environment="test", vkusvill_mcp_env={"TOKEN": "secret"})
 
 
+def test_weather_forecast_settings_accept_timeout_configuration() -> None:
+    settings = AppSettings(
+        environment="test",
+        weather_forecast_enabled=False,
+        weather_forecast_tool_timeout_seconds=12.0,
+        weather_http_connect_timeout_seconds=2.0,
+        weather_http_read_timeout_seconds=8.0,
+        weather_http_write_timeout_seconds=3.0,
+        weather_http_pool_timeout_seconds=4.0,
+        weather_http_keepalive_expiry_seconds=30.0,
+    )
+
+    assert settings.weather_forecast_enabled is False
+    assert settings.weather_forecast_tool_timeout_seconds == 12.0
+    assert settings.weather_http_connect_timeout_seconds == 2.0
+    assert settings.weather_http_read_timeout_seconds == 8.0
+    assert settings.weather_http_write_timeout_seconds == 3.0
+    assert settings.weather_http_pool_timeout_seconds == 4.0
+    assert settings.weather_http_keepalive_expiry_seconds == 30.0
+
+
 def test_prod_telegram_bot_requires_webhook_secret() -> None:
     with pytest.raises(ValidationError, match="telegram_webhook_secret_token is required"):
         AppSettings(environment="prod", telegram_bot_token=SecretStr("bot-token"))

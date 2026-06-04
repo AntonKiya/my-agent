@@ -3,7 +3,7 @@ from uuid import uuid4
 
 import pytest
 from pydantic import ValidationError
-from pydantic_ai.messages import ModelRequest, ModelResponse, TextPart, UserPromptPart
+from pydantic_ai.messages import ModelMessage, ModelRequest, ModelResponse, TextPart, UserPromptPart
 
 from agent_service.agents import (
     AgentBoundary,
@@ -132,7 +132,7 @@ def test_agent_request_rejects_empty_payload_and_unknown_fields() -> None:
 
 
 def test_agent_response_records_usage_tools_and_trace() -> None:
-    new_messages = [ModelResponse(parts=[TextPart(content="answer")])]
+    new_messages: list[ModelMessage] = [ModelResponse(parts=[TextPart(content="answer")])]
     response = AgentResponse(
         text="answer",
         usage=AgentUsage(input_tokens=10, output_tokens=5, total_tokens=15),

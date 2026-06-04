@@ -47,6 +47,13 @@ class AppSettings(BaseSettings):
     vkusvill_mcp_headers: dict[str, str] = Field(default_factory=dict)
     vkusvill_mcp_init_timeout_seconds: float = Field(default=5.0, gt=0)
     vkusvill_mcp_read_timeout_seconds: float = Field(default=300.0, gt=0)
+    weather_forecast_enabled: bool = True
+    weather_forecast_tool_timeout_seconds: float = Field(default=15.0, gt=0)
+    weather_http_connect_timeout_seconds: float = Field(default=5.0, gt=0)
+    weather_http_read_timeout_seconds: float = Field(default=10.0, gt=0)
+    weather_http_write_timeout_seconds: float = Field(default=5.0, gt=0)
+    weather_http_pool_timeout_seconds: float = Field(default=5.0, gt=0)
+    weather_http_keepalive_expiry_seconds: float = Field(default=60.0, ge=0)
 
     postgres_dsn: str | None = None
     postgres_pool_min_size: int = Field(default=1, ge=0)
