@@ -9,7 +9,7 @@ import asyncpg
 import httpx
 import redis.asyncio as redis
 from pydantic_ai import Agent
-from pydantic_ai.models.openrouter import OpenRouterModel
+from pydantic_ai.models.openrouter import OpenRouterModel, OpenRouterModelSettings
 from pydantic_ai.providers.openrouter import OpenRouterProvider
 from pydantic_ai.toolsets import AgentToolset
 
@@ -269,6 +269,7 @@ class AppContainer:
             model_name=self.settings.agent_model,
             api_key=self.settings.openrouter_api_key.get_secret_value(),
             http_client=self._agent_http_client,
+            model_settings=_build_openrouter_model_settings(self.settings),
             timeout_seconds=self.settings.agent_timeout_seconds,
             capability_toolsets=capability_toolsets or None,
             enabled_skill_ids=enabled_skill_ids,
@@ -539,6 +540,28 @@ def _create_openrouter_http_client(
             ],
         },
     )
+
+
+def _build_openrouter_model_settings(settings: AppSettings) -> OpenRouterModelSettings | None:
+    provider: dict[str, object] = {}
+    if settings.openrouter_provider_sort is not None:
+        provider["sort"] = settings.openrouter_provider_sort
+
+    latency_p90 = settings.openrouter_provider_preferred_max_latency_p90
+    latency_p99 = settings.openrouter_provider_preferred_max_latency_p99
+    if latency_p90 is not None and latency_p99 is not None:
+        provider["preferred_max_latency"] = {
+            "p90": latency_p90,
+            "p99": latency_p99,
+        }
+
+    extra_body: dict[str, object] = {}
+    if provider:
+        extra_body["provider"] = provider
+
+    if not extra_body:
+        return None
+    return OpenRouterModelSettings(extra_body=extra_body)
 
 
 def _create_weather_http_client(settings: AppSettings) -> httpx.AsyncClient:

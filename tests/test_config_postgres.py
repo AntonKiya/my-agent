@@ -23,6 +23,9 @@ def test_postgres_pool_settings_have_safe_defaults() -> None:
     assert settings.openrouter_http_write_timeout_seconds == 10.0
     assert settings.openrouter_http_pool_timeout_seconds == 10.0
     assert settings.openrouter_http_keepalive_expiry_seconds == 60.0
+    assert settings.openrouter_provider_sort is None
+    assert settings.openrouter_provider_preferred_max_latency_p90 is None
+    assert settings.openrouter_provider_preferred_max_latency_p99 is None
     assert settings.inbound_worker_count == 8
     assert settings.inbound_publish_timeout_seconds == 1.0
     assert settings.inbound_worker_error_backoff_seconds == 0.1
@@ -197,6 +200,35 @@ def test_agent_settings_accept_openrouter_configuration() -> None:
     assert settings.openrouter_api_key is not None
     assert settings.openrouter_api_key.get_secret_value() == "secret"
     assert settings.memory_compaction_model == "openai/gpt-4.1-mini"
+
+
+def test_agent_settings_read_openrouter_routing_configuration_from_env(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("AGENT_SERVICE_OPENROUTER_PROVIDER_SORT", "throughput")
+    monkeypatch.setenv("AGENT_SERVICE_OPENROUTER_PROVIDER_PREFERRED_MAX_LATENCY_P90", "3")
+    monkeypatch.setenv("AGENT_SERVICE_OPENROUTER_PROVIDER_PREFERRED_MAX_LATENCY_P99", "6")
+
+    settings = AppSettings(environment="test")
+
+    assert settings.openrouter_provider_sort == "throughput"
+    assert settings.openrouter_provider_preferred_max_latency_p90 == 3.0
+    assert settings.openrouter_provider_preferred_max_latency_p99 == 6.0
+
+
+def test_agent_settings_validate_openrouter_latency_configuration() -> None:
+    with pytest.raises(ValidationError, match="p90 and p99 must be configured together"):
+        AppSettings(
+            environment="test",
+            openrouter_provider_preferred_max_latency_p90=3.0,
+        )
+
+    with pytest.raises(ValidationError, match="p90 must be less than or equal to p99"):
+        AppSettings(
+            environment="test",
+            openrouter_provider_preferred_max_latency_p90=7.0,
+            openrouter_provider_preferred_max_latency_p99=6.0,
+        )
 
 
 def test_agent_settings_accept_partial_provider_configuration() -> None:

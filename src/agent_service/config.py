@@ -88,6 +88,9 @@ class AppSettings(BaseSettings):
     openrouter_http_write_timeout_seconds: float = Field(default=10.0, gt=0)
     openrouter_http_pool_timeout_seconds: float = Field(default=10.0, gt=0)
     openrouter_http_keepalive_expiry_seconds: float = Field(default=60.0, ge=0)
+    openrouter_provider_sort: str | None = None
+    openrouter_provider_preferred_max_latency_p90: float | None = Field(default=None, gt=0)
+    openrouter_provider_preferred_max_latency_p99: float | None = Field(default=None, gt=0)
     openrouter_api_key: SecretStr | None = None
     logfire_token: SecretStr | None = None
 
@@ -99,6 +102,7 @@ class AppSettings(BaseSettings):
         "postgres_dsn",
         "redis_dsn",
         "memory_compaction_model",
+        "openrouter_provider_sort",
         "telegram_bot_token",
         "telegram_webhook_secret_token",
         "openrouter_api_key",
@@ -120,6 +124,16 @@ class AppSettings(BaseSettings):
         if self.memory_recent_tail_fraction >= self.memory_compaction_trigger_fraction:
             raise ValueError(
                 "memory_recent_tail_fraction must be less than compaction trigger fraction"
+            )
+        latency_p90 = self.openrouter_provider_preferred_max_latency_p90
+        latency_p99 = self.openrouter_provider_preferred_max_latency_p99
+        if (latency_p90 is None) != (latency_p99 is None):
+            raise ValueError(
+                "openrouter_provider_preferred_max_latency_p90 and p99 must be configured together"
+            )
+        if latency_p90 is not None and latency_p99 is not None and latency_p90 > latency_p99:
+            raise ValueError(
+                "openrouter_provider_preferred_max_latency_p90 must be less than or equal to p99"
             )
         if self.environment != "test" and self.telegram_webhook_secret_token is None:
             raise ValueError(
