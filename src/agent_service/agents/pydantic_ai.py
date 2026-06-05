@@ -6,7 +6,7 @@ from typing import Any, Protocol, cast
 import httpx
 from pydantic_ai import Agent
 from pydantic_ai.messages import ModelMessage, ModelResponse
-from pydantic_ai.models.openrouter import OpenRouterModel
+from pydantic_ai.models.openrouter import OpenRouterModel, OpenRouterModelSettings
 from pydantic_ai.providers.openrouter import OpenRouterProvider
 from pydantic_ai.toolsets import AgentToolset
 
@@ -120,6 +120,7 @@ def build_openrouter_agent_boundary(
     model_name: str,
     api_key: str,
     http_client: httpx.AsyncClient | None = None,
+    model_settings: OpenRouterModelSettings | None = None,
     timeout_seconds: float = 60.0,
     capability_toolsets: Mapping[str, Sequence[AgentToolset[Any]]] | None = None,
     enabled_skill_ids: Collection[str] | None = None,
@@ -127,6 +128,7 @@ def build_openrouter_agent_boundary(
     model = OpenRouterModel(
         model_name,
         provider=OpenRouterProvider(api_key=api_key, http_client=http_client),
+        settings=model_settings,
     )
     return PydanticAIAgentBoundary(
         agent=cast(

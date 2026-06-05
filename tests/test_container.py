@@ -429,6 +429,49 @@ async def test_container_passes_vkusvill_mcp_toolsets_to_openrouter_boundary(
     await container.stop()
 
 
+async def test_container_passes_openrouter_model_settings_to_agent_boundary(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, object] = {}
+
+    def fake_build_openrouter_agent_boundary(**kwargs: object) -> PydanticAIAgentBoundary:
+        captured.update(kwargs)
+        return PydanticAIAgentBoundary(agent=object())  # type: ignore[arg-type]
+
+    monkeypatch.setattr(
+        container_module,
+        "build_openrouter_agent_boundary",
+        fake_build_openrouter_agent_boundary,
+    )
+    settings = AppSettings(
+        environment="test",
+        agent_provider="openrouter",
+        agent_model="minimax/minimax-m2.5",
+        openrouter_api_key=SecretStr("secret"),
+        openrouter_provider_sort="throughput",
+        openrouter_provider_preferred_max_latency_p90=3.0,
+        openrouter_provider_preferred_max_latency_p99=6.0,
+    )
+
+    container = AppContainer(settings=settings)
+
+    assert isinstance(container.agent_boundary, PydanticAIAgentBoundary)
+    assert captured["model_name"] == "minimax/minimax-m2.5"
+    assert captured["model_settings"] == {
+        "extra_body": {
+            "provider": {
+                "sort": "throughput",
+                "preferred_max_latency": {
+                    "p90": 3.0,
+                    "p99": 6.0,
+                },
+            },
+        },
+    }
+
+    await container.stop()
+
+
 async def test_container_disables_vkusvill_skill_without_mcp_toolsets(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

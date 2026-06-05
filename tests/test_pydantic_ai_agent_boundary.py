@@ -6,6 +6,7 @@ from uuid import uuid4
 
 import pytest
 from pydantic_ai.messages import ModelMessage, ModelRequest, ModelResponse, TextPart, UserPromptPart
+from pydantic_ai.models.openrouter import OpenRouterModelSettings
 from pydantic_ai.usage import RequestUsage
 
 import agent_service.agents.pydantic_ai as pydantic_ai_module
@@ -174,6 +175,59 @@ def test_build_openrouter_agent_boundary_respects_enabled_skill_ids(
 
     assert isinstance(boundary, PydanticAIAgentBoundary)
     assert created_agents[0]["capabilities"] == ()
+
+
+def test_build_openrouter_agent_boundary_passes_model_settings_to_openrouter_model(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    created_agents: list[dict[str, Any]] = []
+    created_models: list[dict[str, Any]] = []
+
+    class FakeOpenRouterModel:
+        def __init__(
+            self,
+            model_name: str,
+            *,
+            provider: object,
+            settings: object | None = None,
+        ) -> None:
+            created_models.append(
+                {
+                    "model_name": model_name,
+                    "provider": provider,
+                    "settings": settings,
+                }
+            )
+
+    def fake_agent_factory(model: object, **kwargs: Any) -> object:
+        created_agents.append({"model": model, **kwargs})
+        return FakePydanticAIAgent()
+
+    monkeypatch.setattr(pydantic_ai_module, "OpenRouterModel", FakeOpenRouterModel)
+    monkeypatch.setattr(pydantic_ai_module, "Agent", fake_agent_factory)
+    model_settings = OpenRouterModelSettings(
+        extra_body={
+            "provider": {
+                "sort": "throughput",
+                "preferred_max_latency": {
+                    "p90": 3.0,
+                    "p99": 6.0,
+                },
+            },
+        }
+    )
+
+    boundary = build_openrouter_agent_boundary(
+        model_name="minimax/minimax-m2.5",
+        api_key="key",
+        model_settings=model_settings,
+    )
+
+    assert isinstance(boundary, PydanticAIAgentBoundary)
+    assert len(created_agents) == 1
+    assert len(created_models) == 1
+    assert created_models[0]["model_name"] == "minimax/minimax-m2.5"
+    assert created_models[0]["settings"] == model_settings
 
 
 async def test_pydantic_ai_agent_boundary_passes_prepared_context() -> None:

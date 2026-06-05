@@ -225,8 +225,11 @@ AGENT_SERVICE_DELIVERY_RETRY_MAX_ATTEMPTS=3
 AGENT_SERVICE_DELIVERY_RETRY_BACKOFF_SECONDS='[1.0,5.0,15.0]'
 AGENT_SERVICE_AGENT_RETRY_MAX_ATTEMPTS=3
 AGENT_SERVICE_AGENT_RETRY_BACKOFF_SECONDS='[1.0,5.0,15.0]'
-AGENT_SERVICE_AGENT_PROVIDER=
-AGENT_SERVICE_AGENT_MODEL=
+AGENT_SERVICE_AGENT_PROVIDER=openrouter
+AGENT_SERVICE_AGENT_MODEL=minimax/minimax-m2.5
+AGENT_SERVICE_OPENROUTER_PROVIDER_SORT=throughput
+AGENT_SERVICE_OPENROUTER_PROVIDER_PREFERRED_MAX_LATENCY_P90=3
+AGENT_SERVICE_OPENROUTER_PROVIDER_PREFERRED_MAX_LATENCY_P99=6
 AGENT_SERVICE_AGENT_TIMEOUT_SECONDS=90.0
 AGENT_SERVICE_OPENROUTER_HTTP_CONNECT_TIMEOUT_SECONDS=10.0
 AGENT_SERVICE_OPENROUTER_HTTP_WRITE_TIMEOUT_SECONDS=10.0
@@ -293,8 +296,13 @@ is required in every environment except `test`, so misconfigured deployments fai
 container creates a managed `PydanticAIAgentBoundary` only when `AGENT_SERVICE_AGENT_MODEL` and
 `AGENT_SERVICE_OPENROUTER_API_KEY` are also configured. Without the full agent configuration, inbound
 webhooks can still resolve users and publish events, but inbound workers will not start because
-there is no agent boundary. `AGENT_SERVICE_MEMORY_COMPACTION_MODEL` is intentionally separate from
-the main chat model so conversation summarization can use a cheaper or more specialized model later.
+there is no agent boundary. OpenRouter routing options such as
+`AGENT_SERVICE_OPENROUTER_PROVIDER_SORT`,
+`AGENT_SERVICE_OPENROUTER_PROVIDER_PREFERRED_MAX_LATENCY_P90`,
+and `AGENT_SERVICE_OPENROUTER_PROVIDER_PREFERRED_MAX_LATENCY_P99` are passed through the model
+settings `extra_body`.
+`AGENT_SERVICE_MEMORY_COMPACTION_MODEL` is intentionally separate from the main chat model so
+conversation summarization can use a cheaper or more specialized model later.
 
 `AGENT_SERVICE_REDIS_DSN` enables Redis working context snapshots. When configured, the container
 creates a Redis client on startup, pings it, and wires `RedisConversationContextSnapshotStore` into
