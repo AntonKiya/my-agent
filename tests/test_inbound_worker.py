@@ -5,6 +5,7 @@ from dataclasses import dataclass, field
 from uuid import UUID, uuid4
 
 import pytest
+from pydantic_ai.messages import ModelRequest, SystemPromptPart
 
 from agent_service.agents import (
     AgentBoundary,
@@ -91,9 +92,9 @@ class FakeMemoryService:
             agent_context=AgentContext(system_prompt_parts=["summary"]),
             pydantic_ai=PydanticAIRunContext(
                 user_prompt=latest_user_message.text,
-                message_history=[],
+                message_history=[ModelRequest(parts=[SystemPromptPart(content="summary")])],
                 conversation_id=str(conversation.id),
-                instructions="summary",
+                instructions=None,
             ),
         )
 

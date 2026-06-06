@@ -3,6 +3,8 @@ from dataclasses import dataclass, field
 from typing import cast
 from uuid import UUID, uuid4
 
+from pydantic_ai.messages import ModelRequest, SystemPromptPart
+
 from agent_service.agents import AgentContext, AgentRequest, AgentResponse, PydanticAIRunContext
 from agent_service.channels import InboundEvent, InMemoryChannelAdapterRegistry
 from agent_service.conversations import AsyncioConversationLockManager, Conversation
@@ -67,8 +69,9 @@ class RecordingMemoryService:
             agent_context=AgentContext(system_prompt_parts=["safe summary"]),
             pydantic_ai=PydanticAIRunContext(
                 user_prompt=latest_user_message.text,
+                message_history=[ModelRequest(parts=[SystemPromptPart(content="safe summary")])],
                 conversation_id=str(conversation.id),
-                instructions="safe summary",
+                instructions=None,
             ),
         )
 
@@ -241,7 +244,10 @@ async def test_agent_boundary_gets_clean_request_without_raw_transport_metadata(
     assert "raw_payload" not in request.metadata
     assert request.pydantic_ai is not None
     assert request.pydantic_ai.user_prompt == "hello"
-    assert request.pydantic_ai.instructions == "safe summary"
+    assert request.pydantic_ai.instructions is None
+    assert isinstance(request.pydantic_ai.message_history[0], ModelRequest)
+    assert isinstance(request.pydantic_ai.message_history[0].parts[0], SystemPromptPart)
+    assert request.pydantic_ai.message_history[0].parts[0].content == "safe summary"
 
     outbound = await outbound_queue.consume()
     try:

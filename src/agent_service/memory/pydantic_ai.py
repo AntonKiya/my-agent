@@ -9,6 +9,7 @@ from pydantic_ai.messages import (
     ModelMessage,
     ModelRequest,
     ModelResponse,
+    SystemPromptPart,
     TextPart,
     ToolCallPart,
     ToolReturnPart,
@@ -126,6 +127,26 @@ def pydantic_ai_history_from_memory(
             **repair_stats,
         )
     return history
+
+
+def pydantic_ai_history_from_context(
+    *,
+    summary: str | None,
+    messages: list[ConversationMemoryMessage],
+    conversation_id: UUID,
+) -> list[ModelMessage]:
+    """Build model history from compacted summary plus persisted recent messages."""
+    history = pydantic_ai_history_from_memory(messages)
+    if summary is None or not summary.strip():
+        return history
+    return [
+        ModelRequest(
+            parts=[SystemPromptPart(content=summary)],
+            conversation_id=str(conversation_id),
+            metadata={"source": "conversation_summary"},
+        ),
+        *history,
+    ]
 
 
 def pydantic_ai_tool_messages_to_memory(

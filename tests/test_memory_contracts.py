@@ -3,7 +3,7 @@ from uuid import UUID, uuid4
 
 import pytest
 from pydantic import ValidationError
-from pydantic_ai.messages import ModelResponse, TextPart
+from pydantic_ai.messages import ModelRequest, ModelResponse, SystemPromptPart, TextPart
 
 from agent_service.agents import (
     AgentContext,
@@ -86,9 +86,11 @@ class FakeConversationMemoryService:
             ),
             pydantic_ai=PydanticAIRunContext(
                 user_prompt=latest_user_message.text,
-                message_history=[],
+                message_history=[
+                    ModelRequest(parts=[SystemPromptPart(content=snapshot.summary or "")])
+                ],
                 conversation_id=str(conversation.id),
-                instructions=snapshot.summary,
+                instructions=None,
             ),
             snapshot=snapshot,
         )
@@ -296,16 +298,21 @@ def test_prepared_context_exposes_agent_and_pydantic_ai_shapes() -> None:
         agent_context=AgentContext(system_prompt_parts=["summary"]),
         pydantic_ai=PydanticAIRunContext(
             user_prompt="hello",
-            message_history=[ModelResponse(parts=[TextPart(content="previous answer")])],
+            message_history=[
+                ModelRequest(parts=[SystemPromptPart(content="summary")]),
+                ModelResponse(parts=[TextPart(content="previous answer")]),
+            ],
             conversation_id=str(conversation_id),
-            instructions="summary",
+            instructions=None,
         ),
     )
 
     assert prepared.agent_context.system_prompt_parts == ["summary"]
     assert prepared.pydantic_ai.user_prompt == "hello"
     assert prepared.pydantic_ai.conversation_id == str(conversation_id)
-    assert prepared.pydantic_ai.instructions == "summary"
+    assert prepared.pydantic_ai.instructions is None
+    assert isinstance(prepared.pydantic_ai.message_history[0], ModelRequest)
+    assert isinstance(prepared.pydantic_ai.message_history[0].parts[0], SystemPromptPart)
 
 
 def test_memory_models_reject_unknown_fields_and_negative_tokens() -> None:

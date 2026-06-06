@@ -8,6 +8,7 @@ from pydantic_ai.messages import (
     LoadCapabilityReturnPart,
     ModelRequest,
     ModelResponse,
+    SystemPromptPart,
     TextPart,
     ToolCallPart,
     ToolReturnPart,
@@ -354,7 +355,15 @@ async def test_memory_service_uses_fresh_snapshot_without_reloading_history() ->
         latest.id,
     ]
     assert prepared.pydantic_ai.user_prompt == "latest"
-    history_message = prepared.pydantic_ai.message_history[0]
+    assert prepared.pydantic_ai.instructions is None
+    summary_message = prepared.pydantic_ai.message_history[0]
+    assert isinstance(summary_message, ModelRequest)
+    assert summary_message.conversation_id == str(resolved_conversation.id)
+    assert summary_message.metadata == {"source": "conversation_summary"}
+    assert len(summary_message.parts) == 1
+    assert isinstance(summary_message.parts[0], SystemPromptPart)
+    assert summary_message.parts[0].content == "compressed"
+    history_message = prepared.pydantic_ai.message_history[1]
     assert isinstance(history_message, ModelResponse)
     assert history_message.timestamp == previous.created_at
     assert len(history_message.parts) == 1
@@ -454,7 +463,12 @@ async def test_memory_service_rebuilds_snapshot_from_latest_summary_and_recent_t
     assert prepared.snapshot.last_seen_sequence == 3
     assert prepared.snapshot.token_count == 11 + estimate_message_tokens(recent)
     assert prepared.agent_context.system_prompt_parts == ["compressed old context"]
-    assert prepared.pydantic_ai.instructions == "compressed old context"
+    assert prepared.pydantic_ai.instructions is None
+    assert len(prepared.pydantic_ai.message_history) == 1
+    summary_message = prepared.pydantic_ai.message_history[0]
+    assert isinstance(summary_message, ModelRequest)
+    assert isinstance(summary_message.parts[0], SystemPromptPart)
+    assert summary_message.parts[0].content == "compressed old context"
 
 
 async def test_memory_service_rebuilds_snapshot_when_summary_covers_current_sequence() -> None:
