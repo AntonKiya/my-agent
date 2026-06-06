@@ -413,6 +413,9 @@ The prepared context includes both a channel-neutral `AgentContext` and a `Pydan
 with fields aligned to Pydantic AI `Agent.run(...)`: `user_prompt`, `message_history`,
 `conversation_id`, and `instructions`. `message_history` contains real
 `pydantic_ai.messages.ModelMessage` objects, not transport payloads or ad hoc dicts.
+Completed conversation summaries are prepended to that history as a leading `ModelRequest` with a
+`SystemPromptPart`; `instructions` is reserved for actual agent behavior instructions, not compacted
+conversation history.
 
 `DefaultConversationMemoryService` combines Postgres message history with an optional Redis working
 snapshot. It writes the user message before the agent run, prepares context, then writes the

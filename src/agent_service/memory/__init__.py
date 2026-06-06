@@ -34,6 +34,7 @@ from agent_service.memory.postgres import (
     PostgresPool,
 )
 from agent_service.memory.pydantic_ai import (
+    pydantic_ai_history_from_context,
     pydantic_ai_history_from_memory,
     pydantic_ai_message_from_memory,
     pydantic_ai_tool_messages_to_memory,
@@ -100,6 +101,7 @@ __all__ = [
     "PostgresMemoryError",
     "PostgresPool",
     "PreparedConversationContext",
+    "pydantic_ai_history_from_context",
     "pydantic_ai_history_from_memory",
     "pydantic_ai_message_from_memory",
     "pydantic_ai_tool_messages_to_memory",

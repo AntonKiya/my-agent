@@ -7,6 +7,7 @@ from pydantic_ai.messages import (
     ModelMessage,
     ModelRequest,
     ModelResponse,
+    SystemPromptPart,
     TextPart,
     ToolCallPart,
     ToolReturnPart,
@@ -16,6 +17,7 @@ from pydantic_ai.messages import (
 from agent_service.memory import (
     ConversationMemoryMessage,
     ConversationMemoryRole,
+    pydantic_ai_history_from_context,
     pydantic_ai_history_from_memory,
     pydantic_ai_message_from_memory,
     pydantic_ai_tool_messages_to_memory,
@@ -188,6 +190,27 @@ def test_pydantic_ai_history_preserves_memory_order() -> None:
     assert len(history) == 2
     assert isinstance(history[0], ModelRequest)
     assert isinstance(history[1], ModelResponse)
+
+
+def test_pydantic_ai_history_from_context_prepends_summary_system_prompt() -> None:
+    conversation_id = uuid4()
+    user_message = memory_message(role=ConversationMemoryRole.USER, text="recent question")
+
+    history = pydantic_ai_history_from_context(
+        summary="compressed prior context",
+        messages=[user_message],
+        conversation_id=conversation_id,
+    )
+
+    assert len(history) == 2
+    summary_message = history[0]
+    assert isinstance(summary_message, ModelRequest)
+    assert summary_message.conversation_id == str(conversation_id)
+    assert summary_message.metadata == {"source": "conversation_summary"}
+    assert isinstance(summary_message.parts[0], SystemPromptPart)
+    assert summary_message.parts[0].content == "compressed prior context"
+    assert isinstance(history[1], ModelRequest)
+    assert isinstance(history[1].parts[0], UserPromptPart)
 
 
 def test_pydantic_ai_history_groups_complete_parallel_tool_round() -> None:

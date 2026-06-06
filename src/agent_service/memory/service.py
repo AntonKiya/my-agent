@@ -33,7 +33,7 @@ from agent_service.memory.models import (
     PreparedConversationContext,
 )
 from agent_service.memory.pydantic_ai import (
-    pydantic_ai_history_from_memory,
+    pydantic_ai_history_from_context,
     pydantic_ai_tool_messages_to_memory,
 )
 from agent_service.memory.tokens import (
@@ -162,9 +162,13 @@ class DefaultConversationMemoryService(ConversationMemoryService):
         )
         pydantic_ai = PydanticAIRunContext(
             user_prompt=latest_user_message.text,
-            message_history=pydantic_ai_history_from_memory(model_context_messages),
+            message_history=pydantic_ai_history_from_context(
+                summary=snapshot.summary,
+                messages=model_context_messages,
+                conversation_id=conversation.id,
+            ),
             conversation_id=str(conversation.id),
-            instructions=snapshot.summary,
+            instructions=None,
             metadata={
                 "snapshot_version": snapshot.version,
                 "last_seen_sequence": snapshot.last_seen_sequence,
