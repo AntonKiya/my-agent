@@ -12,6 +12,7 @@ from pydantic_ai.toolsets import AgentToolset
 
 from agent_service.agents.interfaces import AgentBoundary
 from agent_service.agents.models import AgentRequest, AgentResponse, AgentUsage
+from agent_service.instructions import load_base_agent_instructions
 from agent_service.skills import load_builtin_skill_capabilities
 
 SAFE_REQUEST_METADATA_KEYS = frozenset({"retry_attempt"})
@@ -136,6 +137,7 @@ def build_openrouter_agent_boundary(
             Agent(
                 model,
                 output_type=str,
+                instructions=load_base_agent_instructions(),
                 capabilities=load_builtin_skill_capabilities(
                     toolsets_by_skill_id=capability_toolsets,
                     enabled_skill_ids=enabled_skill_ids,

@@ -131,12 +131,18 @@ def test_build_openrouter_agent_boundary_wires_builtin_skill_capabilities(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     created_agents: list[dict[str, Any]] = []
+    base_instructions = ["identity", "behavior", "output style", "safety"]
 
     def fake_agent_factory(model: object, **kwargs: Any) -> object:
         created_agents.append({"model": model, **kwargs})
         return FakePydanticAIAgent()
 
     monkeypatch.setattr(pydantic_ai_module, "Agent", fake_agent_factory)
+    monkeypatch.setattr(
+        pydantic_ai_module,
+        "load_base_agent_instructions",
+        lambda: base_instructions,
+    )
     toolsets = [object()]
 
     boundary = build_openrouter_agent_boundary(
@@ -149,6 +155,7 @@ def test_build_openrouter_agent_boundary_wires_builtin_skill_capabilities(
     assert isinstance(boundary, PydanticAIAgentBoundary)
     assert len(created_agents) == 1
     assert created_agents[0]["output_type"] is str
+    assert created_agents[0]["instructions"] == base_instructions
     capabilities = created_agents[0]["capabilities"]
     assert len(capabilities) == 1
     assert capabilities[0].id == "vkusvill-shopping"
