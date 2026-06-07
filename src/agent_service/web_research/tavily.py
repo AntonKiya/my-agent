@@ -18,7 +18,7 @@ TAVILY_EXTRACT_URL = "https://api.tavily.com/extract"
 TAVILY_SEARCH_MAX_RESULTS = 10
 WEB_RESEARCH_MAX_SOURCES = 5
 
-SearchDepth = Literal["basic", "advanced"]
+SearchDepth = Literal["ultra-fast", "fast", "basic", "advanced"]
 ExtractDepth = Literal["basic", "advanced"]
 WebResearchStatus = Literal[
     "ok",
@@ -225,6 +225,8 @@ class WebResearchService:
     tavily_client: TavilyWebResearchClient
     search_max_results: int = TAVILY_SEARCH_MAX_RESULTS
     max_sources: int = WEB_RESEARCH_MAX_SOURCES
+    search_depth: SearchDepth = "advanced"
+    extract_depth: ExtractDepth = "basic"
 
     async def research(self, *, query: str) -> WebResearchResult:
         clean_query = query.strip()
@@ -247,6 +249,7 @@ class WebResearchService:
             search_response = await self.tavily_client.search(
                 query=clean_query,
                 max_results=self.search_max_results,
+                search_depth=self.search_depth,
             )
         except (httpx.HTTPError, TavilyPayloadError):
             return _web_research_payload(
@@ -336,7 +339,10 @@ class WebResearchService:
 
         titles_by_url = {candidate.url: candidate.title for candidate in candidates}
         try:
-            response = await self.tavily_client.extract(urls=urls)
+            response = await self.tavily_client.extract(
+                urls=urls,
+                extract_depth=self.extract_depth,
+            )
         except (httpx.HTTPError, TavilyPayloadError):
             return ExtractBatchOutcome(
                 (),
@@ -376,7 +382,11 @@ def build_web_research_toolsets(
         api_key=settings.tavily_api_key.get_secret_value(),
         http_client=http_client,
     )
-    service = WebResearchService(client)
+    service = WebResearchService(
+        client,
+        search_depth=settings.web_research_search_depth,
+        extract_depth=settings.web_research_extract_depth,
+    )
 
     async def web_research(query: str) -> WebResearchResult:
         """Search the web and return evidence from fetched sources only.

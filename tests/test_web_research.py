@@ -168,6 +168,48 @@ async def test_web_research_uses_one_fallback_extract_batch_for_missing_sources(
     assert result["metadata"]["extract_request_ids"] == ["extract-1", "extract-2"]
 
 
+async def test_web_research_uses_configured_search_and_extract_depths() -> None:
+    request_payloads: list[dict[str, Any]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        payload = _request_json(request)
+        request_payloads.append(payload)
+        if request.url.path == "/search":
+            return httpx.Response(
+                200,
+                json={
+                    "results": [_search_result(1)],
+                    "request_id": "search-1",
+                },
+            )
+
+        return httpx.Response(
+            200,
+            json={
+                "results": [_extract_result(1)],
+                "failed_results": [],
+                "request_id": "extract-1",
+            },
+        )
+
+    async with httpx.AsyncClient(
+        transport=httpx.MockTransport(handler),
+        base_url="https://api.tavily.com",
+    ) as http_client:
+        client = TavilyWebResearchClient(api_key="tvly-test", http_client=http_client)
+        service = WebResearchService(
+            client,
+            search_depth="fast",
+            extract_depth="advanced",
+        )
+
+        result = await service.research(query="query")
+
+    assert result["status"] == "ok"
+    assert request_payloads[0]["search_depth"] == "fast"
+    assert request_payloads[1]["extract_depth"] == "advanced"
+
+
 async def test_web_research_stops_after_one_fallback_batch() -> None:
     extract_call_count = 0
 

@@ -7,6 +7,8 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 Environment = Literal["local", "dev", "staging", "prod", "test"]
 LogLevel = Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
 AgentProvider = Literal["openrouter"]
+WebResearchSearchDepth = Literal["ultra-fast", "fast", "basic", "advanced"]
+WebResearchExtractDepth = Literal["basic", "advanced"]
 
 
 class AppSettings(BaseSettings):
@@ -56,6 +58,8 @@ class AppSettings(BaseSettings):
     weather_http_keepalive_expiry_seconds: float = Field(default=60.0, ge=0)
     web_research_enabled: bool = True
     web_research_tool_timeout_seconds: float = Field(default=45.0, gt=0)
+    web_research_search_depth: WebResearchSearchDepth = "advanced"
+    web_research_extract_depth: WebResearchExtractDepth = "basic"
     tavily_api_key: SecretStr | None = None
     tavily_http_connect_timeout_seconds: float = Field(default=5.0, gt=0)
     tavily_http_read_timeout_seconds: float = Field(default=20.0, gt=0)

@@ -308,6 +308,8 @@ def test_web_research_settings_accept_timeout_configuration() -> None:
         environment="test",
         web_research_enabled=False,
         web_research_tool_timeout_seconds=22.0,
+        web_research_search_depth="basic",
+        web_research_extract_depth="advanced",
         tavily_api_key=SecretStr("tvly-test"),
         tavily_http_connect_timeout_seconds=2.0,
         tavily_http_read_timeout_seconds=18.0,
@@ -318,6 +320,8 @@ def test_web_research_settings_accept_timeout_configuration() -> None:
 
     assert settings.web_research_enabled is False
     assert settings.web_research_tool_timeout_seconds == 22.0
+    assert settings.web_research_search_depth == "basic"
+    assert settings.web_research_extract_depth == "advanced"
     assert settings.tavily_api_key is not None
     assert settings.tavily_api_key.get_secret_value() == "tvly-test"
     assert settings.tavily_http_connect_timeout_seconds == 2.0
