@@ -18,7 +18,6 @@ def test_load_base_agent_instructions_preserves_product_order(tmp_path: Path) ->
         tmp_path,
         {
             "identity.md": "identity",
-            "behavior.md": "behavior",
             "output_style.md": "output style",
             "safety.md": "safety",
         },
@@ -26,7 +25,7 @@ def test_load_base_agent_instructions_preserves_product_order(tmp_path: Path) ->
 
     instructions = load_base_agent_instructions(tmp_path)
 
-    assert instructions == ["identity", "behavior", "output style", "safety"]
+    assert instructions == ["identity", "output style", "safety"]
 
 
 def test_load_base_agent_instructions_rejects_missing_file(tmp_path: Path) -> None:
@@ -34,7 +33,6 @@ def test_load_base_agent_instructions_rejects_missing_file(tmp_path: Path) -> No
         tmp_path,
         {
             "identity.md": "identity",
-            "behavior.md": "behavior",
             "output_style.md": "output style",
         },
     )
@@ -48,7 +46,6 @@ def test_load_base_agent_instructions_rejects_empty_file(tmp_path: Path) -> None
         tmp_path,
         {
             "identity.md": "identity",
-            "behavior.md": "behavior",
             "output_style.md": "   \n",
             "safety.md": "safety",
         },

@@ -131,7 +131,7 @@ def test_build_openrouter_agent_boundary_wires_builtin_skill_capabilities(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     created_agents: list[dict[str, Any]] = []
-    base_instructions = ["identity", "behavior", "output style", "safety"]
+    base_instructions = ["identity", "output style", "safety"]
 
     def fake_agent_factory(model: object, **kwargs: Any) -> object:
         created_agents.append({"model": model, **kwargs})

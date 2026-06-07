@@ -2,7 +2,6 @@ from pathlib import Path
 
 _INSTRUCTION_FILES = (
     "identity.md",
-    "behavior.md",
     "output_style.md",
     "safety.md",
 )
