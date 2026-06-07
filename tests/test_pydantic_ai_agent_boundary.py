@@ -163,6 +163,30 @@ def test_build_openrouter_agent_boundary_wires_builtin_skill_capabilities(
     assert capabilities[0].toolsets == tuple(toolsets)
 
 
+def test_build_openrouter_agent_boundary_wires_direct_toolsets(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    created_agents: list[dict[str, Any]] = []
+
+    def fake_agent_factory(model: object, **kwargs: Any) -> object:
+        created_agents.append({"model": model, **kwargs})
+        return FakePydanticAIAgent()
+
+    monkeypatch.setattr(pydantic_ai_module, "Agent", fake_agent_factory)
+    direct_toolsets = [object()]
+
+    boundary = build_openrouter_agent_boundary(
+        model_name="openai/gpt-4o-mini",
+        api_key="key",
+        toolsets=direct_toolsets,  # type: ignore[arg-type]
+        enabled_skill_ids=set(),
+    )
+
+    assert isinstance(boundary, PydanticAIAgentBoundary)
+    assert created_agents[0]["capabilities"] == ()
+    assert created_agents[0]["toolsets"] == direct_toolsets
+
+
 def test_build_openrouter_agent_boundary_respects_enabled_skill_ids(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

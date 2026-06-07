@@ -54,6 +54,14 @@ class AppSettings(BaseSettings):
     weather_http_write_timeout_seconds: float = Field(default=5.0, gt=0)
     weather_http_pool_timeout_seconds: float = Field(default=5.0, gt=0)
     weather_http_keepalive_expiry_seconds: float = Field(default=60.0, ge=0)
+    web_research_enabled: bool = True
+    web_research_tool_timeout_seconds: float = Field(default=45.0, gt=0)
+    tavily_api_key: SecretStr | None = None
+    tavily_http_connect_timeout_seconds: float = Field(default=5.0, gt=0)
+    tavily_http_read_timeout_seconds: float = Field(default=20.0, gt=0)
+    tavily_http_write_timeout_seconds: float = Field(default=5.0, gt=0)
+    tavily_http_pool_timeout_seconds: float = Field(default=5.0, gt=0)
+    tavily_http_keepalive_expiry_seconds: float = Field(default=60.0, ge=0)
 
     postgres_dsn: str | None = None
     postgres_pool_min_size: int = Field(default=1, ge=0)
@@ -106,6 +114,7 @@ class AppSettings(BaseSettings):
         "telegram_bot_token",
         "telegram_webhook_secret_token",
         "openrouter_api_key",
+        "tavily_api_key",
         "logfire_token",
         mode="before",
     )
