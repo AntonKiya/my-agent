@@ -124,6 +124,7 @@ def build_openrouter_agent_boundary(
     model_settings: OpenRouterModelSettings | None = None,
     timeout_seconds: float = 60.0,
     capability_toolsets: Mapping[str, Sequence[AgentToolset[Any]]] | None = None,
+    toolsets: Sequence[AgentToolset[Any]] | None = None,
     enabled_skill_ids: Collection[str] | None = None,
 ) -> PydanticAIAgentBoundary:
     model = OpenRouterModel(
@@ -142,6 +143,7 @@ def build_openrouter_agent_boundary(
                     toolsets_by_skill_id=capability_toolsets,
                     enabled_skill_ids=enabled_skill_ids,
                 ),
+                toolsets=toolsets,
             ),
         ),
         timeout_seconds=timeout_seconds,

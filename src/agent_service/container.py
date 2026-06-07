@@ -68,6 +68,7 @@ from agent_service.weather import (
     WEATHER_FORECAST_SKILL_ID,
     build_weather_forecast_toolsets,
 )
+from agent_service.web_research import build_web_research_toolsets
 
 logger = logging.getLogger(__name__)
 
@@ -131,6 +132,11 @@ class AppContainer:
     _telegram_http_client: httpx.AsyncClient | None = field(default=None, init=False, repr=False)
     _agent_http_client: httpx.AsyncClient | None = field(default=None, init=False, repr=False)
     _weather_http_client: httpx.AsyncClient | None = field(default=None, init=False, repr=False)
+    _web_research_http_client: httpx.AsyncClient | None = field(
+        default=None,
+        init=False,
+        repr=False,
+    )
     _compaction_http_client: httpx.AsyncClient | None = field(
         default=None,
         init=False,
@@ -211,6 +217,9 @@ class AppContainer:
         if self._weather_http_client is not None:
             await self._weather_http_client.aclose()
             self._weather_http_client = None
+        if self._web_research_http_client is not None:
+            await self._web_research_http_client.aclose()
+            self._web_research_http_client = None
         if self._compaction_http_client is not None:
             await self._compaction_http_client.aclose()
             self._compaction_http_client = None
@@ -255,6 +264,7 @@ class AppContainer:
 
         enabled_skill_ids: set[str] = set()
         capability_toolsets = {}
+        direct_toolsets: list[AgentToolset[Any]] = []
 
         weather_toolsets = self._build_weather_forecast_toolsets()
         if weather_toolsets:
@@ -265,6 +275,8 @@ class AppContainer:
         if vkusvill_toolsets:
             enabled_skill_ids.add(VKUSVILL_SHOPPING_SKILL_ID)
             capability_toolsets[VKUSVILL_SHOPPING_SKILL_ID] = vkusvill_toolsets
+
+        direct_toolsets.extend(self._build_web_research_toolsets())
         return build_openrouter_agent_boundary(
             model_name=self.settings.agent_model,
             api_key=self.settings.openrouter_api_key.get_secret_value(),
@@ -272,6 +284,7 @@ class AppContainer:
             model_settings=_build_openrouter_model_settings(self.settings),
             timeout_seconds=self.settings.agent_timeout_seconds,
             capability_toolsets=capability_toolsets or None,
+            toolsets=tuple(direct_toolsets) or None,
             enabled_skill_ids=enabled_skill_ids,
         )
 
@@ -284,6 +297,19 @@ class AppContainer:
         return build_weather_forecast_toolsets(
             self.settings,
             http_client=weather_http_client,
+        )
+
+    def _build_web_research_toolsets(self) -> tuple[AgentToolset[Any], ...]:
+        if not self.settings.web_research_enabled:
+            return ()
+        if self.settings.tavily_api_key is None:
+            return ()
+
+        web_research_http_client = _create_tavily_http_client(self.settings)
+        self._web_research_http_client = web_research_http_client
+        return build_web_research_toolsets(
+            self.settings,
+            http_client=web_research_http_client,
         )
 
     def _build_conversation_compactor(self) -> ConversationCompactor | None:
@@ -571,6 +597,17 @@ def _create_weather_http_client(settings: AppSettings) -> httpx.AsyncClient:
         write_timeout_seconds=settings.weather_http_write_timeout_seconds,
         pool_timeout_seconds=settings.weather_http_pool_timeout_seconds,
         keepalive_expiry_seconds=settings.weather_http_keepalive_expiry_seconds,
+        worker_count=settings.inbound_worker_count,
+    )
+
+
+def _create_tavily_http_client(settings: AppSettings) -> httpx.AsyncClient:
+    return _create_external_http_client(
+        connect_timeout_seconds=settings.tavily_http_connect_timeout_seconds,
+        read_timeout_seconds=settings.tavily_http_read_timeout_seconds,
+        write_timeout_seconds=settings.tavily_http_write_timeout_seconds,
+        pool_timeout_seconds=settings.tavily_http_pool_timeout_seconds,
+        keepalive_expiry_seconds=settings.tavily_http_keepalive_expiry_seconds,
         worker_count=settings.inbound_worker_count,
     )
 

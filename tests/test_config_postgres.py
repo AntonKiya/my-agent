@@ -303,6 +303,30 @@ def test_weather_forecast_settings_accept_timeout_configuration() -> None:
     assert settings.weather_http_keepalive_expiry_seconds == 30.0
 
 
+def test_web_research_settings_accept_timeout_configuration() -> None:
+    settings = AppSettings(
+        environment="test",
+        web_research_enabled=False,
+        web_research_tool_timeout_seconds=22.0,
+        tavily_api_key=SecretStr("tvly-test"),
+        tavily_http_connect_timeout_seconds=2.0,
+        tavily_http_read_timeout_seconds=18.0,
+        tavily_http_write_timeout_seconds=3.0,
+        tavily_http_pool_timeout_seconds=4.0,
+        tavily_http_keepalive_expiry_seconds=30.0,
+    )
+
+    assert settings.web_research_enabled is False
+    assert settings.web_research_tool_timeout_seconds == 22.0
+    assert settings.tavily_api_key is not None
+    assert settings.tavily_api_key.get_secret_value() == "tvly-test"
+    assert settings.tavily_http_connect_timeout_seconds == 2.0
+    assert settings.tavily_http_read_timeout_seconds == 18.0
+    assert settings.tavily_http_write_timeout_seconds == 3.0
+    assert settings.tavily_http_pool_timeout_seconds == 4.0
+    assert settings.tavily_http_keepalive_expiry_seconds == 30.0
+
+
 def test_prod_telegram_bot_requires_webhook_secret() -> None:
     with pytest.raises(ValidationError, match="telegram_webhook_secret_token is required"):
         AppSettings(environment="prod", telegram_bot_token=SecretStr("bot-token"))

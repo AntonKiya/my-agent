@@ -535,6 +535,86 @@ async def test_container_can_disable_weather_forecast_skill(
     await container.stop()
 
 
+async def test_container_passes_web_research_as_direct_openrouter_toolset(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, object] = {}
+
+    def fake_build_openrouter_agent_boundary(**kwargs: object) -> PydanticAIAgentBoundary:
+        captured.update(kwargs)
+        return PydanticAIAgentBoundary(agent=object())  # type: ignore[arg-type]
+
+    monkeypatch.setattr(
+        container_module,
+        "build_openrouter_agent_boundary",
+        fake_build_openrouter_agent_boundary,
+    )
+    settings = AppSettings(
+        environment="test",
+        agent_provider="openrouter",
+        agent_model="openai/gpt-4.1-mini",
+        openrouter_api_key=SecretStr("secret"),
+        tavily_api_key=SecretStr("tvly-test"),
+        tavily_http_connect_timeout_seconds=3.0,
+        tavily_http_read_timeout_seconds=21.0,
+        tavily_http_write_timeout_seconds=4.0,
+        tavily_http_pool_timeout_seconds=5.0,
+    )
+
+    container = AppContainer(settings=settings)
+
+    assert isinstance(container.agent_boundary, PydanticAIAgentBoundary)
+    assert captured["enabled_skill_ids"] == {"weather-forecast"}
+    capability_toolsets = captured["capability_toolsets"]
+    assert isinstance(capability_toolsets, dict)
+    assert set(capability_toolsets) == {"weather-forecast"}
+    direct_toolsets = captured["toolsets"]
+    assert isinstance(direct_toolsets, tuple)
+    assert len(direct_toolsets) == 1
+    assert cast(Any, direct_toolsets[0]).id == "web_research"
+    assert container._web_research_http_client is not None
+    assert container._web_research_http_client.timeout.connect == 3.0
+    assert container._web_research_http_client.timeout.read == 21.0
+    assert container._web_research_http_client.timeout.write == 4.0
+    assert container._web_research_http_client.timeout.pool == 5.0
+
+    web_research_http_client = container._web_research_http_client
+    await container.stop()
+
+    assert web_research_http_client.is_closed
+    assert container._web_research_http_client is None
+
+
+async def test_container_skips_web_research_without_tavily_key(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, object] = {}
+
+    def fake_build_openrouter_agent_boundary(**kwargs: object) -> PydanticAIAgentBoundary:
+        captured.update(kwargs)
+        return PydanticAIAgentBoundary(agent=object())  # type: ignore[arg-type]
+
+    monkeypatch.setattr(
+        container_module,
+        "build_openrouter_agent_boundary",
+        fake_build_openrouter_agent_boundary,
+    )
+    settings = AppSettings(
+        environment="test",
+        agent_provider="openrouter",
+        agent_model="openai/gpt-4.1-mini",
+        openrouter_api_key=SecretStr("secret"),
+    )
+
+    container = AppContainer(settings=settings)
+
+    assert isinstance(container.agent_boundary, PydanticAIAgentBoundary)
+    assert captured["toolsets"] is None
+    assert container._web_research_http_client is None
+
+    await container.stop()
+
+
 async def test_container_builds_pydantic_ai_compactor_when_configured() -> None:
     settings = AppSettings(
         environment="test",
