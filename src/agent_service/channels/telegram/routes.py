@@ -166,9 +166,17 @@ def _unsupported_update_reason(payload: dict[str, Any]) -> str:
     message = payload.get("message")
     if not isinstance(message, dict):
         return "invalid_message"
-    if message.get("text") is None:
+    if not _has_supported_message_content(message):
         return "non_text_message"
     chat = message.get("chat")
     if isinstance(chat, dict) and chat.get("type") != "private":
         return "non_private_chat"
     return "unsupported_message_shape"
+
+
+def _has_supported_message_content(message: dict[str, Any]) -> bool:
+    return (
+        isinstance(message.get("text"), str)
+        or isinstance(message.get("voice"), dict)
+        or isinstance(message.get("audio"), dict)
+    )

@@ -1,4 +1,5 @@
 from functools import lru_cache
+from pathlib import Path
 from typing import Literal, Self
 
 from pydantic import Field, SecretStr, field_validator, model_validator
@@ -67,6 +68,19 @@ class AppSettings(BaseSettings):
     tavily_http_write_timeout_seconds: float = Field(default=5.0, gt=0)
     tavily_http_pool_timeout_seconds: float = Field(default=5.0, gt=0)
     tavily_http_keepalive_expiry_seconds: float = Field(default=60.0, ge=0)
+    transcription_audio_enabled: bool = True
+    transcription_model: str = Field(default="whisper-large-v3-turbo", min_length=1)
+    transcription_timeout_seconds: float = Field(default=30.0, gt=0)
+    transcription_retry_max_attempts: int = Field(default=3, ge=1)
+    transcription_retry_backoff_seconds: tuple[float, ...] = (1.0, 5.0)
+    transcription_max_audio_size_bytes: int = Field(default=25_000_000, gt=0)
+    transcription_audio_temp_dir: Path | None = None
+    groq_api_key: SecretStr | None = None
+    groq_http_connect_timeout_seconds: float = Field(default=10.0, gt=0)
+    groq_http_read_timeout_seconds: float = Field(default=30.0, gt=0)
+    groq_http_write_timeout_seconds: float = Field(default=30.0, gt=0)
+    groq_http_pool_timeout_seconds: float = Field(default=10.0, gt=0)
+    groq_http_keepalive_expiry_seconds: float = Field(default=60.0, ge=0)
 
     postgres_dsn: str | None = None
     postgres_pool_min_size: int = Field(default=1, ge=0)
@@ -120,6 +134,7 @@ class AppSettings(BaseSettings):
         "telegram_webhook_secret_token",
         "openrouter_api_key",
         "tavily_api_key",
+        "groq_api_key",
         "logfire_token",
         mode="before",
     )
@@ -161,7 +176,11 @@ class AppSettings(BaseSettings):
             raise ValueError("vkusvill_mcp_env requires vkusvill_mcp_command")
         return self
 
-    @field_validator("agent_retry_backoff_seconds", "delivery_retry_backoff_seconds")
+    @field_validator(
+        "agent_retry_backoff_seconds",
+        "delivery_retry_backoff_seconds",
+        "transcription_retry_backoff_seconds",
+    )
     @classmethod
     def retry_backoff_seconds_must_not_be_negative(
         cls,

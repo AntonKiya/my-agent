@@ -21,7 +21,7 @@ from agent_service.config import AppSettings
 from agent_service.container import AppContainer
 from agent_service.conversations import Conversation, ConversationResolverProtocol
 from agent_service.delivery import DeliveryResult, DeliveryStatus
-from agent_service.inbound import InboundIntake
+from agent_service.inbound import InboundContentPreprocessor, InboundIntake
 from agent_service.memory import (
     ConversationCompactionDecision,
     ConversationCompactionPolicy,
@@ -205,6 +205,7 @@ async def test_container_tracks_lifecycle_state() -> None:
     assert container.conversation_compactor is None
     assert container.memory_service is None
     assert container.agent_boundary is None
+    assert container.content_preprocessor is None
     assert container.task_supervisor.task_count == 0
     assert isinstance(container.channel_adapters, ChannelAdapterRegistry)
     assert isinstance(container.channel_adapters, InMemoryChannelAdapterRegistry)
@@ -300,6 +301,41 @@ async def test_container_does_not_build_agent_boundary_without_complete_agent_co
     assert container._agent_http_client is None
 
     await container.stop()
+
+
+async def test_container_builds_audio_content_preprocessor_when_configured() -> None:
+    settings = AppSettings(
+        environment="test",
+        telegram_bot_token=SecretStr("telegram-token"),
+        groq_api_key=SecretStr("groq-secret"),
+        transcription_model="whisper-large-v3-turbo",
+        transcription_timeout_seconds=33.0,
+        transcription_retry_max_attempts=2,
+        transcription_retry_backoff_seconds=(0.1,),
+        transcription_max_audio_size_bytes=123_456,
+        groq_http_connect_timeout_seconds=11.0,
+        groq_http_read_timeout_seconds=22.0,
+        groq_http_write_timeout_seconds=12.0,
+        groq_http_pool_timeout_seconds=13.0,
+    )
+    container = AppContainer(settings=settings)
+
+    assert isinstance(container.content_preprocessor, InboundContentPreprocessor)
+    assert container._groq_http_client is not None
+    assert container._groq_http_client.timeout.connect == 11.0
+    assert container._groq_http_client.timeout.read == 22.0
+    assert container._groq_http_client.timeout.write == 12.0
+    assert container._groq_http_client.timeout.pool == 13.0
+    assert container.content_preprocessor.max_audio_size_bytes == 123_456
+    assert container.content_preprocessor.retry_policy.max_attempts == 2
+
+    groq_client = container._groq_http_client
+
+    await container.stop()
+
+    assert groq_client.is_closed
+    assert container._groq_http_client is None
+    assert container.content_preprocessor is None
 
 
 async def test_container_builds_openrouter_agent_boundary_when_configured() -> None:

@@ -18,6 +18,11 @@ from agent_service.conversations import (
 from agent_service.delivery.models import DeliveryResult, DeliveryStatus
 from agent_service.inbound.errors import OutboundOverloadedError, UnresolvedInboundEventError
 from agent_service.inbound.idempotency import InboundIdempotencyStore
+from agent_service.inbound.preprocessing import (
+    ContentProcessingError,
+    InboundContentPreprocessor,
+    event_needs_content_preprocessing,
+)
 from agent_service.memory import (
     ConversationCompactionJob,
     ConversationCompactionPolicyProtocol,
@@ -84,6 +89,7 @@ class InboundWorker:
     outbound_publish_timeout_seconds: float = 5.0
     thinking_indicator_sender: ThinkingIndicatorSender | None = None
     thinking_indicator_timeout_seconds: float = 1.0
+    content_preprocessor: InboundContentPreprocessor | None = None
     compaction_queue: CompactionQueue | None = None
     compaction_policy: ConversationCompactionPolicyProtocol | None = None
     compaction_publish_timeout_seconds: float = 0.1
@@ -223,6 +229,19 @@ class InboundWorker:
                 user_id=str(conversation.user_id),
                 inbound_event_id=str(event.event_id),
             )
+            with business_span(
+                "Preprocess inbound content",
+                event="inbound_content_preprocessing",
+                inbound_event_id=str(event.event_id),
+                conversation_id=str(conversation.id),
+                user_id=str(conversation.user_id),
+            ):
+                content_preprocessed = await self._preprocess_content(
+                    event,
+                    conversation=conversation,
+                )
+                if not content_preprocessed:
+                    return
             with business_span(
                 "Record user message",
                 event="memory_user_message_recording",
@@ -461,6 +480,60 @@ class InboundWorker:
                 error_code=result.error_code,
                 retry_after_seconds=result.retry_after_seconds,
             )
+
+    async def _preprocess_content(self, event: InboundEvent, *, conversation: Conversation) -> bool:
+        if self.content_preprocessor is None:
+            if not event_needs_content_preprocessing(event):
+                return True
+            await self._publish_content_processing_fallback(
+                event,
+                conversation=conversation,
+                failure_reason="content preprocessor is not configured",
+                error_code="content_preprocessor_not_configured",
+            )
+            return False
+
+        try:
+            await self.content_preprocessor.process(event)
+        except ContentProcessingError as exc:
+            logger.warning(
+                "Inbound content preprocessing failed before agent run",
+                extra={
+                    "event": "inbound_content_preprocessing_failed",
+                    "inbound_event_id": str(event.event_id),
+                    "conversation_id": str(conversation.id),
+                    "user_id": str(conversation.user_id),
+                    "channel": event.channel,
+                    "message_type": event.message_type.value,
+                    "retryable": exc.retryable,
+                    "error_code": exc.error_code,
+                    "error_type": type(exc).__name__,
+                },
+            )
+            await self._publish_content_processing_fallback(
+                event,
+                conversation=conversation,
+                failure_reason="content preprocessing failed",
+                error_code=exc.error_code,
+            )
+            return False
+        return True
+
+    async def _publish_content_processing_fallback(
+        self,
+        event: InboundEvent,
+        *,
+        conversation: Conversation,
+        failure_reason: str,
+        error_code: str | None,
+    ) -> None:
+        await self._publish_fallback_event(event, conversation_id=conversation.id)
+        event.status = InboundEventStatus.FALLBACK_SENT
+        event.metadata["content_processing"] = {
+            "status": "failed",
+            "error_code": error_code,
+        }
+        await self._mark_idempotency_status(event, failure_reason=failure_reason)
 
     def _agent_request(
         self,

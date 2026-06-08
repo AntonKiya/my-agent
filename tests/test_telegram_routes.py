@@ -68,6 +68,20 @@ def private_text_update() -> dict[str, object]:
     }
 
 
+def private_voice_update() -> dict[str, object]:
+    payload = private_text_update()
+    message = payload["message"]
+    assert isinstance(message, dict)
+    message.pop("text")
+    message["voice"] = {
+        "file_id": "voice-file-id",
+        "file_unique_id": "voice-unique-id",
+        "duration": 5,
+        "mime_type": "audio/ogg",
+    }
+    return payload
+
+
 async def test_create_app_registers_telegram_webhook_route() -> None:
     app = create_app(AppSettings(environment="test"))
     app.state.container.inbound_intake_service = AcceptingInboundIntake(
@@ -105,6 +119,24 @@ async def test_telegram_webhook_does_not_require_send_adapter_or_bot_token() -> 
     assert response.json() == {"status": "accepted", "published": True}
     assert app.state.container.telegram_adapter is None
     assert not app.state.container.inbound_queue.is_empty
+
+
+async def test_telegram_webhook_accepts_voice_updates() -> None:
+    app = create_app(AppSettings(environment="test"))
+    app.state.container.inbound_intake_service = AcceptingInboundIntake(
+        app.state.container.inbound_queue,
+    )
+    transport = httpx.ASGITransport(app=app)
+
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.post("/webhooks/telegram", json=private_voice_update())
+
+    assert response.status_code == 200
+    assert response.json() == {"status": "accepted", "published": True}
+    event = await app.state.container.inbound_queue.consume()
+    assert event.text is None
+    assert len(event.attachments) == 1
+    assert event.attachments[0].external_id == "voice-file-id"
 
 
 async def test_telegram_webhook_ignores_unsupported_updates() -> None:
