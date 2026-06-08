@@ -1,3 +1,4 @@
+import logging
 from dataclasses import dataclass
 from typing import Any
 
@@ -7,6 +8,9 @@ from pydantic import SecretStr
 from agent_service.channels.models import Attachment, InboundEvent
 from agent_service.channels.telegram.adapter import TELEGRAM_CHANNEL
 from agent_service.media import ChannelMediaFetcher, MediaFetchError, MediaPayload
+from agent_service.observability.events import elapsed_ms, log_event, start_timer
+
+logger = logging.getLogger(__name__)
 
 TELEGRAM_GET_FILE_METHOD = "getFile"
 TELEGRAM_FILE_DOWNLOAD_BASE_URL = "https://api.telegram.org/file"
@@ -34,6 +38,7 @@ class TelegramMediaFetcher(ChannelMediaFetcher):
         return self.bot_token
 
     async def fetch(self, *, event: InboundEvent, attachment: Attachment) -> MediaPayload:
+        started_at = start_timer()
         if event.channel != self.channel:
             raise MediaFetchError(
                 f"Telegram media fetcher cannot fetch channel {event.channel!r}",
@@ -74,6 +79,20 @@ class TelegramMediaFetcher(ChannelMediaFetcher):
                 retryable=False,
                 error_code="telegram_download_too_large",
             )
+        log_event(
+            logger,
+            logging.INFO,
+            "Telegram media fetched",
+            event="telegram_media_fetched",
+            inbound_event_id=str(event.event_id),
+            channel=event.channel,
+            user_id=str(event.user_id) if event.user_id is not None else None,
+            attachment_type=attachment.attachment_type.value,
+            content_type=attachment.content_type,
+            declared_size_bytes=file_size,
+            downloaded_size_bytes=len(content),
+            duration_ms=elapsed_ms(started_at),
+        )
         return MediaPayload(
             attachment=attachment,
             content=content,

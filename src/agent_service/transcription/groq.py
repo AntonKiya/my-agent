@@ -1,6 +1,7 @@
 import asyncio
 import logging
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 import httpx
@@ -19,6 +20,29 @@ logger = logging.getLogger(__name__)
 GROQ_TRANSCRIPTIONS_PATH = "/openai/v1/audio/transcriptions"
 GROQ_TRANSCRIPTION_PROVIDER = "groq"
 DEFAULT_GROQ_TRANSCRIPTION_MODEL = "whisper-large-v3-turbo"
+GROQ_SUPPORTED_AUDIO_EXTENSIONS = frozenset(
+    {
+        ".flac",
+        ".m4a",
+        ".mp3",
+        ".mp4",
+        ".mpeg",
+        ".mpga",
+        ".ogg",
+        ".wav",
+        ".webm",
+    }
+)
+GROQ_EXTENSION_BY_CONTENT_TYPE = {
+    "audio/flac": ".flac",
+    "audio/mp4": ".mp4",
+    "audio/mpeg": ".mp3",
+    "audio/ogg": ".ogg",
+    "audio/wav": ".wav",
+    "audio/webm": ".webm",
+    "audio/x-m4a": ".m4a",
+    "audio/x-wav": ".wav",
+}
 
 
 @dataclass(slots=True)
@@ -40,9 +64,20 @@ class GroqWhisperTranscriber(AudioTranscriber):
 
     async def transcribe(self, media: StoredMedia) -> TranscriptionResult:
         started_at = start_timer()
+        multipart_filename = _multipart_filename(media)
+        log_event(
+            logger,
+            logging.INFO,
+            "Groq transcription request started",
+            event="groq_transcription_request_started",
+            model=self.model,
+            audio_size_bytes=media.size_bytes,
+            audio_content_type=media.content_type,
+            multipart_filename_suffix=Path(multipart_filename).suffix.lower() or None,
+        )
         try:
             response = await asyncio.wait_for(
-                self._post_transcription(media),
+                self._post_transcription(media, multipart_filename=multipart_filename),
                 timeout=self.timeout_seconds,
             )
         except TimeoutError as exc:
@@ -104,11 +139,16 @@ class GroqWhisperTranscriber(AudioTranscriber):
             },
         )
 
-    async def _post_transcription(self, media: StoredMedia) -> httpx.Response:
+    async def _post_transcription(
+        self,
+        media: StoredMedia,
+        *,
+        multipart_filename: str,
+    ) -> httpx.Response:
         content = await asyncio.to_thread(media.path.read_bytes)
         files = {
             "file": (
-                media.filename or media.path.name,
+                multipart_filename,
                 content,
                 media.content_type or "application/octet-stream",
             )
@@ -133,6 +173,17 @@ def _response_json(response: httpx.Response) -> Any:
         return response.json()
     except ValueError:
         return None
+
+
+def _multipart_filename(media: StoredMedia) -> str:
+    filename = media.filename or media.path.name
+    suffix = Path(filename).suffix.lower()
+    if suffix in GROQ_SUPPORTED_AUDIO_EXTENSIONS:
+        return filename
+    content_type_suffix = GROQ_EXTENSION_BY_CONTENT_TYPE.get(media.content_type or "")
+    if content_type_suffix is not None:
+        return f"audio{content_type_suffix}"
+    return filename
 
 
 def _groq_error_code(response: httpx.Response, body: Any) -> str:

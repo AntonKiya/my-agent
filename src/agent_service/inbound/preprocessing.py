@@ -170,6 +170,18 @@ class InboundContentPreprocessor:
                     error_code="audio_too_large",
                 )
             stored_media = await self.audio_media_store.store(payload)
+            log_event(
+                logger,
+                logging.INFO,
+                "Inbound audio stored temporarily",
+                event="inbound_audio_temp_stored",
+                inbound_event_id=str(event.event_id),
+                channel=event.channel,
+                user_id=str(event.user_id) if event.user_id is not None else None,
+                attachment_type=attachment.attachment_type.value,
+                content_type=stored_media.content_type,
+                size_bytes=stored_media.size_bytes,
+            )
             result = await self.audio_transcriber.transcribe(stored_media)
         except MediaError as exc:
             raise ContentProcessingError(
