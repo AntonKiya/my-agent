@@ -6,7 +6,11 @@ from pydantic import SecretStr
 
 from agent_service.config import AppSettings
 from agent_service.web_research import WEB_RESEARCH_TOOLSET_ID, build_web_research_toolsets
-from agent_service.web_research.tavily import TavilyWebResearchClient, WebResearchService
+from agent_service.web_research.tavily import (
+    ReadWebPagesService,
+    TavilyWebResearchClient,
+    WebResearchService,
+)
 
 
 def _search_result(index: int) -> dict[str, object]:
@@ -84,6 +88,8 @@ async def test_web_research_returns_fetched_evidence_without_search_snippets() -
         "url": "https://example.com/1",
         "title": "Extracted 1",
         "content": "# Source 1\nRead content",
+        "content_length": 23,
+        "content_truncated": False,
     }
     assert "search snippet" not in json.dumps(result)
     assert result["metadata"] == {
@@ -294,6 +300,196 @@ async def test_web_research_reports_search_unavailable() -> None:
     assert result.get("message") == "Tavily search is temporarily unavailable."
 
 
+async def test_read_web_pages_extracts_specific_urls_without_search() -> None:
+    requests: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        assert request.url.path == "/extract"
+        payload = _request_json(request)
+        assert payload["urls"] == ["https://example.com/1", "https://example.com/2"]
+        return httpx.Response(
+            200,
+            json={
+                "results": [_extract_result(1), _extract_result(2)],
+                "failed_results": [],
+                "request_id": "extract-1",
+            },
+        )
+
+    async with httpx.AsyncClient(
+        transport=httpx.MockTransport(handler),
+        base_url="https://api.tavily.com",
+    ) as http_client:
+        client = TavilyWebResearchClient(api_key="tvly-test", http_client=http_client)
+        service = ReadWebPagesService(client)
+
+        result = await service.read_pages(
+            urls=["https://example.com/1", "https://example.com/2"]
+        )
+
+    assert len(requests) == 1
+    assert result["status"] == "ok"
+    assert [source["url"] for source in result["sources"]] == [
+        "https://example.com/1",
+        "https://example.com/2",
+    ]
+    assert result["failed_urls"] == []
+    assert result["metadata"] == {
+        "requested_urls": 2,
+        "valid_urls": 2,
+        "successful_extracts": 2,
+        "failed_extracts": 0,
+        "extract_depth": "basic",
+        "request_id": "extract-1",
+    }
+
+
+async def test_read_web_pages_returns_partial_success_with_failed_url_reason() -> None:
+    def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "results": [_extract_result(1)],
+                "failed_results": [
+                    {
+                        "url": "https://example.com/2",
+                        "error": "Could not fetch page",
+                    }
+                ],
+                "request_id": "extract-1",
+            },
+        )
+
+    async with httpx.AsyncClient(
+        transport=httpx.MockTransport(handler),
+        base_url="https://api.tavily.com",
+    ) as http_client:
+        client = TavilyWebResearchClient(api_key="tvly-test", http_client=http_client)
+        service = ReadWebPagesService(client)
+
+        result = await service.read_pages(
+            urls=["https://example.com/1", "https://example.com/2"]
+        )
+
+    assert result["status"] == "partial_success"
+    assert len(result["sources"]) == 1
+    assert result["failed_urls"] == [
+        {
+            "url": "https://example.com/2",
+            "status": "extract_failed",
+            "reason": "Could not fetch page",
+        }
+    ]
+
+
+async def test_read_web_pages_validates_urls_without_failing_valid_ones() -> None:
+    requests: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        payload = _request_json(request)
+        assert payload["urls"] == ["https://example.com/1"]
+        return httpx.Response(
+            200,
+            json={
+                "results": [_extract_result(1)],
+                "failed_results": [],
+                "request_id": "extract-1",
+            },
+        )
+
+    async with httpx.AsyncClient(
+        transport=httpx.MockTransport(handler),
+        base_url="https://api.tavily.com",
+    ) as http_client:
+        client = TavilyWebResearchClient(api_key="tvly-test", http_client=http_client)
+        service = ReadWebPagesService(client)
+
+        result = await service.read_pages(urls=["notaurl", "https://example.com/1"])
+
+    assert len(requests) == 1
+    assert result["status"] == "partial_success"
+    assert result["failed_urls"] == [
+        {
+            "url": "notaurl",
+            "status": "invalid_url",
+            "reason": "URL must be an absolute http:// or https:// URL.",
+        }
+    ]
+
+
+async def test_read_web_pages_rejects_empty_or_too_many_urls_without_http_call() -> None:
+    def handler(_request: httpx.Request) -> httpx.Response:
+        raise AssertionError("unexpected HTTP request")
+
+    async with httpx.AsyncClient(
+        transport=httpx.MockTransport(handler),
+        base_url="https://api.tavily.com",
+    ) as http_client:
+        client = TavilyWebResearchClient(api_key="tvly-test", http_client=http_client)
+        service = ReadWebPagesService(client)
+
+        empty_result = await service.read_pages(urls=[])
+        too_many_result = await service.read_pages(
+            urls=[f"https://example.com/{index}" for index in range(1, 7)]
+        )
+
+    assert empty_result["status"] == "validation_error"
+    assert empty_result.get("message") == "read_web_pages requires at least one URL."
+    assert too_many_result["status"] == "validation_error"
+    assert len(too_many_result["failed_urls"]) == 6
+
+
+async def test_read_web_pages_marks_all_valid_urls_failed_when_extract_request_fails() -> None:
+    def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(503)
+
+    async with httpx.AsyncClient(
+        transport=httpx.MockTransport(handler),
+        base_url="https://api.tavily.com",
+    ) as http_client:
+        client = TavilyWebResearchClient(api_key="tvly-test", http_client=http_client)
+        service = ReadWebPagesService(client)
+
+        result = await service.read_pages(
+            urls=["https://example.com/1", "https://example.com/2"]
+        )
+
+    assert result["status"] == "temporarily_unavailable"
+    assert result["sources"] == []
+    assert [item["url"] for item in result["failed_urls"]] == [
+        "https://example.com/1",
+        "https://example.com/2",
+    ]
+    assert {item["status"] for item in result["failed_urls"]} == {"temporarily_unavailable"}
+
+
+async def test_read_web_pages_truncates_large_content() -> None:
+    def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "results": [_extract_result(1, raw_content="abcdef")],
+                "failed_results": [],
+                "request_id": "extract-1",
+            },
+        )
+
+    async with httpx.AsyncClient(
+        transport=httpx.MockTransport(handler),
+        base_url="https://api.tavily.com",
+    ) as http_client:
+        client = TavilyWebResearchClient(api_key="tvly-test", http_client=http_client)
+        service = ReadWebPagesService(client, max_content_chars_per_source=3)
+
+        result = await service.read_pages(urls=["https://example.com/1"])
+
+    assert result["sources"][0]["content"] == "abc"
+    assert result["sources"][0]["content_length"] == 6
+    assert result["sources"][0]["content_truncated"] is True
+
+
 async def test_build_web_research_toolsets_can_be_disabled_or_unconfigured() -> None:
     async with httpx.AsyncClient(
         transport=httpx.MockTransport(lambda _: httpx.Response(500))
@@ -326,4 +522,4 @@ async def test_build_web_research_toolsets_has_expected_id() -> None:
     assert len(toolsets) == 1
     toolset = cast(Any, toolsets[0])
     assert toolset.id == WEB_RESEARCH_TOOLSET_ID
-    assert set(toolset.tools) == {"web_research"}
+    assert set(toolset.tools) == {"web_research", "read_web_pages"}

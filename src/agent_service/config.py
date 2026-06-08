@@ -60,6 +60,7 @@ class AppSettings(BaseSettings):
     web_research_tool_timeout_seconds: float = Field(default=45.0, gt=0)
     web_research_search_depth: WebResearchSearchDepth = "advanced"
     web_research_extract_depth: WebResearchExtractDepth = "basic"
+    web_research_max_content_chars_per_source: int = Field(default=20_000, gt=0)
     tavily_api_key: SecretStr | None = None
     tavily_http_connect_timeout_seconds: float = Field(default=5.0, gt=0)
     tavily_http_read_timeout_seconds: float = Field(default=20.0, gt=0)
