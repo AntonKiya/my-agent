@@ -21,7 +21,12 @@ This repository currently contains the service foundation:
 - Outbound event models and outbound queue contract.
 - In-memory asyncio queue backend for inbound/outbound events.
 - Inbound intake service that resolves users before queue publication.
-- Telegram inbound webhook route and private text normalizer.
+- Telegram inbound webhook route and private text/voice/audio normalizer.
+- Inbound content preprocessing boundary for voice/audio transcription before memory and agent
+  execution.
+- Temporary media fetching/storage boundary with Telegram `file_id` hidden behind a channel media
+  fetcher.
+- Groq Whisper transcription boundary for `whisper-large-v3-turbo`.
 - Telegram send adapter for outbound text delivery through the Bot API.
 - Background task supervisor for graceful shutdown.
 - User identity domain models and Postgres storage.
@@ -31,8 +36,9 @@ This repository currently contains the service foundation:
 - Pydantic AI agent boundary implementation with OpenRouter model factory, run timeout, safe text
   output normalization, and usage mapping.
 - Explicit service-facing agent boundary safety contract: raw transport metadata is not passed into
-  Pydantic AI run metadata, attachment inputs are rejected for the text-only MVP, and empty or
-  non-text model outputs are rejected before an `AgentResponse` is emitted.
+  Pydantic AI run metadata, successful audio inputs are converted to text before the text-only agent
+  boundary, remaining attachment inputs are rejected for the MVP, and empty or non-text model outputs
+  are rejected before an `AgentResponse` is emitted.
 - Conversation memory service implementation for Postgres history and Redis working snapshots.
 - Persistent `conversation_summaries` state model and Postgres compaction store contract.
 - Explicit separation between memory state ownership and the external conversation compactor boundary.
@@ -235,6 +241,18 @@ AGENT_SERVICE_OPENROUTER_HTTP_CONNECT_TIMEOUT_SECONDS=10.0
 AGENT_SERVICE_OPENROUTER_HTTP_WRITE_TIMEOUT_SECONDS=10.0
 AGENT_SERVICE_OPENROUTER_HTTP_POOL_TIMEOUT_SECONDS=10.0
 AGENT_SERVICE_OPENROUTER_HTTP_KEEPALIVE_EXPIRY_SECONDS=60.0
+AGENT_SERVICE_TRANSCRIPTION_AUDIO_ENABLED=true
+AGENT_SERVICE_TRANSCRIPTION_MODEL=whisper-large-v3-turbo
+AGENT_SERVICE_TRANSCRIPTION_TIMEOUT_SECONDS=30.0
+AGENT_SERVICE_TRANSCRIPTION_RETRY_MAX_ATTEMPTS=3
+AGENT_SERVICE_TRANSCRIPTION_RETRY_BACKOFF_SECONDS='[1.0,5.0]'
+AGENT_SERVICE_TRANSCRIPTION_MAX_AUDIO_SIZE_BYTES=25000000
+AGENT_SERVICE_TRANSCRIPTION_AUDIO_TEMP_DIR=
+AGENT_SERVICE_GROQ_HTTP_CONNECT_TIMEOUT_SECONDS=10.0
+AGENT_SERVICE_GROQ_HTTP_READ_TIMEOUT_SECONDS=30.0
+AGENT_SERVICE_GROQ_HTTP_WRITE_TIMEOUT_SECONDS=30.0
+AGENT_SERVICE_GROQ_HTTP_POOL_TIMEOUT_SECONDS=10.0
+AGENT_SERVICE_GROQ_HTTP_KEEPALIVE_EXPIRY_SECONDS=60.0
 AGENT_SERVICE_POSTGRES_POOL_MIN_SIZE=4
 AGENT_SERVICE_POSTGRES_POOL_MAX_SIZE=32
 AGENT_SERVICE_POSTGRES_COMMAND_TIMEOUT_SECONDS=15.0
@@ -281,6 +299,7 @@ AGENT_SERVICE_OPENROUTER_HTTP_WRITE_TIMEOUT_SECONDS=10.0
 AGENT_SERVICE_OPENROUTER_HTTP_POOL_TIMEOUT_SECONDS=10.0
 AGENT_SERVICE_OPENROUTER_HTTP_KEEPALIVE_EXPIRY_SECONDS=60.0
 AGENT_SERVICE_OPENROUTER_API_KEY=
+AGENT_SERVICE_GROQ_API_KEY=
 AGENT_SERVICE_LOGFIRE_TOKEN=
 ```
 
@@ -303,6 +322,18 @@ and `AGENT_SERVICE_OPENROUTER_PROVIDER_PREFERRED_MAX_LATENCY_P99` are passed thr
 settings `extra_body`.
 `AGENT_SERVICE_MEMORY_COMPACTION_MODEL` is intentionally separate from the main chat model so
 conversation summarization can use a cheaper or more specialized model later.
+
+`AGENT_SERVICE_GROQ_API_KEY` plus `AGENT_SERVICE_TELEGRAM_BOT_TOKEN` enables voice/audio
+preprocessing. Telegram-specific `file_id` handling stays inside the Telegram media fetcher; the
+transcription layer receives only a temporary local audio file and uses
+`AGENT_SERVICE_TRANSCRIPTION_MODEL` (default `whisper-large-v3-turbo`). Temporary audio is deleted
+after successful transcription or final fallback.
+
+The content preprocessing boundary is the single place where inbound non-text content should be
+prepared before memory and agent execution. Channel webhooks only normalize transport payloads into
+attachments; they must not download, store, transcribe, OCR, summarize, or otherwise process media.
+Future image and document handling should be added as processors behind this same boundary, with
+channel-specific file access hidden behind media fetcher interfaces.
 
 `AGENT_SERVICE_REDIS_DSN` enables Redis working context snapshots. When configured, the container
 creates a Redis client on startup, pings it, and wires `RedisConversationContextSnapshotStore` into
@@ -331,6 +362,7 @@ Telegram webhook
 → ConversationResolver
 → PostgresConversationStore
 → ConversationLockManager
+→ optional InboundContentPreprocessor for voice/audio
 → ConversationMemoryService.record_user_message()
 → ConversationMemoryService.prepare_agent_context()
 → AgentBoundary.run()

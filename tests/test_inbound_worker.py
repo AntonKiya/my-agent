@@ -2,6 +2,7 @@ import asyncio
 import logging
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
+from typing import cast
 from uuid import UUID, uuid4
 
 import pytest
@@ -14,11 +15,19 @@ from agent_service.agents import (
     AgentResponse,
     PydanticAIRunContext,
 )
-from agent_service.channels import InboundEvent, InboundEventStatus
+from agent_service.channels import (
+    Attachment,
+    AttachmentType,
+    InboundEvent,
+    InboundEventStatus,
+    MessageType,
+)
 from agent_service.conversations import AsyncioConversationLockManager, Conversation
 from agent_service.delivery import DeliveryResult, DeliveryStatus
 from agent_service.inbound import (
     AgentRetryPolicy,
+    ContentProcessingError,
+    InboundContentPreprocessor,
     InboundIdempotencyClaim,
     InboundIdempotencyStore,
     InboundWorker,
@@ -215,6 +224,27 @@ class FakeThinkingIndicatorSender:
 
 
 @dataclass(slots=True)
+class FakeContentPreprocessor:
+    text: str = "transcribed voice"
+    errors: list[ContentProcessingError] = field(default_factory=list)
+    events: list[InboundEvent] = field(default_factory=list)
+
+    async def process(self, event: InboundEvent) -> None:
+        self.events.append(event)
+        if self.errors:
+            raise self.errors.pop(0)
+        event.text = self.text
+        event.message_type = MessageType.TEXT
+        event.attachments = []
+        event.metadata["transcription"] = {
+            "provider": "test",
+            "model": "test-model",
+            "source_message_type": "voice",
+            "status": "completed",
+        }
+
+
+@dataclass(slots=True)
 class TrackingAgentBoundary:
     entered: asyncio.Event
     release: asyncio.Event
@@ -285,6 +315,30 @@ def inbound_event(
     )
 
 
+def voice_event(
+    *,
+    user_id: UUID | None,
+    chat_id: str = "12345",
+) -> InboundEvent:
+    return InboundEvent(
+        channel="telegram",
+        external_user_id="67890",
+        external_chat_id=chat_id,
+        external_message_id="42",
+        idempotency_key=f"telegram:{chat_id}:42",
+        user_id=user_id,
+        message_type=MessageType.VOICE,
+        attachments=[
+            Attachment(
+                attachment_type=AttachmentType.VOICE,
+                external_id="voice-file-id",
+                content_type="audio/ogg",
+            )
+        ],
+        trace_id="trace-1",
+    )
+
+
 def worker(
     *,
     conversations_by_chat_id: dict[str, Conversation],
@@ -295,6 +349,7 @@ def worker(
     idempotency_store: InboundIdempotencyStore | None = None,
     retry_policy: AgentRetryPolicy | None = None,
     thinking_indicator_sender: FakeThinkingIndicatorSender | None = None,
+    content_preprocessor: FakeContentPreprocessor | None = None,
     sleep: Callable[[float], Awaitable[None]] | None = None,
 ) -> tuple[InboundWorker, AsyncioInboundQueue, AsyncioOutboundQueue, FakeMemoryService]:
     inbound_queue = AsyncioInboundQueue()
@@ -311,6 +366,7 @@ def worker(
             idempotency_store=idempotency_store,
             retry_policy=retry_policy or AgentRetryPolicy(max_attempts=1),
             thinking_indicator_sender=thinking_indicator_sender,
+            content_preprocessor=cast(InboundContentPreprocessor | None, content_preprocessor),
             compaction_queue=compaction_queue,
             compaction_policy=compaction_policy,
             sleep=sleep or asyncio.sleep,
@@ -367,6 +423,80 @@ async def test_inbound_worker_sends_best_effort_thinking_indicator() -> None:
     assert thinking_sender.events == [event]
     assert outbound.text == "answer"
     assert event.status is InboundEventStatus.COMPLETED
+
+
+async def test_inbound_worker_preprocesses_voice_before_memory_and_agent() -> None:
+    user_id = uuid4()
+    resolved_conversation = conversation(user_id=user_id)
+    preprocessor = FakeContentPreprocessor(text="hello from voice")
+    agent = FakeAgentBoundary(responses=[AgentResponse(text="answer")])
+    inbound_worker, _inbound_queue, outbound_queue, memory = worker(
+        conversations_by_chat_id={"12345": resolved_conversation},
+        agent_boundary=agent,
+        content_preprocessor=preprocessor,
+    )
+    event = voice_event(user_id=user_id)
+
+    await inbound_worker.process_event(event)
+
+    outbound = await outbound_queue.consume()
+    assert outbound.text == "answer"
+    assert event.status is InboundEventStatus.COMPLETED
+    assert event.text == "hello from voice"
+    assert event.attachments == []
+    assert memory.user_messages[0].text == "hello from voice"
+    assert agent.requests[0].text == "hello from voice"
+    assert agent.requests[0].attachments == []
+    assert preprocessor.events == [event]
+
+
+async def test_inbound_worker_fallbacks_when_voice_preprocessor_is_missing() -> None:
+    user_id = uuid4()
+    resolved_conversation = conversation(user_id=user_id)
+    agent = FakeAgentBoundary()
+    inbound_worker, _inbound_queue, outbound_queue, memory = worker(
+        conversations_by_chat_id={"12345": resolved_conversation},
+        agent_boundary=agent,
+    )
+    event = voice_event(user_id=user_id)
+
+    await inbound_worker.process_event(event)
+
+    outbound = await outbound_queue.consume()
+    assert event.status is InboundEventStatus.FALLBACK_SENT
+    assert outbound.text == inbound_worker.fallback_text
+    assert memory.user_messages == []
+    assert agent.requests == []
+
+
+async def test_inbound_worker_fallbacks_when_voice_preprocessing_fails() -> None:
+    user_id = uuid4()
+    resolved_conversation = conversation(user_id=user_id)
+    preprocessor = FakeContentPreprocessor(
+        errors=[
+            ContentProcessingError(
+                "no speech",
+                retryable=False,
+                error_code="empty_transcription",
+            )
+        ]
+    )
+    agent = FakeAgentBoundary()
+    inbound_worker, _inbound_queue, outbound_queue, memory = worker(
+        conversations_by_chat_id={"12345": resolved_conversation},
+        agent_boundary=agent,
+        content_preprocessor=preprocessor,
+    )
+    event = voice_event(user_id=user_id)
+
+    await inbound_worker.process_event(event)
+
+    outbound = await outbound_queue.consume()
+    assert event.status is InboundEventStatus.FALLBACK_SENT
+    assert outbound.text == inbound_worker.fallback_text
+    assert event.metadata["content_processing"]["error_code"] == "empty_transcription"
+    assert memory.user_messages == []
+    assert agent.requests == []
 
 
 async def test_inbound_worker_continues_when_thinking_indicator_fails() -> None:

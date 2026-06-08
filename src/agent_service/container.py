@@ -15,7 +15,7 @@ from pydantic_ai.toolsets import AgentToolset
 
 from agent_service.agents import AgentBoundary, build_openrouter_agent_boundary
 from agent_service.channels import ChannelAdapterRegistry, InMemoryChannelAdapterRegistry
-from agent_service.channels.telegram import TelegramAdapter
+from agent_service.channels.telegram import TelegramAdapter, TelegramMediaFetcher
 from agent_service.config import AppSettings
 from agent_service.conversations import (
     AsyncioConversationLockManager,
@@ -30,6 +30,8 @@ from agent_service.conversations import (
 from agent_service.delivery import DeliveryRetryPolicy, DeliveryWorker
 from agent_service.inbound import (
     AgentRetryPolicy,
+    ContentProcessingRetryPolicy,
+    InboundContentPreprocessor,
     InboundIdempotencyStore,
     InboundIntake,
     InboundIntakeService,
@@ -37,6 +39,7 @@ from agent_service.inbound import (
     PostgresInboundIdempotencyStore,
 )
 from agent_service.mcp import VKUSVILL_SHOPPING_SKILL_ID, build_vkusvill_mcp_toolsets
+from agent_service.media import InMemoryMediaFetcherRegistry, TempFileMediaStore
 from agent_service.memory import (
     ConversationCompactionPolicy,
     ConversationCompactionStore,
@@ -63,6 +66,7 @@ from agent_service.messaging.interfaces import CompactionQueue, InboundQueue
 from agent_service.observability.events import elapsed_ms, log_event, start_timer
 from agent_service.outbound import OutboundQueue
 from agent_service.runtime.lifecycle import TaskSupervisor
+from agent_service.transcription import GroqWhisperTranscriber
 from agent_service.users import PostgresPool, PostgresUserStore, UserResolver
 from agent_service.weather import (
     WEATHER_FORECAST_SKILL_ID,
@@ -125,12 +129,14 @@ class AppContainer:
     conversation_compactor: ConversationCompactor | None = field(init=False)
     memory_service: ConversationMemoryService | None = field(init=False)
     agent_boundary: AgentBoundary | None = field(init=False)
+    content_preprocessor: InboundContentPreprocessor | None = field(init=False)
     channel_adapters: ChannelAdapterRegistry = field(init=False)
     telegram_adapter: TelegramAdapter | None = field(init=False)
     _postgres_pool: ManagedPostgresPool | None = field(default=None, init=False, repr=False)
     _redis_client: ManagedRedisClient | None = field(default=None, init=False, repr=False)
     _telegram_http_client: httpx.AsyncClient | None = field(default=None, init=False, repr=False)
     _agent_http_client: httpx.AsyncClient | None = field(default=None, init=False, repr=False)
+    _groq_http_client: httpx.AsyncClient | None = field(default=None, init=False, repr=False)
     _weather_http_client: httpx.AsyncClient | None = field(default=None, init=False, repr=False)
     _web_research_http_client: httpx.AsyncClient | None = field(
         default=None,
@@ -179,6 +185,7 @@ class AppContainer:
         self.telegram_adapter = self._build_telegram_adapter()
         if self.telegram_adapter is not None:
             self.channel_adapters.register(self.telegram_adapter)
+        self.content_preprocessor = self._build_content_preprocessor()
 
     @property
     def started(self) -> bool:
@@ -191,6 +198,8 @@ class AppContainer:
         try:
             if self.agent_boundary is None:
                 self.agent_boundary = self._build_agent_boundary()
+            if self.content_preprocessor is None:
+                self.content_preprocessor = self._build_content_preprocessor()
             await self._start_redis_dependencies()
             await self._start_postgres_dependencies()
             self._start_inbound_workers()
@@ -214,6 +223,10 @@ class AppContainer:
             await self._agent_http_client.aclose()
             self._agent_http_client = None
             self.agent_boundary = None
+        if self._groq_http_client is not None:
+            await self._groq_http_client.aclose()
+            self._groq_http_client = None
+            self.content_preprocessor = None
         if self._weather_http_client is not None:
             await self._weather_http_client.aclose()
             self._weather_http_client = None
@@ -286,6 +299,47 @@ class AppContainer:
             capability_toolsets=capability_toolsets or None,
             toolsets=tuple(direct_toolsets) or None,
             enabled_skill_ids=enabled_skill_ids,
+        )
+
+    def _build_content_preprocessor(self) -> InboundContentPreprocessor | None:
+        if not self.settings.transcription_audio_enabled:
+            return None
+        if self.settings.groq_api_key is None:
+            return None
+
+        media_fetchers = InMemoryMediaFetcherRegistry()
+        if self.settings.telegram_bot_token is not None and self._telegram_http_client is not None:
+            media_fetchers.register(
+                TelegramMediaFetcher(
+                    bot_token=self.settings.telegram_bot_token,
+                    client=self._telegram_http_client,
+                    max_file_size_bytes=self.settings.transcription_max_audio_size_bytes,
+                )
+            )
+        if not media_fetchers.channels:
+            return None
+
+        self._groq_http_client = _create_groq_http_client(
+            self.settings,
+            read_timeout_seconds=self.settings.groq_http_read_timeout_seconds,
+            worker_count=self.settings.inbound_worker_count,
+        )
+        return InboundContentPreprocessor(
+            media_fetchers=media_fetchers,
+            audio_media_store=TempFileMediaStore(
+                base_dir=self.settings.transcription_audio_temp_dir,
+            ),
+            audio_transcriber=GroqWhisperTranscriber(
+                api_key=self.settings.groq_api_key.get_secret_value(),
+                client=self._groq_http_client,
+                model=self.settings.transcription_model,
+                timeout_seconds=self.settings.transcription_timeout_seconds,
+            ),
+            retry_policy=ContentProcessingRetryPolicy(
+                max_attempts=self.settings.transcription_retry_max_attempts,
+                backoff_seconds=self.settings.transcription_retry_backoff_seconds,
+            ),
+            max_audio_size_bytes=self.settings.transcription_max_audio_size_bytes,
         )
 
     def _build_weather_forecast_toolsets(self) -> tuple[AgentToolset[Any], ...]:
@@ -414,6 +468,7 @@ class AppContainer:
                 thinking_indicator_timeout_seconds=(
                     self.settings.telegram_thinking_draft_timeout_seconds
                 ),
+                content_preprocessor=self.content_preprocessor,
                 compaction_queue=(
                     self.compaction_queue if self._compaction_processing_enabled() else None
                 ),
@@ -609,6 +664,22 @@ def _create_tavily_http_client(settings: AppSettings) -> httpx.AsyncClient:
         pool_timeout_seconds=settings.tavily_http_pool_timeout_seconds,
         keepalive_expiry_seconds=settings.tavily_http_keepalive_expiry_seconds,
         worker_count=settings.inbound_worker_count,
+    )
+
+
+def _create_groq_http_client(
+    settings: AppSettings,
+    *,
+    read_timeout_seconds: float,
+    worker_count: int,
+) -> httpx.AsyncClient:
+    return _create_external_http_client(
+        connect_timeout_seconds=settings.groq_http_connect_timeout_seconds,
+        read_timeout_seconds=read_timeout_seconds,
+        write_timeout_seconds=settings.groq_http_write_timeout_seconds,
+        pool_timeout_seconds=settings.groq_http_pool_timeout_seconds,
+        keepalive_expiry_seconds=settings.groq_http_keepalive_expiry_seconds,
+        worker_count=worker_count,
     )
 
 

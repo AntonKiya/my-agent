@@ -56,6 +56,19 @@ def test_postgres_pool_settings_have_safe_defaults() -> None:
     assert settings.memory_compaction_timeout_seconds == 120.0
     assert settings.memory_compaction_target_summary_tokens == 1000
     assert settings.memory_compaction_model is None
+    assert settings.transcription_audio_enabled
+    assert settings.transcription_model == "whisper-large-v3-turbo"
+    assert settings.transcription_timeout_seconds == 30.0
+    assert settings.transcription_retry_max_attempts == 3
+    assert settings.transcription_retry_backoff_seconds == (1.0, 5.0)
+    assert settings.transcription_max_audio_size_bytes == 25_000_000
+    assert settings.transcription_audio_temp_dir is None
+    assert settings.groq_api_key is None
+    assert settings.groq_http_connect_timeout_seconds == 10.0
+    assert settings.groq_http_read_timeout_seconds == 30.0
+    assert settings.groq_http_write_timeout_seconds == 30.0
+    assert settings.groq_http_pool_timeout_seconds == 10.0
+    assert settings.groq_http_keepalive_expiry_seconds == 60.0
 
 
 def test_postgres_pool_settings_are_validated() -> None:
@@ -184,6 +197,36 @@ def test_postgres_pool_settings_are_validated() -> None:
 
     with pytest.raises(ValidationError):
         AppSettings(environment="test", openrouter_http_keepalive_expiry_seconds=-1)
+
+    with pytest.raises(ValidationError):
+        AppSettings(environment="test", transcription_model="")
+
+    with pytest.raises(ValidationError):
+        AppSettings(environment="test", transcription_timeout_seconds=0)
+
+    with pytest.raises(ValidationError):
+        AppSettings(environment="test", transcription_retry_max_attempts=0)
+
+    with pytest.raises(ValidationError):
+        AppSettings(environment="test", transcription_retry_backoff_seconds=(-1.0,))
+
+    with pytest.raises(ValidationError):
+        AppSettings(environment="test", transcription_max_audio_size_bytes=0)
+
+    with pytest.raises(ValidationError):
+        AppSettings(environment="test", groq_http_connect_timeout_seconds=0)
+
+    with pytest.raises(ValidationError):
+        AppSettings(environment="test", groq_http_read_timeout_seconds=0)
+
+    with pytest.raises(ValidationError):
+        AppSettings(environment="test", groq_http_write_timeout_seconds=0)
+
+    with pytest.raises(ValidationError):
+        AppSettings(environment="test", groq_http_pool_timeout_seconds=0)
+
+    with pytest.raises(ValidationError):
+        AppSettings(environment="test", groq_http_keepalive_expiry_seconds=-1)
 
 
 def test_agent_settings_accept_openrouter_configuration() -> None:
