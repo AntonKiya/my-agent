@@ -11,7 +11,10 @@ def test_builtin_skills_include_vkusvill_shopping_as_deferred_capability() -> No
     capabilities = load_builtin_skill_capabilities()
 
     capability_by_id = {capability.id: capability for capability in capabilities}
-    assert set(capability_by_id) == {"vkusvill-shopping", "weather-forecast"}
+    assert set(capability_by_id) == {
+        "vkusvill-shopping",
+        "weather-forecast",
+    }
     capability = capability_by_id["vkusvill-shopping"]
     assert capability.id == "vkusvill-shopping"
     assert capability.defer_loading is True

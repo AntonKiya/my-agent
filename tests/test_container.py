@@ -67,11 +67,21 @@ class FakeManagedRedisClient:
         value: str,
         *,
         ex: int | None = None,
+        px: int | None = None,
+        nx: bool = False,
     ) -> object:
         return True
 
     async def delete(self, *names: str) -> object:
         return len(names)
+
+    async def scan_iter(
+        self,
+        match: str | None = None,
+        count: int | None = None,
+    ) -> AsyncIterator[bytes | str]:
+        if False:
+            yield ""
 
     async def ping(self) -> object:
         self.pinged = True
@@ -621,6 +631,55 @@ async def test_container_passes_web_research_as_direct_openrouter_toolset(
     assert container._web_research_http_client is None
 
 
+async def test_container_passes_image_analysis_as_direct_openrouter_toolset_after_postgres(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake_pool = FakeManagedPostgresPool()
+    captured: dict[str, object] = {}
+
+    async def fake_create_pool(**kwargs: object) -> FakeManagedPostgresPool:
+        return fake_pool
+
+    def fake_build_openrouter_agent_boundary(**kwargs: object) -> PydanticAIAgentBoundary:
+        captured.update(kwargs)
+        return PydanticAIAgentBoundary(agent=object())  # type: ignore[arg-type]
+
+    monkeypatch.setattr("agent_service.container.asyncpg.create_pool", fake_create_pool)
+    monkeypatch.setattr(
+        container_module,
+        "build_openrouter_agent_boundary",
+        fake_build_openrouter_agent_boundary,
+    )
+    settings = AppSettings(
+        environment="test",
+        postgres_dsn="postgresql://agent:secret@localhost:5432/agent",
+        agent_provider="openrouter",
+        agent_model="openai/gpt-4.1-mini",
+        openrouter_api_key=SecretStr("secret"),
+        image_analysis_model="openai/gpt-4.1-mini",
+        inbound_worker_count=0,
+    )
+    container = AppContainer(settings=settings)
+
+    await container.start()
+
+    assert captured["enabled_skill_ids"] == {"weather-forecast"}
+    capability_toolsets = captured["capability_toolsets"]
+    assert isinstance(capability_toolsets, dict)
+    assert set(capability_toolsets) == {"weather-forecast"}
+    direct_toolsets = captured["toolsets"]
+    assert isinstance(direct_toolsets, tuple)
+    assert len(direct_toolsets) == 1
+    assert cast(Any, direct_toolsets[0]).id == "image-analysis"
+    assert container._image_analysis_http_client is not None
+
+    image_analysis_http_client = container._image_analysis_http_client
+    await container.stop()
+
+    assert image_analysis_http_client.is_closed
+    assert container._image_analysis_http_client is None
+
+
 async def test_container_skips_web_research_without_tavily_key(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -802,6 +861,7 @@ async def test_container_wires_redis_snapshot_store_when_dsn_is_configured(
     assert container.started
     assert fake_client.pinged
     assert isinstance(container.conversation_snapshot_store, ConversationContextSnapshotStore)
+    assert container.media_group_aggregator is not None
     assert redis_kwargs == {
         "url": "redis://127.0.0.1:6379/0",
         "decode_responses": True,
@@ -814,6 +874,7 @@ async def test_container_wires_redis_snapshot_store_when_dsn_is_configured(
     assert fake_client.closed
     assert container._redis_client is None
     assert container.conversation_snapshot_store is None
+    assert container.media_group_aggregator is None
 
 
 async def test_container_passes_redis_snapshot_store_to_memory_service(

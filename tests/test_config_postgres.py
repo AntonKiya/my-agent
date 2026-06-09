@@ -19,6 +19,10 @@ def test_postgres_pool_settings_have_safe_defaults() -> None:
     assert settings.telegram_http_keepalive_expiry_seconds == 60.0
     assert not settings.telegram_thinking_draft_enabled
     assert settings.telegram_thinking_draft_timeout_seconds == 1.0
+    assert settings.telegram_media_group_debounce_seconds == 2.0
+    assert settings.telegram_media_group_ttl_seconds == 60
+    assert settings.telegram_media_group_flush_interval_seconds == 0.5
+    assert settings.telegram_media_group_lock_ttl_seconds == 10.0
     assert settings.openrouter_http_connect_timeout_seconds == 10.0
     assert settings.openrouter_http_write_timeout_seconds == 10.0
     assert settings.openrouter_http_pool_timeout_seconds == 10.0
@@ -63,6 +67,13 @@ def test_postgres_pool_settings_have_safe_defaults() -> None:
     assert settings.transcription_retry_backoff_seconds == (1.0, 5.0)
     assert settings.transcription_max_audio_size_bytes == 25_000_000
     assert settings.transcription_audio_temp_dir is None
+    assert settings.image_analysis_enabled
+    assert settings.image_analysis_model is None
+    assert settings.image_analysis_timeout_seconds == 60.0
+    assert settings.image_analysis_tool_timeout_seconds == 90.0
+    assert settings.image_analysis_max_images == 5
+    assert settings.image_max_size_bytes == 10_000_000
+    assert str(settings.image_media_dir) == "var/media/images"
     assert settings.groq_api_key is None
     assert settings.groq_http_connect_timeout_seconds == 10.0
     assert settings.groq_http_read_timeout_seconds == 30.0
@@ -212,6 +223,18 @@ def test_postgres_pool_settings_are_validated() -> None:
 
     with pytest.raises(ValidationError):
         AppSettings(environment="test", transcription_max_audio_size_bytes=0)
+
+    with pytest.raises(ValidationError):
+        AppSettings(environment="test", image_analysis_timeout_seconds=0)
+
+    with pytest.raises(ValidationError):
+        AppSettings(environment="test", image_analysis_tool_timeout_seconds=0)
+
+    with pytest.raises(ValidationError):
+        AppSettings(environment="test", image_analysis_max_images=0)
+
+    with pytest.raises(ValidationError):
+        AppSettings(environment="test", image_max_size_bytes=0)
 
     with pytest.raises(ValidationError):
         AppSettings(environment="test", groq_http_connect_timeout_seconds=0)

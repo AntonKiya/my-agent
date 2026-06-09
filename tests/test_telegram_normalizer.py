@@ -125,13 +125,80 @@ async def test_telegram_inbound_normalizer_ignores_unsupported_updates() -> None
     assert await normalizer.normalize(group_payload) is None
 
 
-async def test_telegram_inbound_normalizer_ignores_media_without_text() -> None:
+async def test_telegram_inbound_normalizer_builds_photo_event_with_default_image_content() -> None:
     payload = private_text_update()
     message = payload["message"]
     assert isinstance(message, dict)
     message.pop("text")
-    message["photo"] = [{"file_id": "file-1"}]
+    message["media_group_id"] = "album-1"
+    message["photo"] = [
+        {
+            "file_id": "small-file-id",
+            "file_unique_id": "small-unique-id",
+            "width": 90,
+            "height": 90,
+            "file_size": 1000,
+        },
+        {
+            "file_id": "large-file-id",
+            "file_unique_id": "large-unique-id",
+            "width": 1280,
+            "height": 720,
+            "file_size": 2000,
+        },
+    ]
 
     event = await TelegramInboundNormalizer().normalize(payload)
 
-    assert event is None
+    assert event is not None
+    assert event.message_type is MessageType.MEDIA
+    assert event.text is None
+    assert event.channel_metadata["media_group_id"] == "album-1"
+    assert len(event.attachments) == 1
+    attachment = event.attachments[0]
+    assert attachment.attachment_type is AttachmentType.IMAGE
+    assert attachment.external_id == "large-file-id"
+    assert attachment.attachment_id == "large-unique-id"
+    assert attachment.content_type == "image/jpeg"
+    assert attachment.metadata["width"] == 1280
+    assert attachment.metadata["height"] == 720
+
+
+async def test_telegram_inbound_normalizer_uses_photo_caption_as_prompt() -> None:
+    payload = private_text_update()
+    message = payload["message"]
+    assert isinstance(message, dict)
+    message.pop("text")
+    message["caption"] = "Что тут?"
+    message["photo"] = [{"file_id": "file-1", "file_unique_id": "unique-1"}]
+
+    event = await TelegramInboundNormalizer().normalize(payload)
+
+    assert event is not None
+    assert event.message_type is MessageType.MIXED
+    assert event.text == "Что тут?"
+
+
+async def test_telegram_inbound_normalizer_builds_image_document_event() -> None:
+    payload = private_text_update()
+    message = payload["message"]
+    assert isinstance(message, dict)
+    message.pop("text")
+    message["document"] = {
+        "file_id": "document-file-id",
+        "file_unique_id": "document-unique-id",
+        "mime_type": "image/png",
+        "file_name": "screen.png",
+        "file_size": 1234,
+    }
+
+    event = await TelegramInboundNormalizer().normalize(payload)
+
+    assert event is not None
+    assert event.message_type is MessageType.MEDIA
+    assert event.text is None
+    attachment = event.attachments[0]
+    assert attachment.attachment_type is AttachmentType.IMAGE
+    assert attachment.external_id == "document-file-id"
+    assert attachment.content_type == "image/png"
+    assert attachment.metadata["file_name"] == "screen.png"

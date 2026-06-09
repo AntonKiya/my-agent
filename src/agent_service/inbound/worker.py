@@ -494,7 +494,7 @@ class InboundWorker:
             return False
 
         try:
-            await self.content_preprocessor.process(event)
+            await self.content_preprocessor.process(event, conversation_id=conversation.id)
         except ContentProcessingError as exc:
             logger.warning(
                 "Inbound content preprocessing failed before agent run",

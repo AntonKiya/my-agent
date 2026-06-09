@@ -4,6 +4,12 @@ from typing import Protocol, runtime_checkable
 
 from agent_service.channels.models import InboundEvent
 from agent_service.inbound.idempotency import InboundIdempotencyStore
+from agent_service.inbound.media_groups import (
+    MediaGroupAddStatus,
+    MediaGroupBufferError,
+    RedisInboundMediaGroupAggregator,
+    media_group_key,
+)
 from agent_service.messaging.interfaces import InboundQueue
 from agent_service.observability.events import (
     business_span,
@@ -40,6 +46,7 @@ class InboundIntakeService(InboundIntake):
         user_resolver: InboundUserResolver,
         inbound_queue: InboundQueue,
         idempotency_store: InboundIdempotencyStore | None = None,
+        media_group_aggregator: RedisInboundMediaGroupAggregator | None = None,
         publish_timeout_seconds: float | None = None,
     ) -> None:
         if publish_timeout_seconds is not None and publish_timeout_seconds <= 0:
@@ -47,6 +54,7 @@ class InboundIntakeService(InboundIntake):
         self._user_resolver = user_resolver
         self._inbound_queue = inbound_queue
         self._idempotency_store = idempotency_store
+        self._media_group_aggregator = media_group_aggregator
         self._publish_timeout_seconds = publish_timeout_seconds
 
     async def accept(self, event: InboundEvent) -> InboundIntakeResult:
@@ -73,6 +81,12 @@ class InboundIntakeService(InboundIntake):
             if resolution.status is UserResolutionStatus.RESOLVED:
                 if resolution.event is None:
                     raise UserResolutionError("Resolved user result did not include an event")
+                media_group_result = await self._buffer_media_group_event_if_needed(
+                    resolution.event,
+                    started_at=started_at,
+                )
+                if media_group_result is not None:
+                    return media_group_result
                 if self._idempotency_store is not None:
                     claim = await self._idempotency_store.claim(resolution.event)
                     if not claim.claimed:
@@ -177,6 +191,77 @@ class InboundIntakeService(InboundIntake):
                 user_resolution_status=resolution.status,
                 reason=resolution.reason,
             )
+
+    async def _buffer_media_group_event_if_needed(
+        self,
+        event: InboundEvent,
+        *,
+        started_at: float,
+    ) -> InboundIntakeResult | None:
+        try:
+            group_key = media_group_key(event)
+        except MediaGroupBufferError:
+            group_key = None
+        if group_key is None:
+            return None
+        if self._media_group_aggregator is None:
+            log_event(
+                logger,
+                logging.WARNING,
+                "Inbound media group aggregation unavailable",
+                event="inbound_media_group_aggregation_unavailable",
+                inbound_event_id=str(event.event_id),
+                channel=event.channel,
+                user_id=str(event.user_id) if event.user_id is not None else None,
+                media_group_id=event.channel_metadata.get("media_group_id"),
+            )
+            return None
+
+        try:
+            result = await self._media_group_aggregator.add(event)
+        except MediaGroupBufferError as exc:
+            log_event(
+                logger,
+                logging.WARNING,
+                "Inbound media group buffering failed",
+                event="inbound_media_group_buffering_failed",
+                inbound_event_id=str(event.event_id),
+                channel=event.channel,
+                user_id=str(event.user_id) if event.user_id is not None else None,
+                media_group_id=event.channel_metadata.get("media_group_id"),
+                group_key=group_key,
+                error_type=type(exc).__name__,
+                duration_ms=elapsed_ms(started_at),
+            )
+            return None
+
+        if result.status is MediaGroupAddStatus.BUFFERED:
+            return InboundIntakeResult(
+                status=InboundIntakeStatus.BUFFERED,
+                published=False,
+                user_resolution_status=UserResolutionStatus.RESOLVED,
+                reason="inbound media group item buffered",
+            )
+
+        log_event(
+            logger,
+            logging.INFO,
+            "Inbound media group item duplicate suppressed",
+            event="inbound_media_group_item_duplicate_suppressed",
+            inbound_event_id=str(event.event_id),
+            channel=event.channel,
+            user_id=str(event.user_id) if event.user_id is not None else None,
+            media_group_id=event.channel_metadata.get("media_group_id"),
+            group_key=group_key,
+            item_status=result.status.value,
+            duration_ms=elapsed_ms(started_at),
+        )
+        return InboundIntakeResult(
+            status=InboundIntakeStatus.DUPLICATE,
+            published=False,
+            user_resolution_status=UserResolutionStatus.RESOLVED,
+            reason="duplicate inbound media group item",
+        )
 
     async def _publish_resolved_event(self, event: InboundEvent) -> bool:
         store_current_trace_context(event.metadata)

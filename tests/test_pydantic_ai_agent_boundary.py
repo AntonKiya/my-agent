@@ -77,6 +77,7 @@ class FakePydanticAIAgent:
         message_history: Sequence[ModelMessage] | None = None,
         conversation_id: str | None = None,
         instructions: str | Sequence[str] | None = None,
+        deps: Any = None,
         metadata: dict[str, Any] | None = None,
     ) -> FakeRunResult:
         self.calls.append(
@@ -86,6 +87,7 @@ class FakePydanticAIAgent:
                 "message_history": message_history,
                 "conversation_id": conversation_id,
                 "instructions": instructions,
+                "deps": deps,
                 "metadata": metadata,
             }
         )
@@ -305,6 +307,10 @@ async def test_pydantic_ai_agent_boundary_passes_prepared_context() -> None:
             "message_history": history,
             "conversation_id": "conversation-1",
             "instructions": "compressed memory",
+            "deps": {
+                "user_id": request.user_id,
+                "conversation_id": request.conversation_id,
+            },
             "metadata": {
                 "snapshot_version": 2,
                 "user_id": str(request.user_id),

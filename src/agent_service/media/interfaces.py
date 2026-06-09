@@ -1,7 +1,8 @@
 from typing import Protocol, runtime_checkable
+from uuid import UUID
 
 from agent_service.channels.models import Attachment, ChannelName, InboundEvent
-from agent_service.media.models import MediaPayload, StoredMedia
+from agent_service.media.models import MediaAsset, MediaPayload, StoredMedia
 
 
 class MediaError(RuntimeError):
@@ -53,4 +54,28 @@ class MediaStore(Protocol):
 
     async def delete(self, media: StoredMedia) -> None:
         """Delete temporary media after processing reaches a final outcome."""
+        ...
+
+
+@runtime_checkable
+class PersistentMediaStore(Protocol):
+    async def store(self, *, media_id: str, payload: MediaPayload) -> StoredMedia:
+        """Persist media for future tool access."""
+        ...
+
+
+@runtime_checkable
+class MediaAssetStore(Protocol):
+    async def create(self, *, asset: MediaAsset) -> MediaAsset:
+        """Persist a media asset index row."""
+        ...
+
+    async def get(
+        self,
+        *,
+        media_id: str,
+        user_id: UUID,
+        conversation_id: UUID,
+    ) -> MediaAsset | None:
+        """Load a media asset only when it belongs to the given user and conversation."""
         ...

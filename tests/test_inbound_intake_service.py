@@ -5,6 +5,8 @@ from agent_service.inbound import (
     InboundIdempotencyClaim,
     InboundIntakeService,
     InboundIntakeStatus,
+    MediaGroupAddResult,
+    MediaGroupAddStatus,
 )
 from agent_service.messaging.in_memory import AsyncioInboundQueue
 from agent_service.users import (
@@ -54,6 +56,19 @@ class FakeIdempotencyStore:
         failure_reason: str | None = None,
     ) -> None:
         self.statuses.append((event_id, status, failure_reason))
+
+
+class FakeMediaGroupAggregator:
+    def __init__(self) -> None:
+        self.events: list[InboundEvent] = []
+
+    async def add(self, event: InboundEvent) -> MediaGroupAddResult:
+        self.events.append(event)
+        return MediaGroupAddResult(
+            status=MediaGroupAddStatus.BUFFERED,
+            group_key="telegram:user:chat:album-1",
+            item_count=1,
+        )
 
 
 def inbound_event() -> InboundEvent:
@@ -132,6 +147,42 @@ async def test_inbound_intake_claims_idempotency_before_publish() -> None:
     assert idempotency_store.claims == [resolved_event]
     assert not idempotency_store.released_event_ids
     assert not queue.is_empty
+
+
+async def test_inbound_intake_buffers_media_group_without_idempotency_claim_or_publish() -> None:
+    event = inbound_event()
+    stored = user_with_identity()
+    resolved_event = event.model_copy(
+        update={
+            "user_id": stored.user.id,
+            "message_type": "mixed",
+            "channel_metadata": {"media_group_id": "album-1"},
+        }
+    )
+    queue = AsyncioInboundQueue()
+    idempotency_store = FakeIdempotencyStore()
+    media_group_aggregator = FakeMediaGroupAggregator()
+    service = InboundIntakeService(
+        user_resolver=FakeUserResolver(
+            UserResolutionResult(
+                status=UserResolutionStatus.RESOLVED,
+                user=stored.user,
+                identity=stored.identity,
+                event=resolved_event,
+            )
+        ),
+        inbound_queue=queue,
+        idempotency_store=idempotency_store,
+        media_group_aggregator=media_group_aggregator,  # type: ignore[arg-type]
+    )
+
+    result = await service.accept(event)
+
+    assert result.status is InboundIntakeStatus.BUFFERED
+    assert not result.published
+    assert idempotency_store.claims == []
+    assert media_group_aggregator.events == [resolved_event]
+    assert queue.is_empty
 
 
 async def test_inbound_intake_suppresses_duplicate_claim_without_publish() -> None:

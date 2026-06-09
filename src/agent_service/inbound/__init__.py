@@ -4,6 +4,13 @@ from agent_service.inbound.errors import (
     UnresolvedInboundEventError,
 )
 from agent_service.inbound.idempotency import InboundIdempotencyClaim, InboundIdempotencyStore
+from agent_service.inbound.media_groups import (
+    InboundMediaGroupFlushWorker,
+    MediaGroupAddResult,
+    MediaGroupAddStatus,
+    MediaGroupBufferError,
+    RedisInboundMediaGroupAggregator,
+)
 from agent_service.inbound.models import InboundIntakeResult, InboundIntakeStatus
 from agent_service.inbound.postgres import PostgresInboundIdempotencyStore
 from agent_service.inbound.preprocessing import (
@@ -20,6 +27,7 @@ __all__ = [
     "ContentProcessingRetryPolicy",
     "InboundIdempotencyClaim",
     "InboundIdempotencyStore",
+    "InboundMediaGroupFlushWorker",
     "InboundContentPreprocessor",
     "InboundIntake",
     "InboundIntakeResult",
@@ -28,7 +36,11 @@ __all__ = [
     "InboundUserResolver",
     "InboundWorker",
     "InboundWorkerError",
+    "MediaGroupAddResult",
+    "MediaGroupAddStatus",
+    "MediaGroupBufferError",
     "OutboundOverloadedError",
     "PostgresInboundIdempotencyStore",
+    "RedisInboundMediaGroupAggregator",
     "UnresolvedInboundEventError",
 ]
