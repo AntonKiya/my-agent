@@ -64,10 +64,10 @@ def test_conversation_messages_migration_defines_history_table_and_indexes() -> 
         in sql
     )
     assert "attachments jsonb NOT NULL DEFAULT '[]'::jsonb" in sql
+    assert "token_count integer CHECK (token_count IS NULL OR token_count >= 0)" in sql
     assert "UNIQUE (conversation_id, sequence)" in sql
     assert "conversation_messages_conversation_sequence_idx" in sql
     assert "conversation_messages_tool_call_id_idx" in sql
-    assert "token_count" not in sql
 
 
 def test_conversation_summaries_migration_defines_compaction_state_table() -> None:
