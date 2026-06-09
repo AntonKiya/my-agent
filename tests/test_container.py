@@ -67,11 +67,21 @@ class FakeManagedRedisClient:
         value: str,
         *,
         ex: int | None = None,
+        px: int | None = None,
+        nx: bool = False,
     ) -> object:
         return True
 
     async def delete(self, *names: str) -> object:
         return len(names)
+
+    async def scan_iter(
+        self,
+        match: str | None = None,
+        count: int | None = None,
+    ) -> AsyncIterator[bytes | str]:
+        if False:
+            yield ""
 
     async def ping(self) -> object:
         self.pinged = True
@@ -851,6 +861,7 @@ async def test_container_wires_redis_snapshot_store_when_dsn_is_configured(
     assert container.started
     assert fake_client.pinged
     assert isinstance(container.conversation_snapshot_store, ConversationContextSnapshotStore)
+    assert container.media_group_aggregator is not None
     assert redis_kwargs == {
         "url": "redis://127.0.0.1:6379/0",
         "decode_responses": True,
@@ -863,6 +874,7 @@ async def test_container_wires_redis_snapshot_store_when_dsn_is_configured(
     assert fake_client.closed
     assert container._redis_client is None
     assert container.conversation_snapshot_store is None
+    assert container.media_group_aggregator is None
 
 
 async def test_container_passes_redis_snapshot_store_to_memory_service(

@@ -113,6 +113,10 @@ class AppSettings(BaseSettings):
     telegram_render_markdown: bool = False
     telegram_thinking_draft_enabled: bool = False
     telegram_thinking_draft_timeout_seconds: float = Field(default=1.0, gt=0)
+    telegram_media_group_debounce_seconds: float = Field(default=2.0, gt=0)
+    telegram_media_group_ttl_seconds: int = Field(default=60, gt=0)
+    telegram_media_group_flush_interval_seconds: float = Field(default=0.5, gt=0)
+    telegram_media_group_lock_ttl_seconds: float = Field(default=10.0, gt=0)
     telegram_http_connect_timeout_seconds: float = Field(default=10.0, gt=0)
     telegram_http_read_timeout_seconds: float = Field(default=15.0, gt=0)
     telegram_http_write_timeout_seconds: float = Field(default=10.0, gt=0)

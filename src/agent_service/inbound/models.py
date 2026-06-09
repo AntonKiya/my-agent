@@ -7,6 +7,7 @@ from agent_service.users.models import UserResolutionStatus
 
 class InboundIntakeStatus(StrEnum):
     PUBLISHED = "published"
+    BUFFERED = "buffered"
     REJECTED = "rejected"
     OVERLOADED = "overloaded"
     DUPLICATE = "duplicate"

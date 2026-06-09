@@ -1,7 +1,7 @@
 import asyncio
 import json
 import logging
-from collections.abc import Awaitable, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import Any, Protocol, cast
 
@@ -39,8 +39,10 @@ from agent_service.inbound import (
     InboundIdempotencyStore,
     InboundIntake,
     InboundIntakeService,
+    InboundMediaGroupFlushWorker,
     InboundWorker,
     PostgresInboundIdempotencyStore,
+    RedisInboundMediaGroupAggregator,
 )
 from agent_service.mcp import VKUSVILL_SHOPPING_SKILL_ID, build_vkusvill_mcp_toolsets
 from agent_service.media import (
@@ -105,11 +107,21 @@ class ManagedRedisClient(Protocol):
         value: str,
         *,
         ex: int | None = None,
+        px: int | None = None,
+        nx: bool = False,
     ) -> object:
         """Set a Redis string value."""
 
     async def delete(self, *names: str) -> object:
         """Delete Redis keys."""
+
+    def scan_iter(
+        self,
+        match: str | None = None,
+        count: int | None = None,
+    ) -> AsyncIterator[bytes | str]:
+        """Iterate Redis keys matching a pattern."""
+        ...
 
     async def ping(self) -> object:
         """Verify that Redis is reachable."""
@@ -139,6 +151,7 @@ class AppContainer:
     conversation_compactor: ConversationCompactor | None = field(init=False)
     memory_service: ConversationMemoryService | None = field(init=False)
     media_asset_store: MediaAssetStore | None = field(init=False)
+    media_group_aggregator: RedisInboundMediaGroupAggregator | None = field(init=False)
     agent_boundary: AgentBoundary | None = field(init=False)
     content_preprocessor: InboundContentPreprocessor | None = field(init=False)
     channel_adapters: ChannelAdapterRegistry = field(init=False)
@@ -197,6 +210,7 @@ class AppContainer:
         self.conversation_compactor = self._build_conversation_compactor()
         self.memory_service = None
         self.media_asset_store = None
+        self.media_group_aggregator = None
         self.agent_boundary = self._build_agent_boundary()
         self.channel_adapters = InMemoryChannelAdapterRegistry()
         self.telegram_adapter = self._build_telegram_adapter()
@@ -219,6 +233,7 @@ class AppContainer:
                 self.content_preprocessor = self._build_content_preprocessor()
             await self._start_redis_dependencies()
             await self._start_postgres_dependencies()
+            self._start_media_group_flush_worker()
             self._start_inbound_workers()
             self._start_delivery_workers()
             self._start_compaction_workers()
@@ -271,6 +286,7 @@ class AppContainer:
             await self._redis_client.aclose()
             self._redis_client = None
             self.conversation_snapshot_store = None
+            self.media_group_aggregator = None
         self._started = False
 
     def _build_telegram_adapter(self) -> TelegramAdapter | None:
@@ -465,6 +481,12 @@ class AppContainer:
             self._redis_client,
             ttl_seconds=self.settings.redis_context_snapshot_ttl_seconds,
         )
+        self.media_group_aggregator = RedisInboundMediaGroupAggregator(
+            self._redis_client,
+            debounce_seconds=self.settings.telegram_media_group_debounce_seconds,
+            ttl_seconds=self.settings.telegram_media_group_ttl_seconds,
+            lock_ttl_seconds=self.settings.telegram_media_group_lock_ttl_seconds,
+        )
 
     async def _start_postgres_dependencies(self) -> None:
         if self.settings.postgres_dsn is None:
@@ -480,6 +502,7 @@ class AppContainer:
             user_resolver=user_resolver,
             inbound_queue=self.inbound_queue,
             idempotency_store=self.inbound_idempotency_store,
+            media_group_aggregator=self.media_group_aggregator,
             publish_timeout_seconds=self.settings.inbound_publish_timeout_seconds,
         )
         conversation_store = PostgresConversationStore(
@@ -568,6 +591,23 @@ class AppContainer:
                 name=f"inbound-worker-{index + 1}",
                 group="inbound",
             )
+
+    def _start_media_group_flush_worker(self) -> None:
+        if self.media_group_aggregator is None:
+            return
+        worker = InboundMediaGroupFlushWorker(
+            aggregator=self.media_group_aggregator,
+            inbound_queue=self.inbound_queue,
+            idempotency_store=self.inbound_idempotency_store,
+            publish_timeout_seconds=self.settings.inbound_publish_timeout_seconds,
+            flush_interval_seconds=self.settings.telegram_media_group_flush_interval_seconds,
+            error_backoff_seconds=self.settings.inbound_worker_error_backoff_seconds,
+        )
+        self.task_supervisor.create_task(
+            worker.run_forever(),
+            name="inbound-media-group-flush-worker",
+            group="inbound",
+        )
 
     def _start_compaction_workers(self) -> None:
         if not self._compaction_processing_enabled():
