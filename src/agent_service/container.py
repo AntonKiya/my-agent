@@ -29,7 +29,6 @@ from agent_service.conversations import (
 )
 from agent_service.delivery import DeliveryRetryPolicy, DeliveryWorker
 from agent_service.image_analysis import (
-    IMAGE_ANALYSIS_TOOLSET_ID,
     OpenRouterVisionAnalyzer,
     build_image_analysis_toolsets,
 )
@@ -311,11 +310,7 @@ class AppContainer:
             enabled_skill_ids.add(VKUSVILL_SHOPPING_SKILL_ID)
             capability_toolsets[VKUSVILL_SHOPPING_SKILL_ID] = vkusvill_toolsets
 
-        image_analysis_toolsets = self._build_image_analysis_toolsets()
-        if image_analysis_toolsets:
-            enabled_skill_ids.add(IMAGE_ANALYSIS_TOOLSET_ID)
-            capability_toolsets[IMAGE_ANALYSIS_TOOLSET_ID] = image_analysis_toolsets
-
+        direct_toolsets.extend(self._build_image_analysis_toolsets())
         direct_toolsets.extend(self._build_web_research_toolsets())
         return build_openrouter_agent_boundary(
             model_name=self.settings.agent_model,

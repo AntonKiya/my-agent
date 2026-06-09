@@ -26,7 +26,11 @@ def build_image_analysis_toolsets(
         prompt: str,
         media_ids: list[str],
     ) -> dict[str, Any]:
-        """Analyze images that were attached by the current user.
+        """Analyze images attached in the current conversation.
+
+        Use this tool whenever the current user message contains attached image
+        media_id markers and asks about image content. Do not answer image-content
+        questions from marker text alone. Use only media_id values from the markers.
 
         Args:
             prompt: The user's question or instruction about the images.
