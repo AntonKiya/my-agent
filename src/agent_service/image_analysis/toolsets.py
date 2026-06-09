@@ -10,6 +10,13 @@ from agent_service.image_analysis.models import ImageAnalysisRequest
 from agent_service.media import MediaAssetStore, MediaAssetType
 
 IMAGE_ANALYSIS_TOOLSET_ID = "image-analysis"
+IMAGE_ANALYSIS_TOOLSET_INSTRUCTIONS = (
+    "For any question about the visual content of an attached or previously attached image, "
+    "call analyzeImage before answering, even if the image was analyzed earlier. Use media_id "
+    "values from current markers or recent conversation context, preferring the latest relevant "
+    "image. Do not guess from memory or claim images are inaccessible when a media_id is "
+    "available. If the target image is unclear, ask one short clarification."
+)
 
 
 def build_image_analysis_toolsets(
@@ -27,10 +34,6 @@ def build_image_analysis_toolsets(
         media_ids: list[str],
     ) -> dict[str, Any]:
         """Analyze images attached in the current conversation.
-
-        Use this tool whenever the current user message contains attached image
-        media_id markers and asks about image content. Do not answer image-content
-        questions from marker text alone. Use only media_id values from the markers.
 
         Args:
             prompt: The user's question or instruction about the images.
@@ -83,6 +86,7 @@ def build_image_analysis_toolsets(
         FunctionToolset(
             [analyzeImage],
             id=IMAGE_ANALYSIS_TOOLSET_ID,
+            instructions=IMAGE_ANALYSIS_TOOLSET_INSTRUCTIONS,
             timeout=settings.image_analysis_tool_timeout_seconds,
             require_parameter_descriptions=True,
         ),

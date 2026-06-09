@@ -2,6 +2,10 @@ from dataclasses import dataclass, field
 from typing import Any, cast
 from uuid import UUID, uuid4
 
+from pydantic_ai import RunContext
+from pydantic_ai.models.test import TestModel
+from pydantic_ai.usage import RunUsage
+
 from agent_service.config import AppSettings
 from agent_service.image_analysis import ImageAnalysisRequest, ImageAnalysisResult
 from agent_service.image_analysis.toolsets import build_image_analysis_toolsets
@@ -42,6 +46,24 @@ class FakeMediaAssetStore:
 @dataclass(slots=True)
 class FakeRunContext:
     deps: dict[str, Any]
+
+
+async def test_image_analysis_toolset_includes_usage_policy_instructions() -> None:
+    toolsets = build_image_analysis_toolsets(
+        AppSettings(environment="test", image_analysis_model="openai/gpt-4.1-mini"),
+        analyzer=FakeAnalyzer(),
+        media_asset_store=FakeMediaAssetStore(),
+    )
+    instructions = await cast(Any, toolsets[0]).get_instructions(
+        RunContext(deps={}, model=TestModel(), usage=RunUsage())
+    )
+
+    assert instructions is not None
+    assert len(instructions) == 1
+    content = instructions[0].content
+    assert "previously attached image" in content
+    assert "call analyzeImage before answering" in content
+    assert "Do not guess from memory" in content
 
 
 async def test_analyze_image_tool_checks_user_and_conversation_ownership() -> None:
