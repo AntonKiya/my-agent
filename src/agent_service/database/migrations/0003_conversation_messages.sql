@@ -14,7 +14,6 @@ CREATE TABLE IF NOT EXISTS conversation_messages (
     inbound_event_id uuid,
     outbound_event_id uuid,
     trace_id text,
-    token_count integer CHECK (token_count IS NULL OR token_count >= 0),
     metadata jsonb NOT NULL DEFAULT '{}'::jsonb,
     created_at timestamptz NOT NULL,
     CONSTRAINT conversation_messages_conversation_sequence_unique

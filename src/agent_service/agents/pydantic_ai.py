@@ -58,6 +58,7 @@ class PydanticAIAgent(Protocol):
         message_history: Sequence[ModelMessage] | None = None,
         conversation_id: str | None = None,
         instructions: str | Sequence[str] | None = None,
+        deps: Any = None,
         metadata: dict[str, Any] | None = None,
     ) -> PydanticAIRunResult:
         """Run a Pydantic AI agent with a channel-neutral prompt and context."""
@@ -97,6 +98,10 @@ class PydanticAIAgentBoundary(AgentBoundary):
                 message_history=message_history,
                 conversation_id=conversation_id,
                 instructions=instructions,
+                deps={
+                    "user_id": request.user_id,
+                    "conversation_id": request.conversation_id,
+                },
                 metadata=metadata,
             )
 

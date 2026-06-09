@@ -1,7 +1,9 @@
 import asyncio
 import logging
+import secrets
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
+from uuid import UUID
 
 from agent_service.channels.models import (
     Attachment,
@@ -10,9 +12,13 @@ from agent_service.channels.models import (
     MessageType,
 )
 from agent_service.media import (
+    MediaAsset,
+    MediaAssetStore,
+    MediaAssetType,
     MediaError,
     MediaFetcherRegistry,
     MediaStore,
+    PersistentMediaStore,
     StoredMedia,
 )
 from agent_service.media.registry import MediaFetcherNotFoundError
@@ -36,6 +42,16 @@ SUPPORTED_AUDIO_CONTENT_TYPES = frozenset(
         "audio/x-wav",
     }
 )
+SUPPORTED_IMAGE_CONTENT_TYPES = frozenset(
+    {
+        "image/gif",
+        "image/jpeg",
+        "image/png",
+        "image/webp",
+    }
+)
+DEFAULT_SINGLE_IMAGE_PROMPT = "Что изображено на этом изображении? Опиши все в деталях."
+DEFAULT_MULTI_IMAGE_PROMPT = "Что изображено на этих изображениях? Опиши каждое в деталях."
 
 
 class ContentProcessingError(RuntimeError):
@@ -74,24 +90,49 @@ class ContentProcessingRetryPolicy:
 @dataclass(slots=True)
 class InboundContentPreprocessor:
     media_fetchers: MediaFetcherRegistry
-    audio_media_store: MediaStore
-    audio_transcriber: AudioTranscriber
-    retry_policy: ContentProcessingRetryPolicy = field(
-        default_factory=ContentProcessingRetryPolicy
-    )
+    audio_media_store: MediaStore | None = None
+    audio_transcriber: AudioTranscriber | None = None
+    image_media_store: PersistentMediaStore | None = None
+    media_asset_store: MediaAssetStore | None = None
+    retry_policy: ContentProcessingRetryPolicy = field(default_factory=ContentProcessingRetryPolicy)
     max_audio_size_bytes: int = 25_000_000
+    max_image_size_bytes: int = 10_000_000
     supported_audio_content_types: frozenset[str] = SUPPORTED_AUDIO_CONTENT_TYPES
+    supported_image_content_types: frozenset[str] = SUPPORTED_IMAGE_CONTENT_TYPES
     sleep: SleepCallable = field(default=asyncio.sleep, repr=False)
 
     def __post_init__(self) -> None:
         if self.max_audio_size_bytes <= 0:
             raise ValueError("Max audio size must be greater than zero")
+        if self.max_image_size_bytes <= 0:
+            raise ValueError("Max image size must be greater than zero")
 
-    async def process(self, event: InboundEvent) -> None:
+    async def process(self, event: InboundEvent, *, conversation_id: UUID | None = None) -> None:
         attachment = _audio_attachment(event)
-        if attachment is None:
+        if attachment is not None:
+            await self._process_audio_with_retry(event=event, attachment=attachment)
             return
 
+        image_attachments = _image_attachments(event)
+        if image_attachments:
+            if conversation_id is None:
+                raise ContentProcessingError(
+                    "Conversation id is required for image preprocessing",
+                    retryable=False,
+                    error_code="conversation_id_required",
+                )
+            await self._process_images_with_retry(
+                event=event,
+                attachments=image_attachments,
+                conversation_id=conversation_id,
+            )
+
+    async def _process_audio_with_retry(
+        self,
+        *,
+        event: InboundEvent,
+        attachment: Attachment,
+    ) -> None:
         for attempt_number in range(1, self.retry_policy.max_attempts + 1):
             started_at = start_timer()
             try:
@@ -150,6 +191,12 @@ class InboundContentPreprocessor:
                 await self.sleep(delay_seconds)
 
     async def _process_audio_once(self, *, event: InboundEvent, attachment: Attachment) -> None:
+        if self.audio_media_store is None or self.audio_transcriber is None:
+            raise ContentProcessingError(
+                "Audio preprocessing is not configured",
+                retryable=False,
+                error_code="audio_preprocessing_not_configured",
+            )
         self._validate_audio_attachment(attachment)
         try:
             fetcher = self.media_fetchers.get(event.channel)
@@ -226,6 +273,179 @@ class InboundContentPreprocessor:
         }
         event.message_type = MessageType.TEXT
 
+    async def _process_images_with_retry(
+        self,
+        *,
+        event: InboundEvent,
+        attachments: list[Attachment],
+        conversation_id: UUID,
+    ) -> None:
+        for attempt_number in range(1, self.retry_policy.max_attempts + 1):
+            started_at = start_timer()
+            try:
+                with business_span(
+                    "Preprocess inbound images",
+                    event="inbound_image_preprocessing",
+                    inbound_event_id=str(event.event_id),
+                    channel=event.channel,
+                    user_id=str(event.user_id) if event.user_id is not None else None,
+                    conversation_id=str(conversation_id),
+                    image_count=len(attachments),
+                    attempt=attempt_number,
+                ):
+                    await self._process_images_once(
+                        event=event,
+                        attachments=attachments,
+                        conversation_id=conversation_id,
+                    )
+                log_event(
+                    logger,
+                    logging.INFO,
+                    "Inbound image preprocessing completed",
+                    event="inbound_image_preprocessing_completed",
+                    inbound_event_id=str(event.event_id),
+                    channel=event.channel,
+                    user_id=str(event.user_id) if event.user_id is not None else None,
+                    conversation_id=str(conversation_id),
+                    image_count=len(attachments),
+                    attempt=attempt_number,
+                    duration_ms=elapsed_ms(started_at),
+                )
+                return
+            except ContentProcessingError as exc:
+                if not exc.retryable or attempt_number >= self.retry_policy.max_attempts:
+                    log_event(
+                        logger,
+                        logging.WARNING,
+                        "Inbound image preprocessing failed",
+                        event="inbound_image_preprocessing_failed",
+                        inbound_event_id=str(event.event_id),
+                        channel=event.channel,
+                        user_id=str(event.user_id) if event.user_id is not None else None,
+                        conversation_id=str(conversation_id),
+                        image_count=len(attachments),
+                        attempt=attempt_number,
+                        retryable=exc.retryable,
+                        error_code=exc.error_code,
+                        error_type=type(exc).__name__,
+                        duration_ms=elapsed_ms(started_at),
+                    )
+                    raise
+                delay_seconds = self.retry_policy.delay_for_attempt(attempt_number)
+                log_event(
+                    logger,
+                    logging.WARNING,
+                    "Inbound image preprocessing retry scheduled",
+                    event="inbound_image_preprocessing_retry_scheduled",
+                    inbound_event_id=str(event.event_id),
+                    channel=event.channel,
+                    user_id=str(event.user_id) if event.user_id is not None else None,
+                    conversation_id=str(conversation_id),
+                    image_count=len(attachments),
+                    attempt=attempt_number,
+                    delay_seconds=delay_seconds,
+                    error_code=exc.error_code,
+                    duration_ms=elapsed_ms(started_at),
+                )
+                await self.sleep(delay_seconds)
+
+    async def _process_images_once(
+        self,
+        *,
+        event: InboundEvent,
+        attachments: list[Attachment],
+        conversation_id: UUID,
+    ) -> None:
+        if event.user_id is None:
+            raise ContentProcessingError(
+                "Image preprocessing requires resolved user",
+                retryable=False,
+                error_code="user_id_required",
+            )
+        if self.image_media_store is None or self.media_asset_store is None:
+            raise ContentProcessingError(
+                "Image preprocessing is not configured",
+                retryable=False,
+                error_code="image_preprocessing_not_configured",
+            )
+        try:
+            fetcher = self.media_fetchers.get(event.channel)
+        except MediaFetcherNotFoundError as exc:
+            raise ContentProcessingError(
+                "No media fetcher is configured for inbound image",
+                retryable=False,
+                error_code="media_fetcher_not_found",
+            ) from exc
+
+        media_ids: list[str] = []
+        for attachment in attachments:
+            self._validate_image_attachment(attachment)
+            try:
+                payload = await fetcher.fetch(event=event, attachment=attachment)
+                if payload.size_bytes > self.max_image_size_bytes:
+                    raise ContentProcessingError(
+                        "Inbound image exceeds configured size limit",
+                        retryable=False,
+                        error_code="image_too_large",
+                    )
+                self._validate_image_payload(payload.content_type)
+                media_id = _new_media_id()
+                stored_media = await self.image_media_store.store(
+                    media_id=media_id,
+                    payload=payload,
+                )
+                await self.media_asset_store.create(
+                    asset=MediaAsset(
+                        media_id=media_id,
+                        user_id=event.user_id,
+                        conversation_id=conversation_id,
+                        media_type=MediaAssetType.IMAGE,
+                        storage_key=str(stored_media.path),
+                        content_type=stored_media.content_type,
+                        size_bytes=stored_media.size_bytes,
+                        source_channel=event.channel,
+                        source_attachment_id=attachment.attachment_id,
+                        source_inbound_event_id=event.event_id,
+                        metadata={
+                            "source_message_type": event.message_type.value,
+                            "source_attachment_type": attachment.attachment_type.value,
+                            "original_filename": stored_media.filename,
+                        },
+                    )
+                )
+                media_ids.append(media_id)
+                log_event(
+                    logger,
+                    logging.INFO,
+                    "Inbound image stored",
+                    event="inbound_image_stored",
+                    inbound_event_id=str(event.event_id),
+                    channel=event.channel,
+                    user_id=str(event.user_id),
+                    conversation_id=str(conversation_id),
+                    attachment_type=attachment.attachment_type.value,
+                    content_type=stored_media.content_type,
+                    size_bytes=stored_media.size_bytes,
+                    media_id=media_id,
+                )
+            except MediaError as exc:
+                raise ContentProcessingError(
+                    "Inbound image could not be prepared",
+                    retryable=exc.retryable,
+                    error_code=exc.error_code,
+                ) from exc
+
+        original_text = event.text.strip() if event.text is not None else ""
+        prompt = original_text or _default_image_prompt(len(media_ids))
+        event.text = "\n".join([*_image_markers(media_ids), prompt])
+        event.attachments = []
+        event.metadata["image_media_ids"] = media_ids
+        event.metadata["image_processing"] = {
+            "status": "prepared",
+            "image_count": len(media_ids),
+        }
+        event.message_type = MessageType.TEXT
+
     def _validate_audio_attachment(self, attachment: Attachment) -> None:
         if attachment.attachment_type not in {AttachmentType.AUDIO, AttachmentType.VOICE}:
             raise ContentProcessingError(
@@ -241,9 +461,26 @@ class InboundContentPreprocessor:
                 error_code="unsupported_audio_content_type",
             )
 
+    def _validate_image_attachment(self, attachment: Attachment) -> None:
+        if attachment.attachment_type is not AttachmentType.IMAGE:
+            raise ContentProcessingError(
+                "Attachment is not an image",
+                retryable=False,
+                error_code="unsupported_attachment_type",
+            )
+        self._validate_image_payload(attachment.content_type)
+
+    def _validate_image_payload(self, content_type: str | None) -> None:
+        if content_type is not None and content_type not in self.supported_image_content_types:
+            raise ContentProcessingError(
+                "Unsupported image content type",
+                retryable=False,
+                error_code="unsupported_image_content_type",
+            )
+
 
 def event_needs_content_preprocessing(event: InboundEvent) -> bool:
-    return _audio_attachment(event) is not None
+    return _audio_attachment(event) is not None or bool(_image_attachments(event))
 
 
 def _audio_attachment(event: InboundEvent) -> Attachment | None:
@@ -253,3 +490,30 @@ def _audio_attachment(event: InboundEvent) -> Attachment | None:
         if attachment.attachment_type in {AttachmentType.AUDIO, AttachmentType.VOICE}:
             return attachment
     return None
+
+
+def _image_attachments(event: InboundEvent) -> list[Attachment]:
+    return [
+        attachment
+        for attachment in event.attachments
+        if attachment.attachment_type is AttachmentType.IMAGE
+    ]
+
+
+def _new_media_id() -> str:
+    return secrets.token_urlsafe(9)
+
+
+def _image_markers(media_ids: list[str]) -> list[str]:
+    if len(media_ids) == 1:
+        return [f'[Attached image: media_id="{media_ids[0]}"]']
+    return [
+        f'[Attached image {index}: media_id="{media_id}"]'
+        for index, media_id in enumerate(media_ids, start=1)
+    ]
+
+
+def _default_image_prompt(image_count: int) -> str:
+    if image_count == 1:
+        return DEFAULT_SINGLE_IMAGE_PROMPT
+    return DEFAULT_MULTI_IMAGE_PROMPT

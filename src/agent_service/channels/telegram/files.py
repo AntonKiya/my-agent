@@ -191,8 +191,9 @@ def _telegram_error_code(response: httpx.Response, body: Any) -> str:
 
 
 def _telegram_error_message(response: httpx.Response, body: Any) -> str:
-    if isinstance(body, dict) and isinstance(body.get("description"), str):
-        return body["description"]
+    description = body.get("description") if isinstance(body, dict) else None
+    if isinstance(description, str):
+        return description
     return response.reason_phrase or "Telegram API request failed"
 
 

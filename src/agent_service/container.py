@@ -28,6 +28,11 @@ from agent_service.conversations import (
     PostgresPool as ConversationPostgresPool,
 )
 from agent_service.delivery import DeliveryRetryPolicy, DeliveryWorker
+from agent_service.image_analysis import (
+    IMAGE_ANALYSIS_TOOLSET_ID,
+    OpenRouterVisionAnalyzer,
+    build_image_analysis_toolsets,
+)
 from agent_service.inbound import (
     AgentRetryPolicy,
     ContentProcessingRetryPolicy,
@@ -39,7 +44,13 @@ from agent_service.inbound import (
     PostgresInboundIdempotencyStore,
 )
 from agent_service.mcp import VKUSVILL_SHOPPING_SKILL_ID, build_vkusvill_mcp_toolsets
-from agent_service.media import InMemoryMediaFetcherRegistry, TempFileMediaStore
+from agent_service.media import (
+    InMemoryMediaFetcherRegistry,
+    MediaAssetStore,
+    PersistentFileMediaStore,
+    PostgresMediaAssetStore,
+    TempFileMediaStore,
+)
 from agent_service.memory import (
     ConversationCompactionPolicy,
     ConversationCompactionStore,
@@ -128,6 +139,7 @@ class AppContainer:
     conversation_compaction_policy: ConversationCompactionPolicy = field(init=False)
     conversation_compactor: ConversationCompactor | None = field(init=False)
     memory_service: ConversationMemoryService | None = field(init=False)
+    media_asset_store: MediaAssetStore | None = field(init=False)
     agent_boundary: AgentBoundary | None = field(init=False)
     content_preprocessor: InboundContentPreprocessor | None = field(init=False)
     channel_adapters: ChannelAdapterRegistry = field(init=False)
@@ -136,6 +148,11 @@ class AppContainer:
     _redis_client: ManagedRedisClient | None = field(default=None, init=False, repr=False)
     _telegram_http_client: httpx.AsyncClient | None = field(default=None, init=False, repr=False)
     _agent_http_client: httpx.AsyncClient | None = field(default=None, init=False, repr=False)
+    _image_analysis_http_client: httpx.AsyncClient | None = field(
+        default=None,
+        init=False,
+        repr=False,
+    )
     _groq_http_client: httpx.AsyncClient | None = field(default=None, init=False, repr=False)
     _weather_http_client: httpx.AsyncClient | None = field(default=None, init=False, repr=False)
     _web_research_http_client: httpx.AsyncClient | None = field(
@@ -180,6 +197,7 @@ class AppContainer:
         )
         self.conversation_compactor = self._build_conversation_compactor()
         self.memory_service = None
+        self.media_asset_store = None
         self.agent_boundary = self._build_agent_boundary()
         self.channel_adapters = InMemoryChannelAdapterRegistry()
         self.telegram_adapter = self._build_telegram_adapter()
@@ -223,10 +241,13 @@ class AppContainer:
             await self._agent_http_client.aclose()
             self._agent_http_client = None
             self.agent_boundary = None
+        if self._image_analysis_http_client is not None:
+            await self._image_analysis_http_client.aclose()
+            self._image_analysis_http_client = None
         if self._groq_http_client is not None:
             await self._groq_http_client.aclose()
             self._groq_http_client = None
-            self.content_preprocessor = None
+        self.content_preprocessor = None
         if self._weather_http_client is not None:
             await self._weather_http_client.aclose()
             self._weather_http_client = None
@@ -246,6 +267,7 @@ class AppContainer:
             self.conversation_memory_store = None
             self.conversation_compaction_store = None
             self.memory_service = None
+            self.media_asset_store = None
         if self._redis_client is not None:
             await self._redis_client.aclose()
             self._redis_client = None
@@ -289,6 +311,11 @@ class AppContainer:
             enabled_skill_ids.add(VKUSVILL_SHOPPING_SKILL_ID)
             capability_toolsets[VKUSVILL_SHOPPING_SKILL_ID] = vkusvill_toolsets
 
+        image_analysis_toolsets = self._build_image_analysis_toolsets()
+        if image_analysis_toolsets:
+            enabled_skill_ids.add(IMAGE_ANALYSIS_TOOLSET_ID)
+            capability_toolsets[IMAGE_ANALYSIS_TOOLSET_ID] = image_analysis_toolsets
+
         direct_toolsets.extend(self._build_web_research_toolsets())
         return build_openrouter_agent_boundary(
             model_name=self.settings.agent_model,
@@ -302,11 +329,6 @@ class AppContainer:
         )
 
     def _build_content_preprocessor(self) -> InboundContentPreprocessor | None:
-        if not self.settings.transcription_audio_enabled:
-            return None
-        if self.settings.groq_api_key is None:
-            return None
-
         media_fetchers = InMemoryMediaFetcherRegistry()
         if self.settings.telegram_bot_token is not None and self._telegram_http_client is not None:
             media_fetchers.register(
@@ -319,27 +341,43 @@ class AppContainer:
         if not media_fetchers.channels:
             return None
 
-        self._groq_http_client = _create_groq_http_client(
-            self.settings,
-            read_timeout_seconds=self.settings.groq_http_read_timeout_seconds,
-            worker_count=self.settings.inbound_worker_count,
-        )
-        return InboundContentPreprocessor(
-            media_fetchers=media_fetchers,
-            audio_media_store=TempFileMediaStore(
+        audio_media_store = None
+        audio_transcriber = None
+        if self.settings.transcription_audio_enabled and self.settings.groq_api_key is not None:
+            self._groq_http_client = _create_groq_http_client(
+                self.settings,
+                read_timeout_seconds=self.settings.groq_http_read_timeout_seconds,
+                worker_count=self.settings.inbound_worker_count,
+            )
+            audio_media_store = TempFileMediaStore(
                 base_dir=self.settings.transcription_audio_temp_dir,
-            ),
-            audio_transcriber=GroqWhisperTranscriber(
+            )
+            audio_transcriber = GroqWhisperTranscriber(
                 api_key=self.settings.groq_api_key.get_secret_value(),
                 client=self._groq_http_client,
                 model=self.settings.transcription_model,
                 timeout_seconds=self.settings.transcription_timeout_seconds,
-            ),
+            )
+
+        image_media_store = None
+        if self.settings.image_analysis_enabled and self.media_asset_store is not None:
+            image_media_store = PersistentFileMediaStore(base_dir=self.settings.image_media_dir)
+
+        if audio_transcriber is None and image_media_store is None:
+            return None
+
+        return InboundContentPreprocessor(
+            media_fetchers=media_fetchers,
+            audio_media_store=audio_media_store,
+            audio_transcriber=audio_transcriber,
+            image_media_store=image_media_store,
+            media_asset_store=self.media_asset_store,
             retry_policy=ContentProcessingRetryPolicy(
                 max_attempts=self.settings.transcription_retry_max_attempts,
                 backoff_seconds=self.settings.transcription_retry_backoff_seconds,
             ),
             max_audio_size_bytes=self.settings.transcription_max_audio_size_bytes,
+            max_image_size_bytes=self.settings.image_max_size_bytes,
         )
 
     def _build_weather_forecast_toolsets(self) -> tuple[AgentToolset[Any], ...]:
@@ -364,6 +402,34 @@ class AppContainer:
         return build_web_research_toolsets(
             self.settings,
             http_client=web_research_http_client,
+        )
+
+    def _build_image_analysis_toolsets(self) -> tuple[AgentToolset[Any], ...]:
+        if not self.settings.image_analysis_enabled:
+            return ()
+        if self.settings.image_analysis_model is None:
+            return ()
+        if self.settings.openrouter_api_key is None:
+            return ()
+        if self.media_asset_store is None:
+            return ()
+
+        image_analysis_http_client = _create_openrouter_http_client(
+            self.settings,
+            read_timeout_seconds=self.settings.image_analysis_timeout_seconds,
+            worker_count=self.settings.inbound_worker_count,
+        )
+        self._image_analysis_http_client = image_analysis_http_client
+        analyzer = OpenRouterVisionAnalyzer(
+            api_key=self.settings.openrouter_api_key.get_secret_value(),
+            client=image_analysis_http_client,
+            model=self.settings.image_analysis_model,
+            timeout_seconds=self.settings.image_analysis_timeout_seconds,
+        )
+        return build_image_analysis_toolsets(
+            self.settings,
+            analyzer=analyzer,
+            media_asset_store=self.media_asset_store,
         )
 
     def _build_conversation_compactor(self) -> ConversationCompactor | None:
@@ -428,6 +494,7 @@ class AppContainer:
         self.conversation_memory_store = PostgresConversationMemoryStore(
             cast(MemoryPostgresPool, self._postgres_pool)
         )
+        self.media_asset_store = PostgresMediaAssetStore(self._postgres_pool)
         self.conversation_compaction_store = PostgresConversationCompactionStore(
             cast(MemoryPostgresPool, self._postgres_pool)
         )
@@ -437,6 +504,26 @@ class AppContainer:
             compaction_store=self.conversation_compaction_store,
             recent_message_limit=self.settings.recent_message_limit,
         )
+        await self._rebuild_runtime_dependencies_after_postgres()
+
+    async def _rebuild_runtime_dependencies_after_postgres(self) -> None:
+        if self._groq_http_client is not None:
+            await self._groq_http_client.aclose()
+            self._groq_http_client = None
+        self.content_preprocessor = self._build_content_preprocessor()
+
+        if (
+            self.settings.agent_provider == "openrouter"
+            and self.settings.agent_model is not None
+            and self.settings.openrouter_api_key is not None
+        ):
+            if self._agent_http_client is not None:
+                await self._agent_http_client.aclose()
+                self._agent_http_client = None
+            if self._image_analysis_http_client is not None:
+                await self._image_analysis_http_client.aclose()
+                self._image_analysis_http_client = None
+            self.agent_boundary = self._build_agent_boundary()
 
     def _start_inbound_workers(self) -> None:
         if self.settings.inbound_worker_count == 0:

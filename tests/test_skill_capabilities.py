@@ -11,7 +11,11 @@ def test_builtin_skills_include_vkusvill_shopping_as_deferred_capability() -> No
     capabilities = load_builtin_skill_capabilities()
 
     capability_by_id = {capability.id: capability for capability in capabilities}
-    assert set(capability_by_id) == {"vkusvill-shopping", "weather-forecast"}
+    assert set(capability_by_id) == {
+        "image-analysis",
+        "vkusvill-shopping",
+        "weather-forecast",
+    }
     capability = capability_by_id["vkusvill-shopping"]
     assert capability.id == "vkusvill-shopping"
     assert capability.defer_loading is True
@@ -41,6 +45,22 @@ def test_builtin_skills_include_weather_forecast_as_deferred_capability() -> Non
         "If the user asks for a forecast and the period is not clear, use `week`."
         in (instructions[0])
     )
+
+
+def test_builtin_skills_include_image_analysis_as_deferred_capability() -> None:
+    capabilities = load_builtin_skill_capabilities()
+
+    capability_by_id = {capability.id: capability for capability in capabilities}
+    capability = capability_by_id["image-analysis"]
+    assert capability.defer_loading is True
+    description = cast(str, capability.get_description())
+    assert (
+        "TRIGGER when: the current message contains attached image media_id markers" in description
+    )
+    instructions = cast(list[str], capability.get_instructions())
+    assert len(instructions) == 1
+    assert instructions[0].startswith("# Image Analysis Skill")
+    assert "`analyzeImage(prompt, media_ids)`" in instructions[0]
 
 
 def test_builtin_skills_can_be_filtered_by_enabled_skill_ids() -> None:

@@ -195,8 +195,9 @@ def _groq_error_code(response: httpx.Response, body: Any) -> str:
 
 def _groq_error_message(response: httpx.Response, body: Any) -> str:
     error = body.get("error") if isinstance(body, dict) else None
-    if isinstance(error, dict) and isinstance(error.get("message"), str):
-        return error["message"]
+    message = error.get("message") if isinstance(error, dict) else None
+    if isinstance(message, str):
+        return message
     return response.reason_phrase or "Groq transcription request failed"
 
 

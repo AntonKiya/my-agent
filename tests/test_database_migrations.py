@@ -11,6 +11,7 @@ def test_users_migration_defines_identity_tables_and_constraints() -> None:
         "0004_conversation_summaries.sql",
         "0005_inbound_idempotency.sql",
         "0006_drop_conversation_messages_token_count.sql",
+        "0007_media_assets.sql",
     ]
 
     sql = migrations[0].sql
@@ -45,6 +46,7 @@ def test_migrations_are_loaded_in_version_order() -> None:
         "0004",
         "0005",
         "0006",
+        "0007",
     )
 
 
@@ -118,3 +120,18 @@ def test_drop_conversation_message_token_count_migration_removes_unused_column()
     sql = migrations[5].sql
     assert "ALTER TABLE conversation_messages" in sql
     assert "DROP COLUMN IF EXISTS token_count" in sql
+
+
+def test_media_assets_migration_defines_general_media_index() -> None:
+    migrations = load_sql_migrations()
+
+    sql = migrations[6].sql
+    assert "CREATE TABLE IF NOT EXISTS media_assets" in sql
+    assert "media_id text PRIMARY KEY" in sql
+    assert "user_id uuid NOT NULL REFERENCES users(id) ON DELETE RESTRICT" in sql
+    assert "conversation_id uuid NOT NULL REFERENCES conversations(id) ON DELETE RESTRICT" in sql
+    assert "media_type text NOT NULL CHECK" in sql
+    assert "'image', 'audio', 'document', 'video', 'other'" in sql
+    assert "storage_key text NOT NULL" in sql
+    assert "media_assets_conversation_user_fk" in sql
+    assert "media_assets_user_conversation_created_at_idx" in sql

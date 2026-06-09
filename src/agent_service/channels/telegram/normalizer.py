@@ -53,6 +53,7 @@ class TelegramInboundNormalizer(ChannelInboundNormalizer[Mapping[str, Any]]):
                 "first_name": _value_as_str(sender.get("first_name")),
                 "language_code": _value_as_str(sender.get("language_code")),
                 "chat_type": chat_type,
+                "media_group_id": _value_as_str(message.get("media_group_id")),
             },
             received_at=_message_received_at(message),
         )
@@ -103,6 +104,19 @@ def _normalized_content(
             return None
         return MessageType.AUDIO, None, [attachment]
 
+    photo = message.get("photo")
+    if isinstance(photo, list):
+        attachment = _telegram_photo_attachment(photo)
+        if attachment is None:
+            return None
+        return _image_content(message, attachment)
+
+    document = message.get("document")
+    if isinstance(document, Mapping):
+        attachment = _telegram_image_document_attachment(document)
+        if attachment is not None:
+            return _image_content(message, attachment)
+
     return None
 
 
@@ -134,3 +148,79 @@ def _telegram_audio_attachment(
         content_type=_value_as_str(media.get("mime_type")),
         metadata={key: value for key, value in metadata.items() if value is not None},
     )
+
+
+def _telegram_photo_attachment(photo_sizes: list[Any]) -> Attachment | None:
+    candidates = [item for item in photo_sizes if isinstance(item, Mapping)]
+    if not candidates:
+        return None
+    photo = max(candidates, key=_photo_size_score)
+    file_id = _value_as_str(photo.get("file_id"))
+    if file_id is None:
+        return None
+    file_unique_id = _value_as_str(photo.get("file_unique_id"))
+    file_size = photo.get("file_size")
+    width = photo.get("width")
+    height = photo.get("height")
+    metadata: dict[str, Any] = {
+        "file_unique_id": file_unique_id,
+        "file_size": file_size if isinstance(file_size, int) else None,
+        "width": width if isinstance(width, int) else None,
+        "height": height if isinstance(height, int) else None,
+    }
+    return Attachment(
+        attachment_id=file_unique_id or file_id,
+        attachment_type=AttachmentType.IMAGE,
+        external_id=file_id,
+        content_type="image/jpeg",
+        metadata={key: value for key, value in metadata.items() if value is not None},
+    )
+
+
+def _telegram_image_document_attachment(document: Mapping[str, Any]) -> Attachment | None:
+    content_type = _value_as_str(document.get("mime_type"))
+    if content_type is None or not content_type.startswith("image/"):
+        return None
+    file_id = _value_as_str(document.get("file_id"))
+    if file_id is None:
+        return None
+    file_unique_id = _value_as_str(document.get("file_unique_id"))
+    file_size = document.get("file_size")
+    file_name = _value_as_str(document.get("file_name"))
+    metadata: dict[str, Any] = {
+        "file_unique_id": file_unique_id,
+        "file_size": file_size if isinstance(file_size, int) else None,
+    }
+    if file_name is not None:
+        metadata["file_name"] = file_name
+    return Attachment(
+        attachment_id=file_unique_id or file_id,
+        attachment_type=AttachmentType.IMAGE,
+        external_id=file_id,
+        content_type=content_type,
+        metadata={key: value for key, value in metadata.items() if value is not None},
+    )
+
+
+def _image_content(
+    message: Mapping[str, Any],
+    attachment: Attachment,
+) -> tuple[MessageType, str | None, list[Attachment]]:
+    caption = message.get("caption")
+    text = caption if isinstance(caption, str) else None
+    return (
+        MessageType.MIXED if text else MessageType.MEDIA,
+        text,
+        [attachment],
+    )
+
+
+def _photo_size_score(photo: Mapping[str, Any]) -> int:
+    width = photo.get("width")
+    height = photo.get("height")
+    if isinstance(width, int) and isinstance(height, int):
+        return width * height
+    file_size = photo.get("file_size")
+    if isinstance(file_size, int):
+        return file_size
+    return 0

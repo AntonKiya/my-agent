@@ -75,6 +75,13 @@ class AppSettings(BaseSettings):
     transcription_retry_backoff_seconds: tuple[float, ...] = (1.0, 5.0)
     transcription_max_audio_size_bytes: int = Field(default=25_000_000, gt=0)
     transcription_audio_temp_dir: Path | None = None
+    image_analysis_enabled: bool = True
+    image_analysis_model: str | None = None
+    image_analysis_timeout_seconds: float = Field(default=60.0, gt=0)
+    image_analysis_tool_timeout_seconds: float = Field(default=90.0, gt=0)
+    image_analysis_max_images: int = Field(default=5, gt=0)
+    image_max_size_bytes: int = Field(default=10_000_000, gt=0)
+    image_media_dir: Path = Path("var/media/images")
     groq_api_key: SecretStr | None = None
     groq_http_connect_timeout_seconds: float = Field(default=10.0, gt=0)
     groq_http_read_timeout_seconds: float = Field(default=30.0, gt=0)
@@ -129,6 +136,7 @@ class AppSettings(BaseSettings):
         "postgres_dsn",
         "redis_dsn",
         "memory_compaction_model",
+        "image_analysis_model",
         "openrouter_provider_sort",
         "telegram_bot_token",
         "telegram_webhook_secret_token",

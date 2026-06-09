@@ -229,7 +229,7 @@ class FakeContentPreprocessor:
     errors: list[ContentProcessingError] = field(default_factory=list)
     events: list[InboundEvent] = field(default_factory=list)
 
-    async def process(self, event: InboundEvent) -> None:
+    async def process(self, event: InboundEvent, *, conversation_id: UUID | None = None) -> None:
         self.events.append(event)
         if self.errors:
             raise self.errors.pop(0)
