@@ -23,6 +23,7 @@ from agent_service.inbound.preprocessing import (
     InboundContentPreprocessor,
     event_needs_content_preprocessing,
 )
+from agent_service.inbound.static_responses import TELEGRAM_START_MESSAGE
 from agent_service.memory import (
     ConversationCompactionJob,
     ConversationCompactionPolicyProtocol,
@@ -46,6 +47,7 @@ logger = logging.getLogger(__name__)
 
 SleepCallable = Callable[[float], Awaitable[None]]
 
+TELEGRAM_CHANNEL = "telegram"
 DEFAULT_AGENT_RETRY_BACKOFF_SECONDS = (1.0, 5.0, 15.0)
 DEFAULT_FALLBACK_TEXT = "Sorry, I could not process that message right now. Please try again later."
 
@@ -229,6 +231,9 @@ class InboundWorker:
                 user_id=str(conversation.user_id),
                 inbound_event_id=str(event.event_id),
             )
+            if _is_telegram_start_command(event):
+                await self._handle_telegram_start_command(event, conversation=conversation)
+                return
             with business_span(
                 "Preprocess inbound content",
                 event="inbound_content_preprocessing",
@@ -692,6 +697,43 @@ class InboundWorker:
             queue_maxsize=self.outbound_queue.stats.maxsize,
         )
 
+    async def _handle_telegram_start_command(
+        self,
+        event: InboundEvent,
+        *,
+        conversation: Conversation,
+    ) -> None:
+        if event.user_id is None:
+            raise UnresolvedInboundEventError("Inbound worker requires event.user_id")
+        outbound_event = OutboundEvent(
+            channel=event.channel,
+            user_id=event.user_id,
+            conversation_id=conversation.id,
+            external_chat_id=event.external_chat_id,
+            text=TELEGRAM_START_MESSAGE,
+            thread_id=event.thread_id,
+            metadata={"static_response": "telegram_start"},
+            trace_id=event.trace_id,
+        )
+        await self._publish_outbound(
+            outbound_event,
+            inbound_event=event,
+            conversation_id=conversation.id,
+        )
+        event.status = InboundEventStatus.COMPLETED
+        await self._mark_idempotency_status(event)
+        log_event(
+            logger,
+            logging.INFO,
+            "Telegram start command handled",
+            event="telegram_start_command_handled",
+            inbound_event_id=str(event.event_id),
+            outbound_event_id=str(outbound_event.event_id),
+            conversation_id=str(conversation.id),
+            user_id=str(event.user_id),
+            channel=event.channel,
+        )
+
     async def _schedule_compaction_if_needed(
         self,
         *,
@@ -774,6 +816,15 @@ class InboundWorker:
             status=event.status,
             failure_reason=failure_reason,
         )
+
+
+def _is_telegram_start_command(event: InboundEvent) -> bool:
+    if event.channel != TELEGRAM_CHANNEL:
+        return False
+    if event.text is None:
+        return False
+    text = event.text.strip()
+    return text == "/start" or text.startswith("/start ")
 
 
 def _pydantic_ai_new_message_counts(response: AgentResponse) -> dict[str, int]:
