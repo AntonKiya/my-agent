@@ -196,7 +196,7 @@ def _runtime_instructions(
 
 
 def _runtime_context_instruction(request: AgentRequest) -> str:
-    now_utc = datetime.now(UTC).replace(microsecond=0)
+    now_utc = datetime.now(UTC).replace(second=0, microsecond=0)
     lines = [
         "Runtime context:",
         f"- current UTC time: {now_utc.isoformat().replace('+00:00', 'Z')}",
