@@ -1,9 +1,11 @@
+from dataclasses import replace
 from datetime import UTC, date, datetime, time
 from typing import Any
 from uuid import UUID
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from pydantic_ai import RunContext
+from pydantic_ai import RunContext, Tool
+from pydantic_ai.tools import ToolDefinition
 from pydantic_ai.toolsets import AgentToolset, FunctionToolset
 
 from agent_service.config import AppSettings
@@ -27,18 +29,6 @@ from agent_service.reminders.models import (
 
 REMINDER_TOOLSET_ID = "reminders"
 REMINDER_SKILL_ID = "reminders"
-REMINDER_TOOLSET_INSTRUCTIONS = """
-Use reminders tools when the user asks to create, list, or cancel reminders.
-Never invent a timezone silently. If the user timezone is not available in context and the
-user did not provide one, ask one short clarification question. If the user gives a city and
-the timezone is clear from context, pass the matching IANA timezone explicitly.
-For relative requests like "in two minutes" or "через час", use the runtime current time from
-the reminder runtime context; do not ask the user what time it is now.
-For vague times, use these defaults and mention them in assumptions: morning=10:00,
-middle of day/daytime=13:00, after lunch=14:00, afternoon=16:00, evening=18:00,
-daytime window=09:00-18:00. If frequency or time is missing entirely, ask a clarification
-question instead of creating a reminder. Keep medication, money, deadline, and dosage text exact.
-"""
 
 
 def build_reminder_toolsets(
@@ -329,14 +319,25 @@ def build_reminder_toolsets(
     return (
         FunctionToolset(
             [
-                create_once_reminder,
-                create_weekly_reminder,
-                create_interval_window_reminder,
+                Tool(
+                    create_once_reminder,
+                    prepare=_prepare_reminder_tool_definition,
+                    require_parameter_descriptions=True,
+                ),
+                Tool(
+                    create_weekly_reminder,
+                    prepare=_prepare_reminder_tool_definition,
+                    require_parameter_descriptions=True,
+                ),
+                Tool(
+                    create_interval_window_reminder,
+                    prepare=_prepare_reminder_tool_definition,
+                    require_parameter_descriptions=True,
+                ),
                 list_reminders,
                 cancel_reminder,
             ],
             id=REMINDER_TOOLSET_ID,
-            instructions=(REMINDER_TOOLSET_INSTRUCTIONS, _reminder_runtime_instructions),
             timeout=settings.reminders_tool_timeout_seconds,
             require_parameter_descriptions=True,
         ),
@@ -395,7 +396,18 @@ def _tool_context(deps: dict[str, Any]) -> _ReminderToolContext | None:
     )
 
 
-def _reminder_runtime_instructions(ctx: RunContext[dict[str, Any]]) -> str:
+def _prepare_reminder_tool_definition(
+    ctx: RunContext[dict[str, Any]],
+    tool_def: ToolDefinition,
+) -> ToolDefinition:
+    description = tool_def.description or ""
+    return replace(
+        tool_def,
+        description=f"{description}\n\n{_reminder_runtime_context(ctx)}",
+    )
+
+
+def _reminder_runtime_context(ctx: RunContext[dict[str, Any]]) -> str:
     deps = ctx.deps or {}
     now_utc = datetime.now(UTC).replace(second=0, microsecond=0)
     lines = [
