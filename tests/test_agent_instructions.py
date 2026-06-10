@@ -53,3 +53,11 @@ def test_load_base_agent_instructions_rejects_empty_file(tmp_path: Path) -> None
 
     with pytest.raises(AgentInstructionLoadError, match="output_style.md"):
         load_base_agent_instructions(tmp_path)
+
+
+def test_base_agent_instructions_require_successful_tool_for_external_actions() -> None:
+    instructions = "\n".join(load_base_agent_instructions())
+
+    assert "не говори, что действие выполнено" in instructions
+    assert "соответствующий tool реально не был вызван и не вернул успех" in instructions
+    assert "сформировать корзину" in instructions
