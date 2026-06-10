@@ -9,7 +9,7 @@ from uuid import UUID
 from pydantic_ai.messages import ToolCallPart, ToolReturnPart
 
 from agent_service.agents import AgentBoundary, AgentRequest, AgentResponse
-from agent_service.channels import InboundEvent, InboundEventStatus
+from agent_service.channels import InboundEvent, InboundEventStatus, MessageType
 from agent_service.conversations import (
     Conversation,
     ConversationLockManager,
@@ -820,6 +820,8 @@ class InboundWorker:
 
 def _is_telegram_start_command(event: InboundEvent) -> bool:
     if event.channel != TELEGRAM_CHANNEL:
+        return False
+    if event.message_type is not MessageType.TEXT or event.attachments:
         return False
     if event.text is None:
         return False

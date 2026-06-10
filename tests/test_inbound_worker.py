@@ -479,6 +479,34 @@ async def test_inbound_worker_does_not_treat_start_prefix_as_command() -> None:
     assert agent.requests[0].text == "/startfoo"
 
 
+async def test_inbound_worker_does_not_treat_media_caption_start_as_command() -> None:
+    user_id = uuid4()
+    resolved_conversation = conversation(user_id=user_id)
+    agent = FakeAgentBoundary()
+    preprocessor = FakeContentPreprocessor(text='[Attached image: media_id="image-1"]\n/start')
+    inbound_worker, _inbound_queue, outbound_queue, memory = worker(
+        conversations_by_chat_id={"12345": resolved_conversation},
+        agent_boundary=agent,
+        content_preprocessor=preprocessor,
+    )
+    event = inbound_event(user_id=user_id, text="/start")
+    event.message_type = MessageType.MIXED
+    event.attachments = [
+        Attachment(
+            attachment_type=AttachmentType.IMAGE,
+            external_id="image-file-id",
+            content_type="image/jpeg",
+        )
+    ]
+
+    await inbound_worker.process_event(event)
+
+    outbound = await outbound_queue.consume()
+    assert outbound.text == 'answer: [Attached image: media_id="image-1"]\n/start'
+    assert memory.user_messages[0].text == '[Attached image: media_id="image-1"]\n/start'
+    assert agent.requests[0].text == '[Attached image: media_id="image-1"]\n/start'
+
+
 async def test_inbound_worker_sends_best_effort_thinking_indicator() -> None:
     user_id = uuid4()
     resolved_conversation = conversation(user_id=user_id)
