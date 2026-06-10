@@ -78,6 +78,8 @@ Do not silently add a wrong product. Do not fabricate confidence.
 
 ## Cart Building
 
+- If the user asks to modify a VkusVill cart: add, remove, replace an item, or change quantity, search products again and create a new cart link.
+- Do not modify a cart from memory of the previous response without searching products again and creating a new link.
 - Collect `xml_id` and quantity `q` (number of units) for each selected product.
 - `q` must be between `0.01` and `40`.
 - One `cart_link_create` call supports 1–20 products.
