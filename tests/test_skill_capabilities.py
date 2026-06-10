@@ -12,6 +12,7 @@ def test_builtin_skills_include_vkusvill_shopping_as_deferred_capability() -> No
 
     capability_by_id = {capability.id: capability for capability in capabilities}
     assert set(capability_by_id) == {
+        "reminders",
         "vkusvill-shopping",
         "weather-forecast",
     }
@@ -44,6 +45,20 @@ def test_builtin_skills_include_weather_forecast_as_deferred_capability() -> Non
         "If the user asks for a forecast and the period is not clear, use `week`."
         in (instructions[0])
     )
+
+
+def test_builtin_skills_include_reminders_as_deferred_capability() -> None:
+    capabilities = load_builtin_skill_capabilities()
+
+    capability_by_id = {capability.id: capability for capability in capabilities}
+    capability = capability_by_id["reminders"]
+    assert capability.defer_loading is True
+    description = cast(str, capability.get_description())
+    assert "TRIGGER when: the user asks to be reminded" in description
+    instructions = cast(list[str], capability.get_instructions())
+    assert len(instructions) == 1
+    assert instructions[0].startswith("Use the reminder tools")
+    assert "`create_reminder`" in instructions[0]
 
 
 def test_builtin_skills_can_be_filtered_by_enabled_skill_ids() -> None:

@@ -10,6 +10,7 @@ _SKILLS_DIR = Path(__file__).parent.resolve()
 _BUILTIN_SKILL_PATHS = (
     Path("vkusvill-shopping/SKILL.md"),
     Path("weather-forecast/SKILL.md"),
+    Path("reminders/SKILL.md"),
 )
 
 

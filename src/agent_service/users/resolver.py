@@ -12,6 +12,7 @@ from agent_service.users.models import (
 )
 
 USERNAME_METADATA_KEY = "username"
+TIMEZONE_METADATA_KEY = "timezone"
 
 
 class UserResolver:
@@ -29,8 +30,14 @@ class UserResolver:
 
         match user_with_identity.user.status:
             case UserStatus.ACTIVE:
+                metadata = dict(event.metadata)
+                user_timezone = _optional_str(
+                    user_with_identity.user.metadata.get(TIMEZONE_METADATA_KEY)
+                )
+                if user_timezone is not None:
+                    metadata["user_timezone"] = user_timezone
                 resolved_event = event.model_copy(
-                    update={"user_id": user_with_identity.user.id},
+                    update={"user_id": user_with_identity.user.id, "metadata": metadata},
                 )
                 return UserResolutionResult(
                     status=UserResolutionStatus.RESOLVED,

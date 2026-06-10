@@ -233,11 +233,14 @@ async def test_agent_boundary_gets_clean_request_without_raw_transport_metadata(
     assert request.metadata == {
         "idempotency_key": "telegram:111:1",
         "external_message_id": "1",
+        "external_chat_id": "111",
+        "thread_id": "future-thread",
+        "user_timezone": None,
         "conversation_id": str(resolved_conversation.id),
+        "conversation_type": "private",
     }
     assert "username" not in request.metadata
     assert "first_name" not in request.metadata
-    assert "external_chat_id" not in request.metadata
     assert "external_user_id" not in request.metadata
     assert "external_update_id" not in request.metadata
     assert "raw_update" not in request.metadata

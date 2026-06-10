@@ -307,10 +307,16 @@ async def test_pydantic_ai_agent_boundary_passes_prepared_context() -> None:
             "message_history": history,
             "conversation_id": "conversation-1",
             "instructions": "compressed memory",
-            "deps": {
-                "user_id": request.user_id,
-                "conversation_id": request.conversation_id,
-            },
+                "deps": {
+                    "user_id": request.user_id,
+                    "conversation_id": request.conversation_id,
+                    "inbound_event_id": request.inbound_event_id,
+                    "channel": "telegram",
+                    "external_chat_id": None,
+                    "thread_id": None,
+                    "user_timezone": None,
+                    "conversation_type": None,
+                },
             "metadata": {
                 "snapshot_version": 2,
                 "user_id": str(request.user_id),

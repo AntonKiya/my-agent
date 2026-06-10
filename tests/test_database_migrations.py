@@ -12,6 +12,7 @@ def test_users_migration_defines_identity_tables_and_constraints() -> None:
         "0005_inbound_idempotency.sql",
         "0006_drop_conversation_messages_token_count.sql",
         "0007_media_assets.sql",
+        "0008_reminders.sql",
     ]
 
     sql = migrations[0].sql
@@ -47,6 +48,7 @@ def test_migrations_are_loaded_in_version_order() -> None:
         "0005",
         "0006",
         "0007",
+        "0008",
     )
 
 
@@ -135,3 +137,24 @@ def test_media_assets_migration_defines_general_media_index() -> None:
     assert "storage_key text NOT NULL" in sql
     assert "media_assets_conversation_user_fk" in sql
     assert "media_assets_user_conversation_created_at_idx" in sql
+
+
+def test_reminders_migration_defines_scheduler_and_outbox_tables() -> None:
+    migrations = load_sql_migrations()
+
+    sql = migrations[7].sql
+    assert "CREATE TABLE IF NOT EXISTS reminders" in sql
+    assert "CHECK (status IN ('active', 'paused', 'completed', 'deleted'))" in sql
+    assert "schedule_json jsonb NOT NULL" in sql
+    assert "source_text text" in sql
+    assert "assumptions_json jsonb" in sql
+    assert "reminders_status_next_fire_at_idx" in sql
+    assert "CREATE TABLE IF NOT EXISTS reminder_events" in sql
+    assert "CHECK (status IN ('queued', 'sent', 'failed', 'skipped', 'expired'))" in sql
+    assert "UNIQUE (reminder_id, scheduled_for_utc)" in sql
+    assert "UNIQUE (idempotency_key)" in sql
+    assert "CREATE TABLE IF NOT EXISTS notification_outbox" in sql
+    assert "source_conversation_id uuid NOT NULL REFERENCES conversations(id)" in sql
+    assert "locked_until timestamptz" in sql
+    assert "locked_by text" in sql
+    assert "notification_outbox_status_available_lock_idx" in sql
