@@ -61,6 +61,7 @@ def test_builtin_skills_include_reminders_as_deferred_capability() -> None:
     assert "`create_once_reminder`" in instructions[0]
     assert "`create_weekly_reminder`" in instructions[0]
     assert "`create_interval_window_reminder`" in instructions[0]
+    assert "`get_current_time`" in instructions[0]
 
 
 def test_builtin_skills_can_be_filtered_by_enabled_skill_ids() -> None:

@@ -1,11 +1,8 @@
-from dataclasses import replace
 from datetime import UTC, date, datetime, time
 from typing import Any
 from uuid import UUID
-from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from pydantic_ai import RunContext, Tool
-from pydantic_ai.tools import ToolDefinition
 from pydantic_ai.toolsets import AgentToolset, FunctionToolset
 
 from agent_service.config import AppSettings
@@ -52,7 +49,7 @@ def build_reminder_toolsets(
         Args:
             message: Exact reminder text, without creative rewriting.
             local_datetime: Local date and time without timezone, for example
-                2026-06-10T18:00:00. For relative requests, compute it from runtime current time.
+                2026-06-10T18:00:00. For relative requests, compute it from get_current_time.
             timezone: IANA timezone, for example Europe/Moscow or Europe/Sofia.
                 Omit only if user_timezone is available in context.
             assumptions: Any defaults used for vague phrases, such as evening=18:00.
@@ -321,17 +318,14 @@ def build_reminder_toolsets(
             [
                 Tool(
                     create_once_reminder,
-                    prepare=_prepare_reminder_tool_definition,
                     require_parameter_descriptions=True,
                 ),
                 Tool(
                     create_weekly_reminder,
-                    prepare=_prepare_reminder_tool_definition,
                     require_parameter_descriptions=True,
                 ),
                 Tool(
                     create_interval_window_reminder,
-                    prepare=_prepare_reminder_tool_definition,
                     require_parameter_descriptions=True,
                 ),
                 list_reminders,
@@ -394,42 +388,6 @@ def _tool_context(deps: dict[str, Any]) -> _ReminderToolContext | None:
         user_timezone=user_timezone,
         conversation_type=conversation_type,
     )
-
-
-def _prepare_reminder_tool_definition(
-    ctx: RunContext[dict[str, Any]],
-    tool_def: ToolDefinition,
-) -> ToolDefinition:
-    description = tool_def.description or ""
-    return replace(
-        tool_def,
-        description=f"{description}\n\n{_reminder_runtime_context(ctx)}",
-    )
-
-
-def _reminder_runtime_context(ctx: RunContext[dict[str, Any]]) -> str:
-    deps = ctx.deps or {}
-    now_utc = datetime.now(UTC).replace(second=0, microsecond=0)
-    lines = [
-        "Reminder runtime context:",
-        f"- current UTC time: {now_utc.isoformat().replace('+00:00', 'Z')}",
-    ]
-    user_timezone = _optional_str_dep(deps.get("user_timezone"))
-    if user_timezone is None:
-        lines.append("- user profile timezone: unknown")
-    else:
-        lines.append(f"- user profile timezone: {user_timezone}")
-        try:
-            now_local = now_utc.astimezone(ZoneInfo(user_timezone)).replace(tzinfo=None)
-        except ZoneInfoNotFoundError:
-            lines.append("- user profile local time: unavailable because timezone is invalid")
-        else:
-            lines.append(f"- user profile local time: {now_local.isoformat()}")
-    lines.append(
-        "Use this current time for relative reminder requests; "
-        "do not ask the user what time it is now."
-    )
-    return "\n".join(lines)
 
 
 def _uuid_dep(value: object) -> UUID | None:

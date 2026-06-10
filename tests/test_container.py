@@ -616,8 +616,10 @@ async def test_container_passes_web_research_as_direct_openrouter_toolset(
     assert set(capability_toolsets) == {"weather-forecast"}
     direct_toolsets = captured["toolsets"]
     assert isinstance(direct_toolsets, tuple)
-    assert len(direct_toolsets) == 1
-    assert cast(Any, direct_toolsets[0]).id == "web_research"
+    assert {cast(Any, toolset).id for toolset in direct_toolsets} == {
+        "time",
+        "web_research",
+    }
     assert container._web_research_http_client is not None
     assert container._web_research_http_client.timeout.connect == 3.0
     assert container._web_research_http_client.timeout.read == 21.0
@@ -669,8 +671,10 @@ async def test_container_passes_image_analysis_as_direct_openrouter_toolset_afte
     assert set(capability_toolsets) == {"weather-forecast"}
     direct_toolsets = captured["toolsets"]
     assert isinstance(direct_toolsets, tuple)
-    assert len(direct_toolsets) == 1
-    assert cast(Any, direct_toolsets[0]).id == "image-analysis"
+    assert {cast(Any, toolset).id for toolset in direct_toolsets} == {
+        "time",
+        "image-analysis",
+    }
     assert container._image_analysis_http_client is not None
 
     image_analysis_http_client = container._image_analysis_http_client
@@ -678,6 +682,55 @@ async def test_container_passes_image_analysis_as_direct_openrouter_toolset_afte
 
     assert image_analysis_http_client.is_closed
     assert container._image_analysis_http_client is None
+
+
+async def test_container_passes_reminders_as_deferred_capability_after_postgres(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake_pool = FakeManagedPostgresPool()
+    captured: dict[str, object] = {}
+
+    async def fake_create_pool(**kwargs: object) -> FakeManagedPostgresPool:
+        return fake_pool
+
+    def fake_build_openrouter_agent_boundary(**kwargs: object) -> PydanticAIAgentBoundary:
+        captured.update(kwargs)
+        return PydanticAIAgentBoundary(agent=object())  # type: ignore[arg-type]
+
+    monkeypatch.setattr("agent_service.container.asyncpg.create_pool", fake_create_pool)
+    monkeypatch.setattr(
+        container_module,
+        "build_openrouter_agent_boundary",
+        fake_build_openrouter_agent_boundary,
+    )
+    settings = AppSettings(
+        environment="test",
+        postgres_dsn="postgresql://agent:secret@localhost:5432/agent",
+        telegram_bot_token=SecretStr("token"),
+        agent_provider="openrouter",
+        agent_model="openai/gpt-4.1-mini",
+        openrouter_api_key=SecretStr("secret"),
+        inbound_worker_count=0,
+        delivery_worker_count=0,
+        reminder_worker_count=0,
+        notification_outbox_worker_count=0,
+    )
+    container = AppContainer(settings=settings)
+
+    await container.start()
+
+    assert captured["enabled_skill_ids"] == {"weather-forecast", "reminders"}
+    capability_toolsets = captured["capability_toolsets"]
+    assert isinstance(capability_toolsets, dict)
+    assert set(capability_toolsets) == {"weather-forecast", "reminders"}
+    reminder_toolsets = capability_toolsets["reminders"]
+    assert isinstance(reminder_toolsets, tuple)
+    assert len(reminder_toolsets) == 1
+    direct_toolsets = captured["toolsets"]
+    assert isinstance(direct_toolsets, tuple)
+    assert {cast(Any, toolset).id for toolset in direct_toolsets} == {"time"}
+
+    await container.stop()
 
 
 async def test_container_skips_web_research_without_tavily_key(
@@ -704,7 +757,10 @@ async def test_container_skips_web_research_without_tavily_key(
     container = AppContainer(settings=settings)
 
     assert isinstance(container.agent_boundary, PydanticAIAgentBoundary)
-    assert captured["toolsets"] is None
+    direct_toolsets = captured["toolsets"]
+    assert isinstance(direct_toolsets, tuple)
+    assert len(direct_toolsets) == 1
+    assert cast(Any, direct_toolsets[0]).id == "time"
     assert container._web_research_http_client is None
 
     await container.stop()

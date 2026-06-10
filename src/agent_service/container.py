@@ -89,6 +89,7 @@ from agent_service.reminders import (
 )
 from agent_service.reminders.postgres import PostgresPool as ReminderPostgresPool
 from agent_service.runtime.lifecycle import TaskSupervisor
+from agent_service.time_tools import build_time_toolsets
 from agent_service.transcription import GroqWhisperTranscriber
 from agent_service.users import PostgresPool, PostgresUserStore, UserResolver
 from agent_service.weather import (
@@ -345,12 +346,13 @@ class AppContainer:
             enabled_skill_ids.add(VKUSVILL_SHOPPING_SKILL_ID)
             capability_toolsets[VKUSVILL_SHOPPING_SKILL_ID] = vkusvill_toolsets
 
+        direct_toolsets.extend(build_time_toolsets())
         direct_toolsets.extend(self._build_image_analysis_toolsets())
         direct_toolsets.extend(self._build_web_research_toolsets())
         reminder_toolsets = self._build_reminder_toolsets()
         if reminder_toolsets:
             enabled_skill_ids.add(REMINDER_SKILL_ID)
-            direct_toolsets.extend(reminder_toolsets)
+            capability_toolsets[REMINDER_SKILL_ID] = reminder_toolsets
         return build_openrouter_agent_boundary(
             model_name=self.settings.agent_model,
             api_key=self.settings.openrouter_api_key.get_secret_value(),
