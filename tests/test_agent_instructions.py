@@ -19,13 +19,14 @@ def test_load_base_agent_instructions_preserves_product_order(tmp_path: Path) ->
         {
             "identity.md": "identity",
             "output_style.md": "output style",
+            "capabilities.md": "capabilities",
             "safety.md": "safety",
         },
     )
 
     instructions = load_base_agent_instructions(tmp_path)
 
-    assert instructions == ["identity", "output style", "safety"]
+    assert instructions == ["identity", "output style", "capabilities", "safety"]
 
 
 def test_load_base_agent_instructions_rejects_missing_file(tmp_path: Path) -> None:
@@ -34,6 +35,7 @@ def test_load_base_agent_instructions_rejects_missing_file(tmp_path: Path) -> No
         {
             "identity.md": "identity",
             "output_style.md": "output style",
+            "capabilities.md": "capabilities",
         },
     )
 
@@ -47,6 +49,7 @@ def test_load_base_agent_instructions_rejects_empty_file(tmp_path: Path) -> None
         {
             "identity.md": "identity",
             "output_style.md": "   \n",
+            "capabilities.md": "capabilities",
             "safety.md": "safety",
         },
     )
@@ -61,3 +64,11 @@ def test_base_agent_instructions_require_successful_tool_for_external_actions() 
     assert "не говори, что действие выполнено" in instructions
     assert "соответствующий tool реально не был вызван и не вернул успех" in instructions
     assert "сформировать корзину" in instructions
+
+
+def test_base_agent_instructions_include_public_capabilities() -> None:
+    instructions = "\n".join(load_base_agent_instructions())
+
+    assert "когда пользователь задаёт общий вопрос" in instructions
+    assert "Собрать корзину во ВкусВилл" in instructions
+    assert "Ответить на голосовое" in instructions
