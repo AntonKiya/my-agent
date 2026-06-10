@@ -34,6 +34,7 @@ from agent_service.inbound import (
     OutboundOverloadedError,
     UnresolvedInboundEventError,
 )
+from agent_service.inbound.static_responses import TELEGRAM_START_MESSAGE
 from agent_service.memory import (
     ConversationCompactionDecision,
     ConversationCompactionPolicy,
@@ -404,6 +405,106 @@ async def test_inbound_worker_processes_event_to_outbound_queue() -> None:
     assert agent.requests[0].pydantic_ai.user_prompt == "hello"
     assert "external_chat_id" not in agent.requests[0].model_dump()
     assert "raw_update" not in agent.requests[0].model_dump()
+
+
+async def test_inbound_worker_handles_telegram_start_without_memory_or_agent() -> None:
+    user_id = uuid4()
+    resolved_conversation = conversation(user_id=user_id)
+    agent = FakeAgentBoundary()
+    thinking_sender = FakeThinkingIndicatorSender()
+    idempotency_store = FakeIdempotencyStore()
+    inbound_worker, _inbound_queue, outbound_queue, memory = worker(
+        conversations_by_chat_id={"12345": resolved_conversation},
+        agent_boundary=agent,
+        thinking_indicator_sender=thinking_sender,
+        idempotency_store=idempotency_store,
+    )
+    event = inbound_event(user_id=user_id, text="/start")
+
+    await inbound_worker.process_event(event)
+
+    outbound = await outbound_queue.consume()
+    assert event.status is InboundEventStatus.COMPLETED
+    assert outbound.user_id == user_id
+    assert outbound.conversation_id == resolved_conversation.id
+    assert outbound.external_chat_id == "12345"
+    assert outbound.text == TELEGRAM_START_MESSAGE
+    assert outbound.metadata == {"static_response": "telegram_start"}
+    assert outbound.trace_id == "trace-1"
+    assert memory.user_messages == []
+    assert memory.assistant_messages == []
+    assert agent.requests == []
+    assert thinking_sender.events == []
+    assert idempotency_store.statuses == [
+        (event.event_id, InboundEventStatus.PROCESSING, None),
+        (event.event_id, InboundEventStatus.COMPLETED, None),
+    ]
+
+
+async def test_inbound_worker_handles_telegram_start_with_payload() -> None:
+    user_id = uuid4()
+    resolved_conversation = conversation(user_id=user_id)
+    agent = FakeAgentBoundary()
+    inbound_worker, _inbound_queue, outbound_queue, memory = worker(
+        conversations_by_chat_id={"12345": resolved_conversation},
+        agent_boundary=agent,
+    )
+    event = inbound_event(user_id=user_id, text="/start referral-code")
+
+    await inbound_worker.process_event(event)
+
+    outbound = await outbound_queue.consume()
+    assert outbound.text == TELEGRAM_START_MESSAGE
+    assert event.status is InboundEventStatus.COMPLETED
+    assert memory.user_messages == []
+    assert memory.assistant_messages == []
+    assert agent.requests == []
+
+
+async def test_inbound_worker_does_not_treat_start_prefix_as_command() -> None:
+    user_id = uuid4()
+    resolved_conversation = conversation(user_id=user_id)
+    agent = FakeAgentBoundary()
+    inbound_worker, _inbound_queue, outbound_queue, memory = worker(
+        conversations_by_chat_id={"12345": resolved_conversation},
+        agent_boundary=agent,
+    )
+    event = inbound_event(user_id=user_id, text="/startfoo")
+
+    await inbound_worker.process_event(event)
+
+    outbound = await outbound_queue.consume()
+    assert outbound.text == "answer: /startfoo"
+    assert memory.user_messages[0].text == "/startfoo"
+    assert agent.requests[0].text == "/startfoo"
+
+
+async def test_inbound_worker_does_not_treat_media_caption_start_as_command() -> None:
+    user_id = uuid4()
+    resolved_conversation = conversation(user_id=user_id)
+    agent = FakeAgentBoundary()
+    preprocessor = FakeContentPreprocessor(text='[Attached image: media_id="image-1"]\n/start')
+    inbound_worker, _inbound_queue, outbound_queue, memory = worker(
+        conversations_by_chat_id={"12345": resolved_conversation},
+        agent_boundary=agent,
+        content_preprocessor=preprocessor,
+    )
+    event = inbound_event(user_id=user_id, text="/start")
+    event.message_type = MessageType.MIXED
+    event.attachments = [
+        Attachment(
+            attachment_type=AttachmentType.IMAGE,
+            external_id="image-file-id",
+            content_type="image/jpeg",
+        )
+    ]
+
+    await inbound_worker.process_event(event)
+
+    outbound = await outbound_queue.consume()
+    assert outbound.text == 'answer: [Attached image: media_id="image-1"]\n/start'
+    assert memory.user_messages[0].text == '[Attached image: media_id="image-1"]\n/start'
+    assert agent.requests[0].text == '[Attached image: media_id="image-1"]\n/start'
 
 
 async def test_inbound_worker_sends_best_effort_thinking_indicator() -> None:

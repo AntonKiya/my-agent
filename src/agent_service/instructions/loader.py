@@ -3,6 +3,7 @@ from pathlib import Path
 _INSTRUCTION_FILES = (
     "identity.md",
     "output_style.md",
+    "capabilities.md",
     "safety.md",
 )
 _INSTRUCTIONS_DIR = Path(__file__).resolve().parent
