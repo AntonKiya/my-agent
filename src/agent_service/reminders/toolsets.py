@@ -1,6 +1,7 @@
 from datetime import UTC, date, datetime, time
 from typing import Any
 from uuid import UUID
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from pydantic_ai import RunContext
 from pydantic_ai.toolsets import AgentToolset, FunctionToolset
@@ -32,7 +33,7 @@ Never invent a timezone silently. If the user timezone is not available in conte
 user did not provide one, ask one short clarification question. If the user gives a city and
 the timezone is clear from context, pass the matching IANA timezone explicitly.
 For relative requests like "in two minutes" or "через час", use the runtime current time from
-the agent instructions; do not ask the user what time it is now.
+the reminder runtime context; do not ask the user what time it is now.
 For vague times, use these defaults and mention them in assumptions: morning=10:00,
 middle of day/daytime=13:00, after lunch=14:00, afternoon=16:00, evening=18:00,
 daytime window=09:00-18:00. If frequency or time is missing entirely, ask a clarification
@@ -335,7 +336,7 @@ def build_reminder_toolsets(
                 cancel_reminder,
             ],
             id=REMINDER_TOOLSET_ID,
-            instructions=REMINDER_TOOLSET_INSTRUCTIONS,
+            instructions=(REMINDER_TOOLSET_INSTRUCTIONS, _reminder_runtime_instructions),
             timeout=settings.reminders_tool_timeout_seconds,
             require_parameter_descriptions=True,
         ),
@@ -392,6 +393,31 @@ def _tool_context(deps: dict[str, Any]) -> _ReminderToolContext | None:
         user_timezone=user_timezone,
         conversation_type=conversation_type,
     )
+
+
+def _reminder_runtime_instructions(ctx: RunContext[dict[str, Any]]) -> str:
+    deps = ctx.deps or {}
+    now_utc = datetime.now(UTC).replace(second=0, microsecond=0)
+    lines = [
+        "Reminder runtime context:",
+        f"- current UTC time: {now_utc.isoformat().replace('+00:00', 'Z')}",
+    ]
+    user_timezone = _optional_str_dep(deps.get("user_timezone"))
+    if user_timezone is None:
+        lines.append("- user profile timezone: unknown")
+    else:
+        lines.append(f"- user profile timezone: {user_timezone}")
+        try:
+            now_local = now_utc.astimezone(ZoneInfo(user_timezone)).replace(tzinfo=None)
+        except ZoneInfoNotFoundError:
+            lines.append("- user profile local time: unavailable because timezone is invalid")
+        else:
+            lines.append(f"- user profile local time: {now_local.isoformat()}")
+    lines.append(
+        "Use this current time for relative reminder requests; "
+        "do not ask the user what time it is now."
+    )
+    return "\n".join(lines)
 
 
 def _uuid_dep(value: object) -> UUID | None:

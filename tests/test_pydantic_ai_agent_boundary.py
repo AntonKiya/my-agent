@@ -306,12 +306,7 @@ async def test_pydantic_ai_agent_boundary_passes_prepared_context() -> None:
     assert call["output_type"] is str
     assert call["message_history"] == history
     assert call["conversation_id"] == "conversation-1"
-    assert isinstance(call["instructions"], tuple)
-    assert call["instructions"][0] == "compressed memory"
-    assert "Runtime context:" in call["instructions"][1]
-    assert "current UTC time:" in call["instructions"][1]
-    assert "user profile timezone: unknown" in call["instructions"][1]
-    assert "do not ask the user what time it is now" in call["instructions"][1]
+    assert call["instructions"] == "compressed memory"
     assert call["deps"] == {
         "user_id": request.user_id,
         "conversation_id": request.conversation_id,
@@ -398,8 +393,7 @@ async def test_pydantic_ai_agent_boundary_falls_back_to_request_text() -> None:
     assert agent.calls[0]["user_prompt"] == "plain text"
     assert agent.calls[0]["message_history"] == []
     assert agent.calls[0]["conversation_id"] == str(request.conversation_id)
-    assert "Runtime context:" in agent.calls[0]["instructions"]
-    assert "user profile timezone: unknown" in agent.calls[0]["instructions"]
+    assert agent.calls[0]["instructions"] is None
 
 
 async def test_pydantic_ai_agent_boundary_does_not_pass_transport_metadata() -> None:
