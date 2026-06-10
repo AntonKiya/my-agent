@@ -1,4 +1,4 @@
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime, time
 from typing import Any
 from uuid import UUID
 
@@ -14,14 +14,25 @@ from agent_service.reminders.compiler import (
     validate_timezone,
 )
 from agent_service.reminders.interfaces import ReminderStore
-from agent_service.reminders.models import Reminder, ReminderSchedule, ReminderStatus
+from agent_service.reminders.models import (
+    IntervalWindowSchedule,
+    OnceSchedule,
+    Reminder,
+    ReminderSchedule,
+    ReminderStatus,
+    Weekday,
+    WeeklySchedule,
+)
 
 REMINDER_TOOLSET_ID = "reminders"
 REMINDER_SKILL_ID = "reminders"
 REMINDER_TOOLSET_INSTRUCTIONS = """
 Use reminders tools when the user asks to create, list, or cancel reminders.
 Never invent a timezone silently. If the user timezone is not available in context and the
-user did not provide one, ask one short clarification question. Use IANA timezone names only.
+user did not provide one, ask one short clarification question. If the user gives a city and
+the timezone is clear from context, pass the matching IANA timezone explicitly.
+For relative requests like "in two minutes" or "через час", use the runtime current time from
+the agent instructions; do not ask the user what time it is now.
 For vague times, use these defaults and mention them in assumptions: morning=10:00,
 middle of day/daytime=13:00, after lunch=14:00, afternoon=16:00, evening=18:00,
 daytime window=09:00-18:00. If frequency or time is missing entirely, ask a clarification
@@ -37,24 +48,128 @@ def build_reminder_toolsets(
     if not settings.reminders_enabled:
         return ()
 
-    async def create_reminder(
+    async def create_once_reminder(
         ctx: RunContext[dict[str, Any]],
         message: str,
-        schedule: ReminderSchedule,
+        local_datetime: datetime,
         timezone: str | None = None,
         assumptions: list[str] | None = None,
         source_text: str | None = None,
     ) -> dict[str, Any]:
-        """Create one reminder from a validated structured schedule.
+        """Create a one-time reminder at a local date and time.
 
         Args:
             message: Exact reminder text, without creative rewriting.
-            schedule: Structured reminder schedule. Use once, weekly, or interval_window.
+            local_datetime: Local date and time without timezone, for example
+                2026-06-10T18:00:00. For relative requests, compute it from runtime current time.
             timezone: IANA timezone, for example Europe/Moscow or Europe/Sofia.
                 Omit only if user_timezone is available in context.
             assumptions: Any defaults used for vague phrases, such as evening=18:00.
             source_text: The user's original reminder request.
         """
+        schedule = OnceSchedule(local_datetime=local_datetime)
+        return await _create_reminder(
+            ctx,
+            message=message,
+            schedule=schedule,
+            timezone=timezone,
+            assumptions=assumptions,
+            source_text=source_text,
+        )
+
+    async def create_weekly_reminder(
+        ctx: RunContext[dict[str, Any]],
+        message: str,
+        days_of_week: list[Weekday],
+        times: list[time],
+        timezone: str | None = None,
+        start_date: date | None = None,
+        end_date: date | None = None,
+        assumptions: list[str] | None = None,
+        source_text: str | None = None,
+    ) -> dict[str, Any]:
+        """Create a weekly repeating reminder on selected days and local times.
+
+        Args:
+            message: Exact reminder text, without creative rewriting.
+            days_of_week: Weekdays such as MO, TU, WE, TH, FR, SA, SU.
+            times: Local times without timezone, for example 10:00 or 18:30.
+            timezone: IANA timezone, for example Europe/Moscow or Europe/Sofia.
+                Omit only if user_timezone is available in context.
+            start_date: Optional local start date.
+            end_date: Optional local end date.
+            assumptions: Any defaults used for vague phrases, such as after lunch=14:00.
+            source_text: The user's original reminder request.
+        """
+        schedule = WeeklySchedule(
+            days_of_week=days_of_week,
+            times=times,
+            start_date=start_date,
+            end_date=end_date,
+        )
+        return await _create_reminder(
+            ctx,
+            message=message,
+            schedule=schedule,
+            timezone=timezone,
+            assumptions=assumptions,
+            source_text=source_text,
+        )
+
+    async def create_interval_window_reminder(
+        ctx: RunContext[dict[str, Any]],
+        message: str,
+        interval_minutes: int,
+        window_start: time,
+        window_end: time,
+        timezone: str | None = None,
+        days_of_week: list[Weekday] | None = None,
+        start_date: date | None = None,
+        end_date: date | None = None,
+        assumptions: list[str] | None = None,
+        source_text: str | None = None,
+    ) -> dict[str, Any]:
+        """Create a repeating reminder every N minutes inside a local time window.
+
+        Args:
+            message: Exact reminder text, without creative rewriting.
+            interval_minutes: Interval in minutes between reminders.
+            window_start: Local window start time without timezone, for example 09:00.
+            window_end: Local window end time without timezone, for example 18:00.
+            timezone: IANA timezone, for example Europe/Moscow or Europe/Sofia.
+                Omit only if user_timezone is available in context.
+            days_of_week: Optional weekdays such as MO, TU, WE, TH, FR, SA, SU.
+            start_date: Optional local start date.
+            end_date: Optional local end date.
+            assumptions: Any defaults used for vague phrases, such as daytime window=09:00-18:00.
+            source_text: The user's original reminder request.
+        """
+        schedule = IntervalWindowSchedule(
+            interval_minutes=interval_minutes,
+            days_of_week=days_of_week,
+            window_start=window_start,
+            window_end=window_end,
+            start_date=start_date,
+            end_date=end_date,
+        )
+        return await _create_reminder(
+            ctx,
+            message=message,
+            schedule=schedule,
+            timezone=timezone,
+            assumptions=assumptions,
+            source_text=source_text,
+        )
+
+    async def _create_reminder(
+        ctx: RunContext[dict[str, Any]],
+        *,
+        message: str,
+        schedule: ReminderSchedule,
+        timezone: str | None,
+        assumptions: list[str] | None,
+        source_text: str | None,
+    ) -> dict[str, Any]:
         deps = ctx.deps or {}
         context = _tool_context(deps)
         if context is None:
@@ -192,7 +307,7 @@ def build_reminder_toolsets(
         """Cancel a reminder by id.
 
         Args:
-            reminder_id: Reminder id from list_reminders or create_reminder.
+            reminder_id: Reminder id from list_reminders or a successful create tool result.
         """
         deps = ctx.deps or {}
         context = _tool_context(deps)
@@ -212,7 +327,13 @@ def build_reminder_toolsets(
 
     return (
         FunctionToolset(
-            [create_reminder, list_reminders, cancel_reminder],
+            [
+                create_once_reminder,
+                create_weekly_reminder,
+                create_interval_window_reminder,
+                list_reminders,
+                cancel_reminder,
+            ],
             id=REMINDER_TOOLSET_ID,
             instructions=REMINDER_TOOLSET_INSTRUCTIONS,
             timeout=settings.reminders_tool_timeout_seconds,

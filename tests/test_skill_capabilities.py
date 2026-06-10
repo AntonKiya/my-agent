@@ -58,7 +58,9 @@ def test_builtin_skills_include_reminders_as_deferred_capability() -> None:
     instructions = cast(list[str], capability.get_instructions())
     assert len(instructions) == 1
     assert instructions[0].startswith("Use the reminder tools")
-    assert "`create_reminder`" in instructions[0]
+    assert "`create_once_reminder`" in instructions[0]
+    assert "`create_weekly_reminder`" in instructions[0]
+    assert "`create_interval_window_reminder`" in instructions[0]
 
 
 def test_builtin_skills_can_be_filtered_by_enabled_skill_ids() -> None:

@@ -1,7 +1,9 @@
 import asyncio
 from collections.abc import Collection, Mapping, Sequence
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from typing import Any, Protocol, cast
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import httpx
 from pydantic_ai import Agent
@@ -88,7 +90,10 @@ class PydanticAIAgentBoundary(AgentBoundary):
         conversation_id = (
             run_context.conversation_id if run_context is not None else str(request.conversation_id)
         )
-        instructions = run_context.instructions if run_context is not None else None
+        instructions = _runtime_instructions(
+            run_context.instructions if run_context is not None else None,
+            request=request,
+        )
         metadata = _run_metadata(request)
 
         async with asyncio.timeout(self.timeout_seconds):
@@ -175,6 +180,44 @@ def _run_metadata(request: AgentRequest) -> dict[str, Any]:
         "trace_id": request.trace_id,
     }
     return {key: value for key, value in metadata.items() if value is not None}
+
+
+def _runtime_instructions(
+    instructions: str | Sequence[str] | None,
+    *,
+    request: AgentRequest,
+) -> str | Sequence[str]:
+    runtime_instruction = _runtime_context_instruction(request)
+    if instructions is None:
+        return runtime_instruction
+    if isinstance(instructions, str):
+        return (instructions, runtime_instruction)
+    return (*instructions, runtime_instruction)
+
+
+def _runtime_context_instruction(request: AgentRequest) -> str:
+    now_utc = datetime.now(UTC).replace(microsecond=0)
+    lines = [
+        "Runtime context:",
+        f"- current UTC time: {now_utc.isoformat().replace('+00:00', 'Z')}",
+    ]
+    user_timezone = request.metadata.get("user_timezone")
+    if isinstance(user_timezone, str) and user_timezone.strip():
+        timezone = user_timezone.strip()
+        lines.append(f"- user profile timezone: {timezone}")
+        try:
+            now_local = now_utc.astimezone(ZoneInfo(timezone)).replace(tzinfo=None)
+        except ZoneInfoNotFoundError:
+            lines.append("- user profile local time: unavailable because timezone is invalid")
+        else:
+            lines.append(f"- user profile local time: {now_local.isoformat()}")
+    else:
+        lines.append("- user profile timezone: unknown")
+    lines.append(
+        "Use this current time for relative date/time requests; "
+        "do not ask the user what time it is now."
+    )
+    return "\n".join(lines)
 
 
 def _safe_response_metadata(request: AgentRequest) -> dict[str, Any]:
