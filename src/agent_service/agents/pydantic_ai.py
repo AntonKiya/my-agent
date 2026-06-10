@@ -101,6 +101,12 @@ class PydanticAIAgentBoundary(AgentBoundary):
                 deps={
                     "user_id": request.user_id,
                     "conversation_id": request.conversation_id,
+                    "inbound_event_id": request.inbound_event_id,
+                    "channel": request.channel,
+                    "external_chat_id": request.metadata.get("external_chat_id"),
+                    "thread_id": request.metadata.get("thread_id"),
+                    "user_timezone": request.metadata.get("user_timezone"),
+                    "conversation_type": request.metadata.get("conversation_type"),
                 },
                 metadata=metadata,
             )

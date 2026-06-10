@@ -77,6 +77,17 @@ from agent_service.messaging.in_memory import (
 from agent_service.messaging.interfaces import CompactionQueue, InboundQueue
 from agent_service.observability.events import elapsed_ms, log_event, start_timer
 from agent_service.outbound import OutboundQueue
+from agent_service.reminders import (
+    REMINDER_SKILL_ID,
+    NotificationOutboxDeliveryWorker,
+    NotificationOutboxStore,
+    PostgresNotificationOutboxStore,
+    PostgresReminderStore,
+    ReminderStore,
+    ReminderWorker,
+    build_reminder_toolsets,
+)
+from agent_service.reminders.postgres import PostgresPool as ReminderPostgresPool
 from agent_service.runtime.lifecycle import TaskSupervisor
 from agent_service.transcription import GroqWhisperTranscriber
 from agent_service.users import PostgresPool, PostgresUserStore, UserResolver
@@ -152,6 +163,8 @@ class AppContainer:
     memory_service: ConversationMemoryService | None = field(init=False)
     media_asset_store: MediaAssetStore | None = field(init=False)
     media_group_aggregator: RedisInboundMediaGroupAggregator | None = field(init=False)
+    reminder_store: ReminderStore | None = field(init=False)
+    notification_outbox_store: NotificationOutboxStore | None = field(init=False)
     agent_boundary: AgentBoundary | None = field(init=False)
     content_preprocessor: InboundContentPreprocessor | None = field(init=False)
     channel_adapters: ChannelAdapterRegistry = field(init=False)
@@ -211,6 +224,8 @@ class AppContainer:
         self.memory_service = None
         self.media_asset_store = None
         self.media_group_aggregator = None
+        self.reminder_store = None
+        self.notification_outbox_store = None
         self.agent_boundary = self._build_agent_boundary()
         self.channel_adapters = InMemoryChannelAdapterRegistry()
         self.telegram_adapter = self._build_telegram_adapter()
@@ -235,6 +250,7 @@ class AppContainer:
             await self._start_postgres_dependencies()
             self._start_media_group_flush_worker()
             self._start_inbound_workers()
+            self._start_reminder_workers()
             self._start_delivery_workers()
             self._start_compaction_workers()
             self._started = True
@@ -245,6 +261,7 @@ class AppContainer:
     async def stop(self) -> None:
         await self.task_supervisor.stop(group="inbound")
         await self.task_supervisor.stop(group="compaction")
+        await self.task_supervisor.stop(group="reminder")
         await self._drain_outbound_queue()
         await self.task_supervisor.stop(group="delivery")
         await self.task_supervisor.stop()
@@ -282,6 +299,8 @@ class AppContainer:
             self.conversation_compaction_store = None
             self.memory_service = None
             self.media_asset_store = None
+            self.reminder_store = None
+            self.notification_outbox_store = None
         if self._redis_client is not None:
             await self._redis_client.aclose()
             self._redis_client = None
@@ -328,6 +347,10 @@ class AppContainer:
 
         direct_toolsets.extend(self._build_image_analysis_toolsets())
         direct_toolsets.extend(self._build_web_research_toolsets())
+        reminder_toolsets = self._build_reminder_toolsets()
+        if reminder_toolsets:
+            enabled_skill_ids.add(REMINDER_SKILL_ID)
+            direct_toolsets.extend(reminder_toolsets)
         return build_openrouter_agent_boundary(
             model_name=self.settings.agent_model,
             api_key=self.settings.openrouter_api_key.get_secret_value(),
@@ -443,6 +466,19 @@ class AppContainer:
             media_asset_store=self.media_asset_store,
         )
 
+    def _build_reminder_toolsets(self) -> tuple[AgentToolset[Any], ...]:
+        if not self.settings.reminders_enabled:
+            return ()
+        if self.reminder_store is None:
+            return ()
+        channel_adapters = getattr(self, "channel_adapters", None)
+        if channel_adapters is None or not getattr(channel_adapters, "channels", ()):
+            return ()
+        return build_reminder_toolsets(
+            self.settings,
+            reminder_store=self.reminder_store,
+        )
+
     def _build_conversation_compactor(self) -> ConversationCompactor | None:
         if not self.settings.memory_compaction_enabled:
             return None
@@ -513,6 +549,12 @@ class AppContainer:
             cast(MemoryPostgresPool, self._postgres_pool)
         )
         self.media_asset_store = PostgresMediaAssetStore(self._postgres_pool)
+        self.reminder_store = PostgresReminderStore(
+            cast(ReminderPostgresPool, self._postgres_pool)
+        )
+        self.notification_outbox_store = PostgresNotificationOutboxStore(
+            cast(ReminderPostgresPool, self._postgres_pool)
+        )
         self.conversation_compaction_store = PostgresConversationCompactionStore(
             cast(MemoryPostgresPool, self._postgres_pool)
         )
@@ -631,9 +673,27 @@ class AppContainer:
                 group="compaction",
             )
 
-    def _start_delivery_workers(self) -> None:
-        if self.settings.delivery_worker_count == 0:
+    def _start_reminder_workers(self) -> None:
+        if not self.settings.reminders_enabled:
             return
+        if self.reminder_store is None:
+            return
+        if not getattr(self.channel_adapters, "channels", ()):
+            return
+        for index in range(self.settings.reminder_worker_count):
+            worker = ReminderWorker(
+                reminder_store=self.reminder_store,
+                poll_interval_seconds=self.settings.reminder_worker_poll_interval_seconds,
+                batch_size=self.settings.reminder_worker_batch_size,
+                error_backoff_seconds=self.settings.reminder_worker_error_backoff_seconds,
+            )
+            self.task_supervisor.create_task(
+                worker.run_forever(),
+                name=f"reminder-worker-{index + 1}",
+                group="reminder",
+            )
+
+    def _start_delivery_workers(self) -> None:
         if not getattr(self.channel_adapters, "channels", ()):
             return
 
@@ -641,17 +701,43 @@ class AppContainer:
             max_attempts=self.settings.delivery_retry_max_attempts,
             backoff_seconds=self.settings.delivery_retry_backoff_seconds,
         )
-        for index in range(self.settings.delivery_worker_count):
-            worker = DeliveryWorker(
-                outbound_queue=self.outbound_queue,
+        if self.settings.delivery_worker_count > 0:
+            for index in range(self.settings.delivery_worker_count):
+                worker = DeliveryWorker(
+                    outbound_queue=self.outbound_queue,
+                    channel_adapters=self.channel_adapters,
+                    lock_manager=self.delivery_lock_manager,
+                    retry_policy=retry_policy,
+                    error_backoff_seconds=self.settings.delivery_worker_error_backoff_seconds,
+                )
+                self.task_supervisor.create_task(
+                    worker.run_forever(),
+                    name=f"delivery-worker-{index + 1}",
+                    group="delivery",
+                )
+        self._start_notification_outbox_workers(retry_policy)
+
+    def _start_notification_outbox_workers(self, retry_policy: DeliveryRetryPolicy) -> None:
+        if not self.settings.reminders_enabled:
+            return
+        if self.notification_outbox_store is None:
+            return
+        for index in range(self.settings.notification_outbox_worker_count):
+            worker = NotificationOutboxDeliveryWorker(
+                outbox_store=self.notification_outbox_store,
                 channel_adapters=self.channel_adapters,
                 lock_manager=self.delivery_lock_manager,
                 retry_policy=retry_policy,
-                error_backoff_seconds=self.settings.delivery_worker_error_backoff_seconds,
+                poll_interval_seconds=self.settings.notification_outbox_poll_interval_seconds,
+                lease_seconds=self.settings.notification_outbox_lease_seconds,
+                batch_size=self.settings.notification_outbox_batch_size,
+                error_backoff_seconds=(
+                    self.settings.notification_outbox_worker_error_backoff_seconds
+                ),
             )
             self.task_supervisor.create_task(
                 worker.run_forever(),
-                name=f"delivery-worker-{index + 1}",
+                name=f"notification-outbox-worker-{index + 1}",
                 group="delivery",
             )
 

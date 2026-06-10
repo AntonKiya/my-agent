@@ -64,8 +64,12 @@ def inbound_event(*, user_id: UUID | None = None) -> InboundEvent:
     )
 
 
-def user_with_identity(*, status: UserStatus = UserStatus.ACTIVE) -> UserWithIdentity:
-    user = User(status=status)
+def user_with_identity(
+    *,
+    status: UserStatus = UserStatus.ACTIVE,
+    metadata: dict[str, object] | None = None,
+) -> UserWithIdentity:
+    user = User(status=status, metadata=metadata or {})
     return UserWithIdentity(
         user=user,
         identity=ChannelIdentity(
@@ -94,6 +98,16 @@ async def test_user_resolver_returns_event_with_internal_user_id_for_active_user
     assert result.event.user_id == stored.user.id
     assert result.event.external_user_id == "67890"
     assert store.observed_identities[0].external_user_id == "67890"
+
+
+async def test_user_resolver_passes_profile_timezone_to_event_metadata() -> None:
+    stored = user_with_identity(metadata={"timezone": "Europe/Moscow"})
+    resolver = UserResolver(FakeUserStore(stored))
+
+    result = await resolver.resolve(inbound_event())
+
+    assert result.event is not None
+    assert result.event.metadata["user_timezone"] == "Europe/Moscow"
 
 
 async def test_user_resolver_rejects_blocked_user_without_resolved_event() -> None:

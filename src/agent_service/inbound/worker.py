@@ -292,6 +292,7 @@ class InboundWorker:
                     request=self._agent_request(
                         event=event,
                         conversation_id=conversation.id,
+                        conversation_type=conversation.type.value,
                         prepared_context=prepared_context,
                     )
                 )
@@ -540,6 +541,7 @@ class InboundWorker:
         *,
         event: InboundEvent,
         conversation_id: UUID,
+        conversation_type: str,
         prepared_context: PreparedConversationContext,
     ) -> AgentRequest:
         if event.user_id is None:
@@ -556,7 +558,11 @@ class InboundWorker:
             metadata={
                 "idempotency_key": event.idempotency_key,
                 "external_message_id": event.external_message_id,
+                "external_chat_id": event.external_chat_id,
+                "thread_id": event.thread_id,
+                "user_timezone": event.metadata.get("user_timezone"),
                 "conversation_id": str(conversation_id),
+                "conversation_type": conversation_type,
             },
             trace_id=event.trace_id,
         )
