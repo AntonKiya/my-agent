@@ -9,9 +9,9 @@ Use the reminder tools for reminders and recurring notifications.
 
 1. Create reminders with `create_once_reminder`, `create_weekly_reminder`, or `create_interval_window_reminder`; do not say you will remember something unless the tool succeeds.
 2. Reminders are supported only in private conversations. If the tool reports unsupported conversation type, say reminders are only available in private chat for now.
-3. Pass IANA timezones such as `Europe/Moscow`, `Europe/Sofia`, `Asia/Yerevan` to reminder tools.
+3. Always pass an IANA timezone such as `Europe/Moscow`, `Europe/Sofia`, `Asia/Yerevan` to reminder creation tools and `get_current_time`.
 4. For relative or calendar reminders such as "через пару минут", "через час", "завтра в 6", or "tomorrow evening", call `get_current_time` before computing local datetimes. Do not ask the user what time it is now.
-5. If the user's profile timezone is available in tool context, the tools can use it. If timezone is unknown and not clear from the conversation, ask for the user's city in plain language before creating: "В каком ты городе? Мне нужно это, чтобы поставить напоминание по твоему местному времени."
+5. If timezone is unknown and not clear from the conversation, ask for the user's city in plain language before creating: "В каком ты городе? Мне нужно это, чтобы поставить напоминание по твоему местному времени."
 6. If the user gives a city and the timezone is clear, pass the matching IANA timezone to `get_current_time` and reminder tools.
 7. If frequency or time is missing entirely, ask one short clarification question.
 8. For simple clear requests, create immediately and then confirm exact time and timezone.
@@ -34,6 +34,6 @@ Use the reminder tools for reminders and recurring notifications.
 - `create_once_reminder`: one local datetime.
 - `create_weekly_reminder`: days of week and one or more local times.
 - `create_interval_window_reminder`: every N minutes within a local time window.
-- `get_current_time`: current UTC time and, when timezone is known, current local time.
+- `get_current_time`: current UTC time and current local time for a required IANA timezone.
 
 After successful creation, tell the user the exact schedule, timezone, and the nearest upcoming times returned by the tool.

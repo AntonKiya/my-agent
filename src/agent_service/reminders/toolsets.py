@@ -40,7 +40,7 @@ def build_reminder_toolsets(
         ctx: RunContext[dict[str, Any]],
         message: str,
         local_datetime: datetime,
-        timezone: str | None = None,
+        timezone: str,
         assumptions: list[str] | None = None,
         source_text: str | None = None,
     ) -> dict[str, Any]:
@@ -51,7 +51,6 @@ def build_reminder_toolsets(
             local_datetime: Local date and time without timezone, for example
                 2026-06-10T18:00:00. For relative requests, compute it from get_current_time.
             timezone: IANA timezone, for example Europe/Moscow or Europe/Sofia.
-                Omit only if user_timezone is available in context.
             assumptions: Any defaults used for vague phrases, such as evening=18:00.
             source_text: The user's original reminder request.
         """
@@ -70,7 +69,7 @@ def build_reminder_toolsets(
         message: str,
         days_of_week: list[Weekday],
         times: list[time],
-        timezone: str | None = None,
+        timezone: str,
         start_date: date | None = None,
         end_date: date | None = None,
         assumptions: list[str] | None = None,
@@ -83,7 +82,6 @@ def build_reminder_toolsets(
             days_of_week: Weekdays such as MO, TU, WE, TH, FR, SA, SU.
             times: Local times without timezone, for example 10:00 or 18:30.
             timezone: IANA timezone, for example Europe/Moscow or Europe/Sofia.
-                Omit only if user_timezone is available in context.
             start_date: Optional local start date.
             end_date: Optional local end date.
             assumptions: Any defaults used for vague phrases, such as after lunch=14:00.
@@ -110,7 +108,7 @@ def build_reminder_toolsets(
         interval_minutes: int,
         window_start: time,
         window_end: time,
-        timezone: str | None = None,
+        timezone: str,
         days_of_week: list[Weekday] | None = None,
         start_date: date | None = None,
         end_date: date | None = None,
@@ -125,7 +123,6 @@ def build_reminder_toolsets(
             window_start: Local window start time without timezone, for example 09:00.
             window_end: Local window end time without timezone, for example 18:00.
             timezone: IANA timezone, for example Europe/Moscow or Europe/Sofia.
-                Omit only if user_timezone is available in context.
             days_of_week: Optional weekdays such as MO, TU, WE, TH, FR, SA, SU.
             start_date: Optional local start date.
             end_date: Optional local end date.

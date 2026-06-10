@@ -11,16 +11,15 @@ TIME_TOOLSET_ID = "time"
 def build_time_toolsets() -> tuple[AgentToolset[Any], ...]:
     async def get_current_time(
         ctx: RunContext[dict[str, Any]],
-        timezone: str | None = None,
+        timezone: str,
     ) -> dict[str, Any]:
-        """Get the current time in UTC and, optionally, in a user's local timezone.
+        """Get the current time in UTC and in a user's local timezone.
 
         Args:
-            timezone: Optional IANA timezone such as Europe/Moscow. If omitted, the tool
-                uses user_timezone from runtime context when available.
+            timezone: Required IANA timezone such as Europe/Moscow or Europe/Sofia.
         """
-        deps = ctx.deps or {}
-        effective_timezone = _clean_timezone(timezone) or _clean_timezone(deps.get("user_timezone"))
+        _ = ctx
+        effective_timezone = _clean_timezone(timezone)
         now_utc = datetime.now(UTC).replace(second=0, microsecond=0)
         payload: dict[str, Any] = {
             "now_utc": now_utc.isoformat().replace("+00:00", "Z"),
@@ -28,7 +27,11 @@ def build_time_toolsets() -> tuple[AgentToolset[Any], ...]:
             "now_local": None,
         }
         if effective_timezone is None:
-            return {"success": True, "data": payload}
+            return {
+                "success": False,
+                "error_code": "timezone_required",
+                "message": "timezone must be provided as a valid IANA timezone",
+            }
         try:
             tz = ZoneInfo(effective_timezone)
         except ZoneInfoNotFoundError:
