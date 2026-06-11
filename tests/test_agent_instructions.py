@@ -19,6 +19,7 @@ def test_load_base_agent_instructions_preserves_product_order(tmp_path: Path) ->
         {
             "identity.md": "identity",
             "output_style.md": "output style",
+            "time_context.md": "time context",
             "capabilities.md": "capabilities",
             "safety.md": "safety",
         },
@@ -26,7 +27,13 @@ def test_load_base_agent_instructions_preserves_product_order(tmp_path: Path) ->
 
     instructions = load_base_agent_instructions(tmp_path)
 
-    assert instructions == ["identity", "output style", "capabilities", "safety"]
+    assert instructions == [
+        "identity",
+        "output style",
+        "time context",
+        "capabilities",
+        "safety",
+    ]
 
 
 def test_load_base_agent_instructions_rejects_missing_file(tmp_path: Path) -> None:
@@ -35,6 +42,7 @@ def test_load_base_agent_instructions_rejects_missing_file(tmp_path: Path) -> No
         {
             "identity.md": "identity",
             "output_style.md": "output style",
+            "time_context.md": "time context",
             "capabilities.md": "capabilities",
         },
     )
@@ -49,6 +57,7 @@ def test_load_base_agent_instructions_rejects_empty_file(tmp_path: Path) -> None
         {
             "identity.md": "identity",
             "output_style.md": "   \n",
+            "time_context.md": "time context",
             "capabilities.md": "capabilities",
             "safety.md": "safety",
         },
@@ -72,3 +81,11 @@ def test_base_agent_instructions_include_public_capabilities() -> None:
     assert "когда пользователь задаёт общий вопрос" in instructions
     assert "Собрать корзину во ВкусВилл" in instructions
     assert "Ответить на голосовое" in instructions
+
+
+def test_base_agent_instructions_include_time_context_policy() -> None:
+    instructions = "\n".join(load_base_agent_instructions())
+
+    assert "Если правильный ответ зависит от текущей даты" in instructions
+    assert "Вызови `get_current_time` с явным IANA timezone" in instructions
+    assert "Если пользователь уже указал точную дату" in instructions

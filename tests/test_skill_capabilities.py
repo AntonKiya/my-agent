@@ -37,10 +37,15 @@ def test_builtin_skills_include_weather_forecast_as_deferred_capability() -> Non
     assert capability.defer_loading is True
     description = cast(str, capability.get_description())
     assert "TRIGGER when: the user asks about current weather" in description
+    assert "a weather follow-up asking for details by hour/time of day" in description
     instructions = cast(list[str], capability.get_instructions())
     assert len(instructions) == 1
     assert instructions[0].startswith("# Weather Forecast Skill")
     assert "`get_weather_forecast(location, period, location_language)`" in instructions[0]
+    assert "hourly data, a time of day, or a time window" in instructions[0]
+    assert "по часам" in instructions[0]
+    assert "вечером" in instructions[0]
+    assert "Do not use `web_research` as the first source" in instructions[0]
     assert (
         "If the user asks for a forecast and the period is not clear, use `week`."
         in (instructions[0])

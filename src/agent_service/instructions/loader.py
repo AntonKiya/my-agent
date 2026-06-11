@@ -3,6 +3,7 @@ from pathlib import Path
 _INSTRUCTION_FILES = (
     "identity.md",
     "output_style.md",
+    "time_context.md",
     "capabilities.md",
     "safety.md",
 )

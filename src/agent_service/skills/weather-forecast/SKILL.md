@@ -1,6 +1,6 @@
 ---
 name: weather-forecast
-description: "Answer weather questions with the built-in weather forecast tool. TRIGGER when: the user asks about current weather, today's weather, tomorrow's weather, rain, snow, temperature, wind, what to wear because of weather, or a forecast for the next few days/week."
+description: "Answer weather questions with the built-in weather forecast tool. TRIGGER when: the user asks about current weather, today's weather, tomorrow's weather, rain, snow, temperature, wind, what to wear because of weather, a forecast for the next few days/week, or a weather follow-up asking for details by hour/time of day such as evening, morning, по часам, вечером, утром, or 16:00-22:00."
 ---
 
 # Weather Forecast Skill
@@ -9,11 +9,12 @@ Answer practical weather questions with the `get_weather_forecast` tool.
 
 ## Workflow
 
-1. Determine the location from the current message or clear recent conversation context.
-2. Determine the forecast period from the user's wording.
-3. Call `get_weather_forecast` once with location, period, and location_language.
-4. If the tool returns `needs_location`, `location_not_found`, or `ambiguous_location`, ask one short clarification question.
-5. Answer compactly from the tool result.
+1. Determine whether this is a new weather request or a weather follow-up.
+2. Determine the location from the current message or clear recent conversation context.
+3. Determine the forecast period from the user's wording or the weather context being refined.
+4. Call `get_weather_forecast` once with location, period, and location_language.
+5. If the tool returns `needs_location`, `location_not_found`, or `ambiguous_location`, ask one short clarification question.
+6. Answer compactly from the tool result.
 
 ## Tool
 
@@ -45,6 +46,14 @@ Infer the period from meaning:
 - "на неделю", "в ближайшие дни", "прогноз": `week`
 
 If the user asks for a forecast and the period is not clear, use `week`.
+
+## Follow-up Policy
+
+If recent conversation context contains a weather request or weather answer, and the user asks for more detail, hourly data, a time of day, or a time window ("по часам", "вечером", "утром", "днём", "с 16 до 22", "подробно"), treat it as a weather follow-up.
+
+Reuse the clear location and period/date context when available. For a prior multi-day forecast, keep `week`; for a prior today/tomorrow forecast, keep `today` or `tomorrow`.
+
+Do not use `web_research` as the first source for weather follow-ups. Call `get_weather_forecast` again so the answer is based on the weather tool data.
 
 ## Location Language Policy
 
