@@ -176,6 +176,12 @@ async def test_pydantic_ai_compactor_returns_structured_summary_result() -> None
     assert result.metadata["compactor"] == "pydantic_ai"
     assert result.metadata["summary_version"] == 2
     assert result.metadata["message_sequence_range"] == "2-3"
+    assert result.metadata["run_usage"] == {
+        "input_tokens": 100,
+        "output_tokens": 42,
+        "total_tokens": 142,
+        "requests": 1,
+    }
     assert "Current state:" in (result.summary or "")
     assert "- Production compaction is being added." in (result.summary or "")
 

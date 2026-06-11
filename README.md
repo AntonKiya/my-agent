@@ -65,6 +65,23 @@ The runtime delivery worker and compaction/summarization boundaries are implemen
 in-memory MVP. Durable broker-backed delivery state is intentionally deferred until the service needs
 persistent outbound tracking.
 
+## Assistant Usage Metadata
+
+Assistant messages store model-token accounting in metadata, with each field scoped to a specific
+question. These fields must not be collapsed into one ambiguous `usage` object:
+
+- `metadata["context_usage"]`: usage for the latest model response in the agent run. This is the
+  source for conversation snapshot/context sizing. In a simple one-shot answer it matches the only
+  model request; in a multi-round tool answer it represents the final model step after tool results.
+- `metadata["run_usage"]`: aggregate usage for the whole `agent.run`. This is the source for user
+  spend/billing. It sums every model request made during the run, including tool rounds.
+- `metadata["model_response_usages"]`: ordered per-model-response usage entries for audit/debugging
+  of multi-round runs. It explains how `run_usage` was reached when providers and SDKs expose
+  per-response usage.
+
+The first field answers "how large is the active context now?" The second answers "how many model
+tokens did this assistant turn spend?" The third answers "which model round spent what?"
+
 ## Implemented Guarantees
 
 - Channel adapters do not call the agent directly.

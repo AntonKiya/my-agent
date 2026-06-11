@@ -178,7 +178,7 @@ def _compaction_usage_input_token_count(
     *,
     job: ConversationCompactionJob,
 ) -> int | None:
-    usage = result.metadata.get("usage")
+    usage = result.metadata.get("run_usage")
     if not isinstance(usage, dict):
         _log_compaction_usage_missing(result, job=job, missing_reason="usage_metadata_missing")
         return None

@@ -397,25 +397,52 @@ class InboundWorker:
                         channel=request.channel,
                         attempt=attempt_number,
                         duration_ms=elapsed_ms(started_at),
-                        usage_input_tokens=(
-                            response.usage.input_tokens if response.usage is not None else None
-                        ),
-                        usage_output_tokens=(
-                            response.usage.output_tokens if response.usage is not None else None
-                        ),
-                        usage_total_tokens=(
-                            response.usage.total_tokens if response.usage is not None else None
-                        ),
-                        usage_requests=(
-                            response.usage.metadata.get("requests")
-                            if response.usage is not None
+                        context_usage_input_tokens=(
+                            response.context_usage.input_tokens
+                            if response.context_usage is not None
                             else None
                         ),
-                        usage_tool_calls=(
-                            response.usage.metadata.get("tool_calls")
-                            if response.usage is not None
+                        context_usage_output_tokens=(
+                            response.context_usage.output_tokens
+                            if response.context_usage is not None
                             else None
                         ),
+                        context_usage_total_tokens=(
+                            response.context_usage.total_tokens
+                            if response.context_usage is not None
+                            else None
+                        ),
+                        context_usage_requests=(
+                            response.context_usage.metadata.get("requests")
+                            if response.context_usage is not None
+                            else None
+                        ),
+                        run_usage_input_tokens=(
+                            response.run_usage.input_tokens
+                            if response.run_usage is not None
+                            else None
+                        ),
+                        run_usage_output_tokens=(
+                            response.run_usage.output_tokens
+                            if response.run_usage is not None
+                            else None
+                        ),
+                        run_usage_total_tokens=(
+                            response.run_usage.total_tokens
+                            if response.run_usage is not None
+                            else None
+                        ),
+                        run_usage_requests=(
+                            response.run_usage.metadata.get("requests")
+                            if response.run_usage is not None
+                            else None
+                        ),
+                        run_usage_tool_calls=(
+                            response.run_usage.metadata.get("tool_calls")
+                            if response.run_usage is not None
+                            else None
+                        ),
+                        model_response_usage_count=len(response.model_response_usages),
                         **_pydantic_ai_new_message_counts(response),
                     )
                     return response

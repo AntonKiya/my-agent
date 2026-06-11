@@ -11,7 +11,12 @@ from pydantic_ai.providers.openrouter import OpenRouterProvider
 from pydantic_ai.toolsets import AgentToolset
 
 from agent_service.agents.interfaces import AgentBoundary
-from agent_service.agents.models import AgentRequest, AgentResponse, AgentUsage
+from agent_service.agents.models import (
+    AgentModelResponseUsage,
+    AgentRequest,
+    AgentResponse,
+    AgentUsage,
+)
 from agent_service.instructions import load_base_agent_instructions
 from agent_service.skills import load_builtin_skill_capabilities
 
@@ -111,9 +116,9 @@ class PydanticAIAgentBoundary(AgentBoundary):
                 metadata=metadata,
             )
 
-        usage = _result_usage(result)
+        run_usage = _result_usage(result)
         new_messages = _agent_new_messages(result)
-        response_usage = _latest_model_response_usage(new_messages) or usage
+        context_usage = _latest_model_response_usage(new_messages) or run_usage
         text = _response_text(result.output)
         return AgentResponse(
             text=text,
@@ -121,7 +126,9 @@ class PydanticAIAgentBoundary(AgentBoundary):
                 "agent": "pydantic_ai",
                 **_safe_response_metadata(request),
             },
-            usage=_agent_usage_from_usage(response_usage),
+            context_usage=_agent_usage_from_usage(context_usage),
+            run_usage=_agent_usage_from_usage(run_usage),
+            model_response_usages=_model_response_usages(new_messages),
             pydantic_ai_new_messages=new_messages,
             trace_id=request.trace_id,
         )
@@ -193,10 +200,6 @@ def _response_text(output: Any) -> str:
     if not text:
         raise EmptyAgentResponseError("Pydantic AI agent returned empty text")
     return text
-
-
-def _agent_usage(result: PydanticAIRunResult) -> AgentUsage | None:
-    return _agent_usage_from_usage(_result_usage(result))
 
 
 def _result_usage(result: PydanticAIRunResult) -> Any:
@@ -272,6 +275,28 @@ def _latest_model_response_usage(messages: list[ModelMessage]) -> object | None:
         if _usage_has_tokens(message.usage):
             return message.usage
     return None
+
+
+def _model_response_usages(messages: list[ModelMessage]) -> list[AgentModelResponseUsage]:
+    usages: list[AgentModelResponseUsage] = []
+    response_index = 0
+    for message_index, message in enumerate(messages):
+        if not isinstance(message, ModelResponse):
+            continue
+        usage = _agent_usage_from_usage(message.usage)
+        if usage is None or not _usage_has_tokens(message.usage):
+            response_index += 1
+            continue
+        usages.append(
+            AgentModelResponseUsage(
+                message_index=message_index,
+                model_response_index=response_index,
+                part_types=[type(part).__name__ for part in message.parts],
+                usage=usage,
+            )
+        )
+        response_index += 1
+    return usages
 
 
 def _usage_has_tokens(usage: object) -> bool:

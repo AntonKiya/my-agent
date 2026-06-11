@@ -197,8 +197,14 @@ class DefaultConversationMemoryService(ConversationMemoryService):
         outbound_event_id: UUID | None = None,
     ) -> ConversationMemoryMessage:
         metadata: dict[str, Any] = dict(response.metadata)
-        if response.usage is not None:
-            metadata["usage"] = response.usage.model_dump(mode="json")
+        if response.context_usage is not None:
+            metadata["context_usage"] = response.context_usage.model_dump(mode="json")
+        if response.run_usage is not None:
+            metadata["run_usage"] = response.run_usage.model_dump(mode="json")
+        if response.model_response_usages:
+            metadata["model_response_usages"] = [
+                usage.model_dump(mode="json") for usage in response.model_response_usages
+            ]
         if response.tool_info is not None:
             metadata["tool_info"] = [
                 tool_info.model_dump(mode="json") for tool_info in response.tool_info
@@ -432,7 +438,7 @@ class DefaultConversationMemoryService(ConversationMemoryService):
                     messages=recent_messages,
                     summary_token_count=_snapshot_summary_token_count(snapshot),
                     summary_created_at=_snapshot_summary_created_at(snapshot),
-                    fallback_reason="assistant_usage_missing_after_snapshot_extend",
+                    fallback_reason="assistant_context_usage_missing_after_snapshot_extend",
                 ),
                 "updated_at": _utc_now(),
             }
@@ -523,7 +529,7 @@ class DefaultConversationMemoryService(ConversationMemoryService):
                     messages=recent_messages,
                     summary_token_count=summary.output_token_count,
                     summary_created_at=summary.created_at,
-                    fallback_reason="assistant_usage_missing_after_compaction",
+                    fallback_reason="assistant_context_usage_missing_after_compaction",
                 ),
                 "metadata": {
                     **snapshot.metadata,
@@ -636,7 +642,7 @@ def _snapshot_from_messages(
             messages=messages,
             summary_token_count=summary.output_token_count if summary is not None else 0,
             summary_created_at=summary.created_at if summary is not None else None,
-            fallback_reason="assistant_usage_missing_during_snapshot_rebuild",
+            fallback_reason="assistant_context_usage_missing_during_snapshot_rebuild",
         ),
         metadata=(
             {
@@ -725,7 +731,7 @@ def _summary_from_compaction_result(
         message.id for message in compacted_messages
     ]
     model = result.metadata.get("model")
-    usage = result.metadata.get("usage")
+    usage = result.metadata.get("run_usage")
     input_token_count = (
         usage_token_count(usage, "input_tokens") if isinstance(usage, dict) else None
     )
@@ -898,7 +904,7 @@ def _latest_assistant_usage(
             continue
         if summary_created_at is not None and message.created_at <= summary_created_at:
             continue
-        usage = message.metadata.get("usage")
+        usage = message.metadata.get("context_usage")
         if not isinstance(usage, dict):
             continue
         total_tokens = usage_total_token_count(usage)
