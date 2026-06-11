@@ -14,11 +14,15 @@ from agent_service.memory.models import (
     ConversationCompactionResult,
     ConversationMemoryMessage,
 )
+from agent_service.memory_settings import (
+    DEFAULT_MEMORY_COMPACTION_TARGET_SUMMARY_TOKENS,
+    MAX_MEMORY_COMPACTION_TARGET_SUMMARY_TOKENS,
+)
 
-DEFAULT_TARGET_SUMMARY_TOKENS = 1000
-MAX_FALLBACK_SUMMARY_TOKENS = 1200
+DEFAULT_TARGET_SUMMARY_TOKENS = DEFAULT_MEMORY_COMPACTION_TARGET_SUMMARY_TOKENS
+MAX_TARGET_SUMMARY_TOKENS = MAX_MEMORY_COMPACTION_TARGET_SUMMARY_TOKENS
 
-CONVERSATION_SUMMARY_SYSTEM_PROMPT = """You are a context compaction module for a multi-user, multi-channel AI agent.
+CONVERSATION_SUMMARY_SYSTEM_PROMPT = f"""You are a context compaction module for a multi-user, multi-channel AI agent.
 
 Your job is to create a compact working-memory summary that will replace older conversation history. The summary will be inserted before the unsummarized recent messages, so the main agent can continue the conversation without access to the removed raw history.
 
@@ -88,9 +92,9 @@ Return a structured object matching the requested schema. The service will rende
 
 <conversation_summary>
 Scope:
-- Covers: {message_sequence_range}
-- Summary version: {summary_version}
-- Last updated: {current_datetime}
+- Covers: {{message_sequence_range}}
+- Summary version: {{summary_version}}
+- Last updated: {{current_datetime}}
 
 Current state:
 - ...
@@ -123,7 +127,7 @@ Superseded / obsolete context:
 - ...
 </conversation_summary>
 
-Omit bullets that have no useful content. Keep the entire rendered summary within {target_summary_tokens} tokens if provided; otherwise target 600-1000 tokens and never exceed 1200 tokens."""
+Omit bullets that have no useful content. Keep the entire rendered summary within {{target_summary_tokens}} tokens if provided; otherwise target 600-1000 tokens and never exceed {MAX_TARGET_SUMMARY_TOKENS} tokens."""
 
 
 class ConversationSummaryOutput(BaseModel):
@@ -175,8 +179,10 @@ class PydanticAIConversationCompactor(ConversationCompactor):
     def __post_init__(self) -> None:
         if self.target_summary_tokens < 1:
             raise ValueError("target_summary_tokens must be greater than zero")
-        if self.target_summary_tokens > MAX_FALLBACK_SUMMARY_TOKENS:
-            raise ValueError("target_summary_tokens must not exceed 1200")
+        if self.target_summary_tokens > MAX_TARGET_SUMMARY_TOKENS:
+            raise ValueError(
+                f"target_summary_tokens must not exceed {MAX_TARGET_SUMMARY_TOKENS}"
+            )
         if self.timeout_seconds <= 0:
             raise ValueError("timeout_seconds must be greater than zero")
 

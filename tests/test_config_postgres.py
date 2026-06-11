@@ -4,6 +4,10 @@ import pytest
 from pydantic import SecretStr, ValidationError
 
 from agent_service.config import AppSettings
+from agent_service.memory_settings import (
+    DEFAULT_MEMORY_COMPACTION_TARGET_SUMMARY_TOKENS,
+    MAX_MEMORY_COMPACTION_TARGET_SUMMARY_TOKENS,
+)
 
 
 def test_postgres_pool_settings_have_safe_defaults() -> None:
@@ -58,7 +62,10 @@ def test_postgres_pool_settings_have_safe_defaults() -> None:
     assert settings.memory_compaction_worker_error_backoff_seconds == 0.1
     assert settings.memory_compaction_publish_timeout_seconds == 0.1
     assert settings.memory_compaction_timeout_seconds == 120.0
-    assert settings.memory_compaction_target_summary_tokens == 1000
+    assert (
+        settings.memory_compaction_target_summary_tokens
+        == DEFAULT_MEMORY_COMPACTION_TARGET_SUMMARY_TOKENS
+    )
     assert settings.memory_compaction_model is None
     assert settings.transcription_audio_enabled
     assert settings.transcription_model == "whisper-large-v3-turbo"
@@ -170,7 +177,12 @@ def test_postgres_pool_settings_are_validated() -> None:
         AppSettings(environment="test", memory_compaction_target_summary_tokens=0)
 
     with pytest.raises(ValidationError):
-        AppSettings(environment="test", memory_compaction_target_summary_tokens=1201)
+        AppSettings(
+            environment="test",
+            memory_compaction_target_summary_tokens=(
+                MAX_MEMORY_COMPACTION_TARGET_SUMMARY_TOKENS + 1
+            ),
+        )
 
     with pytest.raises(ValidationError):
         AppSettings(
