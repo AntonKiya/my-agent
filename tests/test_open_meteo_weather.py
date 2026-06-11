@@ -141,6 +141,12 @@ async def test_weather_forecast_uses_model_location_language_before_fallback() -
     assert result["location"]["name"] == "Москва"
     assert result["current"]["weather_description"] == "clear sky"
     assert len(result["daily"]) == 7
+    assert [item["time"] for item in result["hourly"]] == [
+        "2026-06-04T00:00",
+        "2026-06-04T12:00",
+        "2026-06-05T00:00",
+        "2026-06-05T12:00",
+    ]
     assert [request.url.params["language"] for request in requests[:2]] == ["en", "ru"]
     assert len(requests) == 3
 

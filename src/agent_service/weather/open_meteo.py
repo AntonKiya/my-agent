@@ -639,6 +639,13 @@ def _select_hourly_items(
     daily_items: Sequence[dict[str, Any]],
     period: WeatherPeriod,
 ) -> list[dict[str, Any]]:
+    if period == "week":
+        target_dates = {
+            date
+            for item in daily_items[:7]
+            if isinstance((date := item.get("date")), str)
+        }
+        return [item for item in items if _hourly_date(item) in target_dates]
     if period not in {"today", "tomorrow"}:
         return []
     index = 0 if period == "today" else 1
