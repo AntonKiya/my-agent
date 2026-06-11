@@ -295,11 +295,13 @@ async def test_pydantic_ai_agent_boundary_passes_prepared_context() -> None:
         "agent": "pydantic_ai",
         "model_conversation_id": "conversation-1",
     }
-    assert response.usage is not None
-    assert response.usage.input_tokens == 10
-    assert response.usage.output_tokens == 5
-    assert response.usage.total_tokens == 15
-    assert response.usage.metadata == {"requests": 1, "details": {"cached": 2}}
+    assert response.context_usage is not None
+    assert response.context_usage.input_tokens == 10
+    assert response.context_usage.output_tokens == 5
+    assert response.context_usage.total_tokens == 15
+    assert response.context_usage.metadata == {"requests": 1, "details": {"cached": 2}}
+    assert response.run_usage == response.context_usage
+    assert response.model_response_usages == []
     assert len(agent.calls) == 1
     call = agent.calls[0]
     assert call["user_prompt"] == "hello from memory"
@@ -339,7 +341,7 @@ async def test_pydantic_ai_agent_boundary_returns_new_messages() -> None:
     assert response.pydantic_ai_new_messages == new_messages
 
 
-async def test_pydantic_ai_agent_boundary_uses_latest_response_usage() -> None:
+async def test_pydantic_ai_agent_boundary_splits_context_run_and_response_usages() -> None:
     new_messages: list[ModelMessage] = [
         ModelResponse(
             parts=[TextPart(content="tool calls")],
@@ -362,10 +364,47 @@ async def test_pydantic_ai_agent_boundary_uses_latest_response_usage() -> None:
 
     response = await boundary.run(agent_request())
 
-    assert response.usage is not None
-    assert response.usage.input_tokens == 23_904
-    assert response.usage.output_tokens == 179
-    assert response.usage.total_tokens == 24_083
+    assert response.context_usage is not None
+    assert response.context_usage.input_tokens == 23_904
+    assert response.context_usage.output_tokens == 179
+    assert response.context_usage.total_tokens == 24_083
+    assert response.run_usage is not None
+    assert response.run_usage.input_tokens == 68_450
+    assert response.run_usage.output_tokens == 753
+    assert response.run_usage.total_tokens == 69_203
+    assert response.run_usage.metadata == {"requests": 3}
+    assert len(response.model_response_usages) == 2
+    assert response.model_response_usages[0].message_index == 0
+    assert response.model_response_usages[0].model_response_index == 0
+    assert response.model_response_usages[0].usage.input_tokens == 20_783
+    assert response.model_response_usages[1].message_index == 2
+    assert response.model_response_usages[1].model_response_index == 1
+    assert response.model_response_usages[1].usage.output_tokens == 179
+
+
+async def test_pydantic_ai_agent_boundary_omits_zero_model_response_usages() -> None:
+    new_messages: list[ModelMessage] = [
+        ModelResponse(parts=[TextPart(content="internal")], usage=RequestUsage()),
+        ModelResponse(
+            parts=[TextPart(content="final")],
+            usage=RequestUsage(input_tokens=11, output_tokens=2),
+        ),
+    ]
+    agent = FakePydanticAIAgent(
+        result=FakeRunResult(
+            output="ok",
+            run_usage=FakeUsage(input_tokens=11, output_tokens=2, requests=1),
+            messages=new_messages,
+        ),
+    )
+    boundary = PydanticAIAgentBoundary(agent=agent)
+
+    response = await boundary.run(agent_request())
+
+    assert len(response.model_response_usages) == 1
+    assert response.model_response_usages[0].message_index == 1
+    assert response.model_response_usages[0].model_response_index == 1
+    assert response.model_response_usages[0].usage.total_tokens == 13
 
 
 async def test_pydantic_ai_agent_boundary_does_not_call_usage_property_object() -> None:
@@ -376,10 +415,11 @@ async def test_pydantic_ai_agent_boundary_does_not_call_usage_property_object() 
     response = await boundary.run(agent_request())
 
     assert usage.called is False
-    assert response.usage is not None
-    assert response.usage.input_tokens == 3
-    assert response.usage.output_tokens == 4
-    assert response.usage.total_tokens == 7
+    assert response.context_usage is not None
+    assert response.context_usage.input_tokens == 3
+    assert response.context_usage.output_tokens == 4
+    assert response.context_usage.total_tokens == 7
+    assert response.run_usage == response.context_usage
 
 
 async def test_pydantic_ai_agent_boundary_falls_back_to_request_text() -> None:

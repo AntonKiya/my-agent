@@ -15,7 +15,13 @@ from pydantic_ai.messages import (
     UserPromptPart,
 )
 
-from agent_service.agents import AgentResponse, AgentToolInfo, AgentToolStatus, AgentUsage
+from agent_service.agents import (
+    AgentModelResponseUsage,
+    AgentResponse,
+    AgentToolInfo,
+    AgentToolStatus,
+    AgentUsage,
+)
 from agent_service.channels import InboundEvent
 from agent_service.conversations import Conversation
 from agent_service.memory import (
@@ -787,7 +793,16 @@ async def test_memory_service_records_assistant_message_with_usage_and_tool_info
         response=AgentResponse(
             text="answer",
             metadata={"model": "test"},
-            usage=AgentUsage(output_tokens=5),
+            context_usage=AgentUsage(output_tokens=5),
+            run_usage=AgentUsage(input_tokens=10, output_tokens=5, total_tokens=15),
+            model_response_usages=[
+                AgentModelResponseUsage(
+                    message_index=1,
+                    model_response_index=0,
+                    part_types=["TextPart"],
+                    usage=AgentUsage(input_tokens=10, output_tokens=5, total_tokens=15),
+                )
+            ],
             tool_info=[
                 AgentToolInfo(
                     tool_name="search",
@@ -805,6 +820,8 @@ async def test_memory_service_records_assistant_message_with_usage_and_tool_info
     assert stored.trace_id == "trace-response"
     assert stored.metadata["model"] == "test"
     assert stored.metadata["context_usage"]["output_tokens"] == 5
+    assert stored.metadata["run_usage"]["total_tokens"] == 15
+    assert stored.metadata["model_response_usages"][0]["usage"]["total_tokens"] == 15
     assert stored.metadata["tool_info"][0]["tool_name"] == "search"
 
 
@@ -905,7 +922,8 @@ async def test_memory_service_uses_latest_assistant_context_usage_for_snapshot_t
         conversation=resolved_conversation,
         response=AgentResponse(
             text="answer",
-            usage=AgentUsage(input_tokens=41, output_tokens=9, total_tokens=50),
+            context_usage=AgentUsage(input_tokens=41, output_tokens=9, total_tokens=50),
+            run_usage=AgentUsage(input_tokens=100, output_tokens=20, total_tokens=120),
         ),
     )
 
@@ -1021,7 +1039,7 @@ async def test_memory_service_records_compaction_result_and_updates_hot_snapshot
         token_count=8,
         metadata={
             "model": "summary-model",
-            "usage": {"input_tokens": 22, "output_tokens": 8, "total_tokens": 30},
+            "run_usage": {"input_tokens": 22, "output_tokens": 8, "total_tokens": 30},
         },
         created_at=datetime(2026, 5, 30, 12, 30, tzinfo=UTC),
     )

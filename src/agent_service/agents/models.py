@@ -62,6 +62,13 @@ class AgentUsage(AgentModel):
     metadata: AgentMetadata = Field(default_factory=dict)
 
 
+class AgentModelResponseUsage(AgentModel):
+    message_index: int = Field(ge=0)
+    model_response_index: int = Field(ge=0)
+    part_types: list[str] = Field(default_factory=list)
+    usage: AgentUsage
+
+
 class AgentToolInfo(AgentModel):
     tool_name: str = Field(min_length=1)
     status: AgentToolStatus
@@ -92,7 +99,9 @@ class AgentRequest(AgentModel):
 class AgentResponse(AgentModel):
     text: str = Field(min_length=1)
     metadata: AgentMetadata = Field(default_factory=dict)
-    usage: AgentUsage | None = None
+    context_usage: AgentUsage | None = None
+    run_usage: AgentUsage | None = None
+    model_response_usages: list[AgentModelResponseUsage] = Field(default_factory=list)
     tool_info: list[AgentToolInfo] | None = None
     pydantic_ai_new_messages: list[PydanticAIMessage] = Field(default_factory=list)
     trace_id: str | None = None

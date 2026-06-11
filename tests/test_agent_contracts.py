@@ -135,7 +135,8 @@ def test_agent_response_records_usage_tools_and_trace() -> None:
     new_messages: list[ModelMessage] = [ModelResponse(parts=[TextPart(content="answer")])]
     response = AgentResponse(
         text="answer",
-        usage=AgentUsage(input_tokens=10, output_tokens=5, total_tokens=15),
+        context_usage=AgentUsage(input_tokens=10, output_tokens=5, total_tokens=15),
+        run_usage=AgentUsage(input_tokens=12, output_tokens=6, total_tokens=18),
         tool_info=[
             AgentToolInfo(
                 tool_name="search",
@@ -149,8 +150,10 @@ def test_agent_response_records_usage_tools_and_trace() -> None:
     )
 
     assert response.text == "answer"
-    assert response.usage is not None
-    assert response.usage.total_tokens == 15
+    assert response.context_usage is not None
+    assert response.context_usage.total_tokens == 15
+    assert response.run_usage is not None
+    assert response.run_usage.total_tokens == 18
     assert response.tool_info is not None
     assert response.tool_info[0].tool_name == "search"
     assert response.pydantic_ai_new_messages == new_messages

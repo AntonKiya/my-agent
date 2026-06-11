@@ -74,8 +74,7 @@ question. These fields must not be collapsed into one ambiguous `usage` object:
   source for conversation snapshot/context sizing. In a simple one-shot answer it matches the only
   model request; in a multi-round tool answer it represents the final model step after tool results.
 - `metadata["run_usage"]`: aggregate usage for the whole `agent.run`. This is the source for user
-  spend/billing once persisted. It sums every model request made during the run, including tool
-  rounds.
+  spend/billing. It sums every model request made during the run, including tool rounds.
 - `metadata["model_response_usages"]`: ordered per-model-response usage entries for audit/debugging
   of multi-round runs. It explains how `run_usage` was reached when providers and SDKs expose
   per-response usage.

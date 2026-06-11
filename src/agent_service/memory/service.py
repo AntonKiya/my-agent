@@ -197,8 +197,14 @@ class DefaultConversationMemoryService(ConversationMemoryService):
         outbound_event_id: UUID | None = None,
     ) -> ConversationMemoryMessage:
         metadata: dict[str, Any] = dict(response.metadata)
-        if response.usage is not None:
-            metadata["context_usage"] = response.usage.model_dump(mode="json")
+        if response.context_usage is not None:
+            metadata["context_usage"] = response.context_usage.model_dump(mode="json")
+        if response.run_usage is not None:
+            metadata["run_usage"] = response.run_usage.model_dump(mode="json")
+        if response.model_response_usages:
+            metadata["model_response_usages"] = [
+                usage.model_dump(mode="json") for usage in response.model_response_usages
+            ]
         if response.tool_info is not None:
             metadata["tool_info"] = [
                 tool_info.model_dump(mode="json") for tool_info in response.tool_info
@@ -725,7 +731,7 @@ def _summary_from_compaction_result(
         message.id for message in compacted_messages
     ]
     model = result.metadata.get("model")
-    usage = result.metadata.get("usage")
+    usage = result.metadata.get("run_usage")
     input_token_count = (
         usage_token_count(usage, "input_tokens") if isinstance(usage, dict) else None
     )

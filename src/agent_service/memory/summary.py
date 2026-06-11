@@ -241,7 +241,7 @@ class PydanticAIConversationCompactor(ConversationCompactor):
                 "summary_version": summary_version,
                 "message_sequence_range": message_sequence_range,
                 "target_summary_tokens": self.target_summary_tokens,
-                "usage": usage,
+                "run_usage": usage,
             },
             created_at=current_datetime,
         )
