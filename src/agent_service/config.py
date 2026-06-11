@@ -5,6 +5,11 @@ from typing import Literal, Self
 from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from agent_service.memory_settings import (
+    DEFAULT_MEMORY_COMPACTION_TARGET_SUMMARY_TOKENS,
+    MAX_MEMORY_COMPACTION_TARGET_SUMMARY_TOKENS,
+)
+
 Environment = Literal["local", "dev", "staging", "prod", "test"]
 LogLevel = Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
 AgentProvider = Literal["openrouter"]
@@ -120,7 +125,11 @@ class AppSettings(BaseSettings):
     memory_compaction_worker_error_backoff_seconds: float = Field(default=0.1, ge=0)
     memory_compaction_publish_timeout_seconds: float = Field(default=0.1, ge=0)
     memory_compaction_timeout_seconds: float = Field(default=120.0, gt=0)
-    memory_compaction_target_summary_tokens: int = Field(default=1000, gt=0, le=1200)
+    memory_compaction_target_summary_tokens: int = Field(
+        default=DEFAULT_MEMORY_COMPACTION_TARGET_SUMMARY_TOKENS,
+        gt=0,
+        le=MAX_MEMORY_COMPACTION_TARGET_SUMMARY_TOKENS,
+    )
     memory_compaction_model: str | None = None
     telegram_bot_token: SecretStr | None = None
     telegram_webhook_secret_token: SecretStr | None = None
