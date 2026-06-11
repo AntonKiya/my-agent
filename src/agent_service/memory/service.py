@@ -198,7 +198,7 @@ class DefaultConversationMemoryService(ConversationMemoryService):
     ) -> ConversationMemoryMessage:
         metadata: dict[str, Any] = dict(response.metadata)
         if response.usage is not None:
-            metadata["usage"] = response.usage.model_dump(mode="json")
+            metadata["context_usage"] = response.usage.model_dump(mode="json")
         if response.tool_info is not None:
             metadata["tool_info"] = [
                 tool_info.model_dump(mode="json") for tool_info in response.tool_info
@@ -432,7 +432,7 @@ class DefaultConversationMemoryService(ConversationMemoryService):
                     messages=recent_messages,
                     summary_token_count=_snapshot_summary_token_count(snapshot),
                     summary_created_at=_snapshot_summary_created_at(snapshot),
-                    fallback_reason="assistant_usage_missing_after_snapshot_extend",
+                    fallback_reason="assistant_context_usage_missing_after_snapshot_extend",
                 ),
                 "updated_at": _utc_now(),
             }
@@ -523,7 +523,7 @@ class DefaultConversationMemoryService(ConversationMemoryService):
                     messages=recent_messages,
                     summary_token_count=summary.output_token_count,
                     summary_created_at=summary.created_at,
-                    fallback_reason="assistant_usage_missing_after_compaction",
+                    fallback_reason="assistant_context_usage_missing_after_compaction",
                 ),
                 "metadata": {
                     **snapshot.metadata,
@@ -636,7 +636,7 @@ def _snapshot_from_messages(
             messages=messages,
             summary_token_count=summary.output_token_count if summary is not None else 0,
             summary_created_at=summary.created_at if summary is not None else None,
-            fallback_reason="assistant_usage_missing_during_snapshot_rebuild",
+            fallback_reason="assistant_context_usage_missing_during_snapshot_rebuild",
         ),
         metadata=(
             {
@@ -898,7 +898,7 @@ def _latest_assistant_usage(
             continue
         if summary_created_at is not None and message.created_at <= summary_created_at:
             continue
-        usage = message.metadata.get("usage")
+        usage = message.metadata.get("context_usage")
         if not isinstance(usage, dict):
             continue
         total_tokens = usage_total_token_count(usage)

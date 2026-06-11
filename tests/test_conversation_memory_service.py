@@ -804,7 +804,7 @@ async def test_memory_service_records_assistant_message_with_usage_and_tool_info
     assert stored.role is ConversationMemoryRole.ASSISTANT
     assert stored.trace_id == "trace-response"
     assert stored.metadata["model"] == "test"
-    assert stored.metadata["usage"]["output_tokens"] == 5
+    assert stored.metadata["context_usage"]["output_tokens"] == 5
     assert stored.metadata["tool_info"][0]["tool_name"] == "search"
 
 
@@ -878,7 +878,7 @@ async def test_memory_service_records_pydantic_ai_tool_messages_before_assistant
     assert memory_store.append_calls[3].metadata["content"] == {"items": [{"xml_id": "123"}]}
 
 
-async def test_memory_service_uses_latest_assistant_usage_for_snapshot_tokens() -> None:
+async def test_memory_service_uses_latest_assistant_context_usage_for_snapshot_tokens() -> None:
     resolved_conversation = conversation()
     latest_user = memory_message(
         resolved_conversation=resolved_conversation,
