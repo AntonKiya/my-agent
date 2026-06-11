@@ -1,4 +1,5 @@
 import asyncio
+import logging
 from collections.abc import Collection, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any, Protocol, cast
@@ -13,7 +14,10 @@ from pydantic_ai.toolsets import AgentToolset
 from agent_service.agents.interfaces import AgentBoundary
 from agent_service.agents.models import AgentRequest, AgentResponse, AgentUsage
 from agent_service.instructions import load_base_agent_instructions
+from agent_service.observability.events import log_event
 from agent_service.skills import load_builtin_skill_capabilities
+
+logger = logging.getLogger(__name__)
 
 SAFE_REQUEST_METADATA_KEYS = frozenset({"retry_attempt"})
 SAFE_CONTEXT_METADATA_KEYS = frozenset(
@@ -114,6 +118,12 @@ class PydanticAIAgentBoundary(AgentBoundary):
         usage = _result_usage(result)
         new_messages = _agent_new_messages(result)
         response_usage = _latest_model_response_usage(new_messages) or usage
+        _log_usage_diagnostics(
+            request=request,
+            run_usage=usage,
+            selected_context_usage=response_usage,
+            new_messages=new_messages,
+        )
         text = _response_text(result.output)
         return AgentResponse(
             text=text,
@@ -272,6 +282,76 @@ def _latest_model_response_usage(messages: list[ModelMessage]) -> object | None:
         if _usage_has_tokens(message.usage):
             return message.usage
     return None
+
+
+def _log_usage_diagnostics(
+    *,
+    request: AgentRequest,
+    run_usage: object,
+    selected_context_usage: object,
+    new_messages: list[ModelMessage],
+) -> None:
+    model_response_usages = _model_response_usage_diagnostics(new_messages)
+    log_event(
+        logger,
+        logging.INFO,
+        "Temporary Pydantic AI usage diagnostics",
+        event="pydantic_ai_usage_diagnostics_temp",
+        user_id=str(request.user_id),
+        conversation_id=str(request.conversation_id),
+        inbound_event_id=str(request.inbound_event_id),
+        channel=request.channel,
+        trace_id=request.trace_id,
+        new_message_count=len(new_messages),
+        model_response_count=len(model_response_usages),
+        model_response_usage_count=sum(
+            1 for item in model_response_usages if item["usage"]["has_tokens"]
+        ),
+        new_message_shapes=_new_message_shapes(new_messages),
+        run_usage=_usage_diagnostics(run_usage),
+        selected_context_usage=_usage_diagnostics(selected_context_usage),
+        model_response_usages=model_response_usages,
+    )
+
+
+def _new_message_shapes(messages: list[ModelMessage]) -> list[dict[str, Any]]:
+    return [
+        {
+            "message_index": index,
+            "message_type": type(message).__name__,
+            "part_types": [type(part).__name__ for part in message.parts],
+        }
+        for index, message in enumerate(messages)
+    ]
+
+
+def _model_response_usage_diagnostics(messages: list[ModelMessage]) -> list[dict[str, Any]]:
+    diagnostics: list[dict[str, Any]] = []
+    response_index = 0
+    for message_index, message in enumerate(messages):
+        if not isinstance(message, ModelResponse):
+            continue
+        diagnostics.append(
+            {
+                "message_index": message_index,
+                "model_response_index": response_index,
+                "part_types": [type(part).__name__ for part in message.parts],
+                "usage": _usage_diagnostics(message.usage),
+            }
+        )
+        response_index += 1
+    return diagnostics
+
+
+def _usage_diagnostics(usage: object) -> dict[str, Any]:
+    return {
+        "usage_type": type(usage).__name__,
+        "has_tokens": _usage_has_tokens(usage),
+        "input_tokens": _optional_int_attr(usage, "input_tokens"),
+        "output_tokens": _optional_int_attr(usage, "output_tokens"),
+        "total_tokens": _optional_int_attr(usage, "total_tokens"),
+        "metadata": _usage_metadata(usage),
+    }
 
 
 def _usage_has_tokens(usage: object) -> bool:
