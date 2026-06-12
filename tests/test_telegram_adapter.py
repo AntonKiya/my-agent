@@ -113,6 +113,7 @@ async def test_telegram_adapter_sends_thinking_draft_text() -> None:
         "parse_mode": TELEGRAM_HTML_PARSE_MODE,
         "text": TELEGRAM_THINKING_DRAFT_TEXT,
     }
+    assert TELEGRAM_THINKING_DRAFT_TEXT.startswith("Думаю ")
     assert TELEGRAM_THINKING_DRAFT_CUSTOM_EMOJI_ID in TELEGRAM_THINKING_DRAFT_TEXT
     assert ">💬</tg-emoji>" in TELEGRAM_THINKING_DRAFT_TEXT
 
