@@ -42,6 +42,13 @@ from agent_service.observability.events import (
 )
 from agent_service.observability.tracing import create_trace_id, reset_trace_id, set_trace_id
 from agent_service.outbound import OutboundEvent, OutboundQueue
+from agent_service.quotas import (
+    QuotaMetric,
+    QuotaPeriod,
+    QuotaReservationRequest,
+    QuotaReservationResult,
+    QuotaService,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -50,6 +57,7 @@ SleepCallable = Callable[[float], Awaitable[None]]
 TELEGRAM_CHANNEL = "telegram"
 DEFAULT_AGENT_RETRY_BACKOFF_SECONDS = (1.0, 5.0, 15.0)
 DEFAULT_FALLBACK_TEXT = "Sorry, I could not process that message right now. Please try again later."
+DEFAULT_QUOTA_EXCEEDED_TEXT = "Лимит запросов на сегодня исчерпан 🫣"
 
 
 class ThinkingIndicatorSender(Protocol):
@@ -85,8 +93,10 @@ class InboundWorker:
     agent_boundary: AgentBoundary
     lock_manager: ConversationLockManager
     idempotency_store: InboundIdempotencyStore | None = None
+    quota_service: QuotaService | None = None
     retry_policy: AgentRetryPolicy = field(default_factory=AgentRetryPolicy)
     fallback_text: str = DEFAULT_FALLBACK_TEXT
+    quota_exceeded_text: str = DEFAULT_QUOTA_EXCEEDED_TEXT
     error_backoff_seconds: float = 0.1
     outbound_publish_timeout_seconds: float = 5.0
     thinking_indicator_sender: ThinkingIndicatorSender | None = None
@@ -106,6 +116,8 @@ class InboundWorker:
             raise ValueError("Thinking indicator timeout must be greater than zero")
         if self.compaction_publish_timeout_seconds < 0:
             raise ValueError("Compaction publish timeout must be greater than or equal to zero")
+        if not self.quota_exceeded_text.strip():
+            raise ValueError("Quota exceeded text must not be empty")
 
     async def run_forever(self) -> None:
         while True:
@@ -233,6 +245,12 @@ class InboundWorker:
             )
             if _is_telegram_start_command(event):
                 await self._handle_telegram_start_command(event, conversation=conversation)
+                return
+            quota_reserved = await self._reserve_agent_turn_quota(
+                event,
+                conversation=conversation,
+            )
+            if not quota_reserved:
                 return
             with business_span(
                 "Preprocess inbound content",
@@ -552,6 +570,47 @@ class InboundWorker:
             return False
         return True
 
+    async def _reserve_agent_turn_quota(
+        self,
+        event: InboundEvent,
+        *,
+        conversation: Conversation,
+    ) -> bool:
+        if self.quota_service is None:
+            return True
+        if event.user_id is None:
+            raise UnresolvedInboundEventError("Inbound worker requires event.user_id")
+
+        result = await self.quota_service.reserve(
+            QuotaReservationRequest(
+                user_id=event.user_id,
+                metric=QuotaMetric.AGENT_TURN,
+                period=QuotaPeriod.DAY,
+            )
+        )
+        log_event(
+            logger,
+            logging.INFO,
+            "Agent turn quota reservation completed",
+            event="agent_turn_quota_reserved" if result.allowed else "agent_turn_quota_denied",
+            inbound_event_id=str(event.event_id),
+            conversation_id=str(conversation.id),
+            user_id=str(event.user_id),
+            channel=event.channel,
+            quota_metric=result.metric.value,
+            quota_period=result.period.value,
+            quota_period_start=result.period_start.isoformat(),
+            quota_period_end=result.period_end.isoformat(),
+            quota_used_count=result.used_count,
+            quota_limit_count=result.limit_count,
+            quota_remaining_count=result.remaining_count,
+        )
+        if result.allowed:
+            return True
+
+        await self._handle_quota_exceeded(event, conversation=conversation, result=result)
+        return False
+
     async def _publish_content_processing_fallback(
         self,
         event: InboundEvent,
@@ -759,6 +818,57 @@ class InboundWorker:
             conversation_id=str(conversation.id),
             user_id=str(event.user_id),
             channel=event.channel,
+        )
+
+    async def _handle_quota_exceeded(
+        self,
+        event: InboundEvent,
+        *,
+        conversation: Conversation,
+        result: QuotaReservationResult,
+    ) -> None:
+        if event.user_id is None:
+            raise UnresolvedInboundEventError("Inbound worker requires event.user_id")
+        outbound_event = OutboundEvent(
+            channel=event.channel,
+            user_id=event.user_id,
+            conversation_id=conversation.id,
+            external_chat_id=event.external_chat_id,
+            text=self.quota_exceeded_text,
+            thread_id=event.thread_id,
+            metadata={
+                "quota_exceeded": True,
+                "quota_metric": result.metric.value,
+                "quota_period": result.period.value,
+                "quota_period_start": result.period_start.isoformat(),
+                "quota_reset_at": result.period_end.isoformat(),
+                "failed_inbound_event_id": str(event.event_id),
+            },
+            trace_id=event.trace_id,
+        )
+        await self._publish_outbound(
+            outbound_event,
+            inbound_event=event,
+            conversation_id=conversation.id,
+        )
+        event.status = InboundEventStatus.COMPLETED
+        await self._mark_idempotency_status(event)
+        log_event(
+            logger,
+            logging.INFO,
+            "Quota exceeded response published",
+            event="quota_exceeded_response_published",
+            inbound_event_id=str(event.event_id),
+            outbound_event_id=str(outbound_event.event_id),
+            conversation_id=str(conversation.id),
+            user_id=str(event.user_id),
+            channel=event.channel,
+            quota_metric=result.metric.value,
+            quota_period=result.period.value,
+            quota_period_start=result.period_start.isoformat(),
+            quota_period_end=result.period_end.isoformat(),
+            quota_used_count=result.used_count,
+            quota_limit_count=result.limit_count,
         )
 
     async def _schedule_compaction_if_needed(

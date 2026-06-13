@@ -13,6 +13,7 @@ def test_users_migration_defines_identity_tables_and_constraints() -> None:
         "0006_drop_conversation_messages_token_count.sql",
         "0007_media_assets.sql",
         "0008_reminders.sql",
+        "0009_usage_quotas.sql",
     ]
 
     sql = migrations[0].sql
@@ -49,6 +50,7 @@ def test_migrations_are_loaded_in_version_order() -> None:
         "0006",
         "0007",
         "0008",
+        "0009",
     )
 
 
@@ -158,3 +160,20 @@ def test_reminders_migration_defines_scheduler_and_outbox_tables() -> None:
     assert "locked_until timestamptz" in sql
     assert "locked_by text" in sql
     assert "notification_outbox_status_available_lock_idx" in sql
+
+
+def test_usage_quotas_migration_defines_daily_agent_turn_limits() -> None:
+    migrations = load_sql_migrations()
+
+    sql = migrations[8].sql
+    assert "CREATE TABLE IF NOT EXISTS usage_quota_policies" in sql
+    assert "CREATE TABLE IF NOT EXISTS user_quota_overrides" in sql
+    assert "CREATE TABLE IF NOT EXISTS usage_quota_counters" in sql
+    assert "UNIQUE (metric, period)" in sql
+    assert "UNIQUE (user_id, metric, period)" in sql
+    assert "PRIMARY KEY (user_id, metric, period, period_start)" in sql
+    assert "used_count integer NOT NULL CHECK (used_count >= 0)" in sql
+    assert "'free_beta_default_agent_turn_day'" in sql
+    assert "'agent_turn'" in sql
+    assert "'day'" in sql
+    assert "100" in sql

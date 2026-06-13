@@ -35,6 +35,8 @@ This repository currently contains the service foundation:
 - Agent boundary contracts and Pydantic AI-oriented run context shape.
 - Pydantic AI agent boundary implementation with OpenRouter model factory, run timeout, safe text
   output normalization, and usage mapping.
+- Daily per-user usage quotas for public beta access, enforced before costly content preprocessing,
+  memory preparation, and agent execution.
 - Explicit service-facing agent boundary safety contract: raw transport metadata is not passed into
   Pydantic AI run metadata, successful audio inputs are converted to text before the text-only agent
   boundary, remaining attachment inputs are rejected for the MVP, and empty or non-text model outputs
@@ -82,6 +84,46 @@ question. These fields must not be collapsed into one ambiguous `usage` object:
 The first field answers "how large is the active context now?" The second answers "how many model
 tokens did this assistant turn spend?" The third answers "which model round spent what?"
 
+## Usage Quotas
+
+Public beta usage is protected by a Postgres-backed quota gate in the inbound worker. The current
+default policy is:
+
+- Metric: `agent_turn`
+- Period: `day`
+- Limit: `100`
+- Reset boundary: UTC calendar day
+
+`agent_turn` means one accepted user request that reaches the normal processing path. It is not a
+model provider request and it is not token usage. One user request can still perform multiple model
+rounds or tool calls internally, but it spends one `agent_turn`. Voice, audio, image, and aggregated
+media-group requests also spend one `agent_turn`. Duplicate inbound events and `/start` do not spend
+quota.
+
+The quota check runs after user resolution, idempotency, conversation resolution, and `/start`
+handling, but before transcription, image persistence, memory writes, context preparation, and agent
+execution. When the daily limit is exhausted, the service sends:
+
+```text
+Лимит запросов на сегодня исчерпан 🫣
+```
+
+and stops without writing the denial into conversation memory.
+
+Quota state is split across three tables:
+
+- `usage_quota_policies`: default limits, currently `agent_turn`/`day` = `100`.
+- `user_quota_overrides`: optional per-user custom limits for a metric and period.
+- `usage_quota_counters`: per-user usage counters keyed by `user_id`, `metric`, `period`, and
+  `period_start`.
+
+To raise a specific user's beta limit, insert or update a row in `user_quota_overrides` for that
+`user_id`, `metric = 'agent_turn'`, and `period = 'day'`.
+
+The schema is intentionally metric- and period-oriented. Today only `agent_turn` and `day` are used,
+but the same model can be extended later with periods such as `week` or `month`, and metrics such as
+image analysis, web research, transcription, tokens, or cost.
+
 ## Implemented Guarantees
 
 - Channel adapters do not call the agent directly.
@@ -89,6 +131,7 @@ tokens did this assistant turn spend?" The third answers "which model round spen
 - Stable user identity is based on `(channel, external_user_id)`, not username.
 - Inbound intake has a persistent Postgres idempotency gate keyed by `idempotency_key`, with a
   secondary Telegram update guard on `(channel, external_update_id)`.
+- Usage quota counters are reserved atomically in Postgres before costly request processing.
 - Telegram webhooks are authenticated with `X-Telegram-Bot-Api-Secret-Token`; the webhook secret is
   required in every environment except `test`.
 - Telegram outbound delivery uses an explicit HTTP timeout profile and keep-alive pool for Bot API
