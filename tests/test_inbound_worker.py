@@ -2,6 +2,7 @@ import asyncio
 import logging
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
+from datetime import UTC, datetime, timedelta
 from typing import cast
 from uuid import UUID, uuid4
 
@@ -52,6 +53,12 @@ from agent_service.messaging.in_memory import (
 )
 from agent_service.observability.tracing import get_trace_id, reset_trace_id, set_trace_id
 from agent_service.outbound import OutboundEvent
+from agent_service.quotas import (
+    QuotaMetric,
+    QuotaPeriod,
+    QuotaReservationRequest,
+    QuotaReservationResult,
+)
 
 
 @dataclass(slots=True)
@@ -246,6 +253,28 @@ class FakeContentPreprocessor:
 
 
 @dataclass(slots=True)
+class FakeQuotaService:
+    allowed: bool = True
+    used_count: int = 1
+    limit_count: int = 100
+    requests: list[QuotaReservationRequest] = field(default_factory=list)
+
+    async def reserve(self, request: QuotaReservationRequest) -> QuotaReservationResult:
+        self.requests.append(request)
+        period_start = datetime(2026, 6, 13, tzinfo=UTC)
+        return QuotaReservationResult(
+            allowed=self.allowed,
+            user_id=request.user_id,
+            metric=request.metric,
+            period=request.period,
+            period_start=period_start,
+            period_end=period_start + timedelta(days=1),
+            used_count=self.used_count,
+            limit_count=self.limit_count,
+        )
+
+
+@dataclass(slots=True)
 class TrackingAgentBoundary:
     entered: asyncio.Event
     release: asyncio.Event
@@ -348,6 +377,7 @@ def worker(
     compaction_queue: AsyncioCompactionQueue | None = None,
     compaction_policy: ConversationCompactionPolicy | None = None,
     idempotency_store: InboundIdempotencyStore | None = None,
+    quota_service: FakeQuotaService | None = None,
     retry_policy: AgentRetryPolicy | None = None,
     thinking_indicator_sender: FakeThinkingIndicatorSender | None = None,
     content_preprocessor: FakeContentPreprocessor | None = None,
@@ -365,6 +395,7 @@ def worker(
             agent_boundary=agent_boundary,
             lock_manager=AsyncioConversationLockManager(),
             idempotency_store=idempotency_store,
+            quota_service=quota_service,
             retry_policy=retry_policy or AgentRetryPolicy(max_attempts=1),
             thinking_indicator_sender=thinking_indicator_sender,
             content_preprocessor=cast(InboundContentPreprocessor | None, content_preprocessor),
@@ -407,6 +438,74 @@ async def test_inbound_worker_processes_event_to_outbound_queue() -> None:
     assert "raw_update" not in agent.requests[0].model_dump()
 
 
+async def test_inbound_worker_reserves_agent_turn_quota_before_processing() -> None:
+    user_id = uuid4()
+    resolved_conversation = conversation(user_id=user_id)
+    agent = FakeAgentBoundary(responses=[AgentResponse(text="answer")])
+    quota_service = FakeQuotaService()
+    inbound_worker, _inbound_queue, outbound_queue, memory = worker(
+        conversations_by_chat_id={"12345": resolved_conversation},
+        agent_boundary=agent,
+        quota_service=quota_service,
+    )
+    event = inbound_event(user_id=user_id)
+
+    await inbound_worker.process_event(event)
+
+    outbound = await outbound_queue.consume()
+    assert outbound.text == "answer"
+    assert event.status is InboundEventStatus.COMPLETED
+    assert len(quota_service.requests) == 1
+    quota_request = quota_service.requests[0]
+    assert quota_request.user_id == user_id
+    assert quota_request.metric is QuotaMetric.AGENT_TURN
+    assert quota_request.period is QuotaPeriod.DAY
+    assert len(memory.user_messages) == 1
+    assert len(agent.requests) == 1
+
+
+async def test_inbound_worker_sends_quota_exceeded_without_memory_or_agent() -> None:
+    user_id = uuid4()
+    resolved_conversation = conversation(user_id=user_id)
+    agent = FakeAgentBoundary()
+    quota_service = FakeQuotaService(allowed=False, used_count=100, limit_count=100)
+    content_preprocessor = FakeContentPreprocessor()
+    idempotency_store = FakeIdempotencyStore()
+    inbound_worker, _inbound_queue, outbound_queue, memory = worker(
+        conversations_by_chat_id={"12345": resolved_conversation},
+        agent_boundary=agent,
+        quota_service=quota_service,
+        content_preprocessor=content_preprocessor,
+        idempotency_store=idempotency_store,
+    )
+    event = voice_event(user_id=user_id)
+
+    await inbound_worker.process_event(event)
+
+    outbound = await outbound_queue.consume()
+    assert event.status is InboundEventStatus.COMPLETED
+    assert outbound.text == "Лимит запросов на сегодня исчерпан 🫣"
+    assert outbound.metadata["quota_exceeded"] is True
+    assert outbound.metadata["quota_metric"] == "agent_turn"
+    assert outbound.metadata["quota_period"] == "day"
+    assert outbound.metadata["quota_reset_at"] == "2026-06-14T00:00:00+00:00"
+    assert quota_service.requests == [
+        QuotaReservationRequest(
+            user_id=user_id,
+            metric=QuotaMetric.AGENT_TURN,
+            period=QuotaPeriod.DAY,
+        )
+    ]
+    assert content_preprocessor.events == []
+    assert memory.user_messages == []
+    assert memory.assistant_messages == []
+    assert agent.requests == []
+    assert idempotency_store.statuses == [
+        (event.event_id, InboundEventStatus.PROCESSING, None),
+        (event.event_id, InboundEventStatus.COMPLETED, None),
+    ]
+
+
 async def test_inbound_worker_handles_telegram_start_without_memory_or_agent() -> None:
     user_id = uuid4()
     resolved_conversation = conversation(user_id=user_id)
@@ -439,6 +538,25 @@ async def test_inbound_worker_handles_telegram_start_without_memory_or_agent() -
         (event.event_id, InboundEventStatus.PROCESSING, None),
         (event.event_id, InboundEventStatus.COMPLETED, None),
     ]
+
+
+async def test_inbound_worker_does_not_reserve_quota_for_telegram_start() -> None:
+    user_id = uuid4()
+    resolved_conversation = conversation(user_id=user_id)
+    quota_service = FakeQuotaService()
+    inbound_worker, _inbound_queue, outbound_queue, memory = worker(
+        conversations_by_chat_id={"12345": resolved_conversation},
+        agent_boundary=FakeAgentBoundary(),
+        quota_service=quota_service,
+    )
+    event = inbound_event(user_id=user_id, text="/start")
+
+    await inbound_worker.process_event(event)
+
+    outbound = await outbound_queue.consume()
+    assert outbound.text == TELEGRAM_START_MESSAGE
+    assert quota_service.requests == []
+    assert memory.user_messages == []
 
 
 async def test_inbound_worker_handles_telegram_start_with_payload() -> None:

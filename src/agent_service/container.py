@@ -77,6 +77,7 @@ from agent_service.messaging.in_memory import (
 from agent_service.messaging.interfaces import CompactionQueue, InboundQueue
 from agent_service.observability.events import elapsed_ms, log_event, start_timer
 from agent_service.outbound import OutboundQueue
+from agent_service.quotas import PostgresQuotaService, QuotaService
 from agent_service.reminders import (
     REMINDER_SKILL_ID,
     NotificationOutboxDeliveryWorker,
@@ -166,6 +167,7 @@ class AppContainer:
     media_group_aggregator: RedisInboundMediaGroupAggregator | None = field(init=False)
     reminder_store: ReminderStore | None = field(init=False)
     notification_outbox_store: NotificationOutboxStore | None = field(init=False)
+    quota_service: QuotaService | None = field(init=False)
     agent_boundary: AgentBoundary | None = field(init=False)
     content_preprocessor: InboundContentPreprocessor | None = field(init=False)
     channel_adapters: ChannelAdapterRegistry = field(init=False)
@@ -227,6 +229,7 @@ class AppContainer:
         self.media_group_aggregator = None
         self.reminder_store = None
         self.notification_outbox_store = None
+        self.quota_service = None
         self.agent_boundary = self._build_agent_boundary()
         self.channel_adapters = InMemoryChannelAdapterRegistry()
         self.telegram_adapter = self._build_telegram_adapter()
@@ -302,6 +305,7 @@ class AppContainer:
             self.media_asset_store = None
             self.reminder_store = None
             self.notification_outbox_store = None
+            self.quota_service = None
         if self._redis_client is not None:
             await self._redis_client.aclose()
             self._redis_client = None
@@ -551,12 +555,11 @@ class AppContainer:
             cast(MemoryPostgresPool, self._postgres_pool)
         )
         self.media_asset_store = PostgresMediaAssetStore(self._postgres_pool)
-        self.reminder_store = PostgresReminderStore(
-            cast(ReminderPostgresPool, self._postgres_pool)
-        )
+        self.reminder_store = PostgresReminderStore(cast(ReminderPostgresPool, self._postgres_pool))
         self.notification_outbox_store = PostgresNotificationOutboxStore(
             cast(ReminderPostgresPool, self._postgres_pool)
         )
+        self.quota_service = PostgresQuotaService(self._postgres_pool)
         self.conversation_compaction_store = PostgresConversationCompactionStore(
             cast(MemoryPostgresPool, self._postgres_pool)
         )
@@ -608,6 +611,7 @@ class AppContainer:
                 agent_boundary=self.agent_boundary,
                 lock_manager=self.conversation_lock_manager,
                 idempotency_store=self.inbound_idempotency_store,
+                quota_service=self.quota_service,
                 retry_policy=retry_policy,
                 error_backoff_seconds=self.settings.inbound_worker_error_backoff_seconds,
                 outbound_publish_timeout_seconds=self.settings.outbound_publish_timeout_seconds,
