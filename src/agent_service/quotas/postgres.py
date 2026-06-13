@@ -1,6 +1,5 @@
 from collections.abc import Mapping
 from contextlib import AbstractAsyncContextManager
-from datetime import UTC, datetime
 from typing import Protocol
 
 from agent_service.quotas.interfaces import QuotaService
@@ -8,6 +7,7 @@ from agent_service.quotas.models import (
     QuotaReservationRequest,
     QuotaReservationResult,
     quota_period_bounds,
+    quota_timestamp_utc,
 )
 
 RESERVE_QUOTA_SQL = """
@@ -108,7 +108,7 @@ class PostgresQuotaService(QuotaService):
         self._pool = pool
 
     async def reserve(self, request: QuotaReservationRequest) -> QuotaReservationResult:
-        requested_at = request.requested_at or datetime.now(UTC)
+        requested_at = quota_timestamp_utc(request.requested_at)
         period_start, period_end = quota_period_bounds(
             period=request.period,
             at=requested_at,

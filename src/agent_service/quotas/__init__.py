@@ -5,6 +5,7 @@ from agent_service.quotas.models import (
     QuotaReservationRequest,
     QuotaReservationResult,
     quota_period_bounds,
+    quota_timestamp_utc,
 )
 from agent_service.quotas.postgres import (
     PostgresConnection,
@@ -24,4 +25,5 @@ __all__ = [
     "QuotaReservationResult",
     "QuotaService",
     "quota_period_bounds",
+    "quota_timestamp_utc",
 ]

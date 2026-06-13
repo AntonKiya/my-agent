@@ -41,13 +41,17 @@ def quota_period_bounds(
     period: QuotaPeriod,
     at: datetime | None = None,
 ) -> tuple[datetime, datetime]:
-    timestamp = at or datetime.now(UTC)
-    if timestamp.tzinfo is None:
-        timestamp = timestamp.replace(tzinfo=UTC)
-    timestamp = timestamp.astimezone(UTC)
+    timestamp = quota_timestamp_utc(at)
 
     if period is QuotaPeriod.DAY:
         period_start = datetime.combine(timestamp.date(), time.min, tzinfo=UTC)
         return period_start, period_start + timedelta(days=1)
 
     raise ValueError(f"Unsupported quota period: {period}")
+
+
+def quota_timestamp_utc(at: datetime | None = None) -> datetime:
+    timestamp = at or datetime.now(UTC)
+    if timestamp.tzinfo is None:
+        timestamp = timestamp.replace(tzinfo=UTC)
+    return timestamp.astimezone(UTC)
