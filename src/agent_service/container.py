@@ -322,6 +322,7 @@ class AppContainer:
             bot_token=self.settings.telegram_bot_token,
             client=self._telegram_http_client,
             render_markdown=self.settings.telegram_render_markdown,
+            rich_messages_enabled=self.settings.telegram_rich_messages_enabled,
         )
 
     def _build_agent_boundary(self) -> AgentBoundary | None:

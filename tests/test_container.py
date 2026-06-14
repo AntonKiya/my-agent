@@ -241,10 +241,12 @@ async def test_container_registers_telegram_adapter_when_token_is_configured() -
         telegram_http_read_timeout_seconds=31.0,
         telegram_http_write_timeout_seconds=12.0,
         telegram_http_pool_timeout_seconds=13.0,
+        telegram_rich_messages_enabled=True,
     )
     container = AppContainer(settings=settings)
 
     assert isinstance(container.telegram_adapter, TelegramAdapter)
+    assert container.telegram_adapter.rich_messages_enabled
     assert container.channel_adapters.get("telegram") is container.telegram_adapter
     telegram_http_client = container._telegram_http_client
     assert telegram_http_client is not None

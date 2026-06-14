@@ -21,6 +21,7 @@ def test_postgres_pool_settings_have_safe_defaults() -> None:
     assert settings.telegram_http_write_timeout_seconds == 10.0
     assert settings.telegram_http_pool_timeout_seconds == 10.0
     assert settings.telegram_http_keepalive_expiry_seconds == 60.0
+    assert not settings.telegram_rich_messages_enabled
     assert not settings.telegram_thinking_draft_enabled
     assert settings.telegram_thinking_draft_timeout_seconds == 1.0
     assert settings.telegram_media_group_debounce_seconds == 2.0

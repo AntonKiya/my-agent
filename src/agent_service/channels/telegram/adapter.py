@@ -17,6 +17,7 @@ from agent_service.outbound.models import OutboundEvent
 TELEGRAM_CHANNEL = "telegram"
 TELEGRAM_TEXT_LIMIT = 4096
 TELEGRAM_SEND_MESSAGE_METHOD = "sendMessage"
+TELEGRAM_SEND_RICH_MESSAGE_METHOD = "sendRichMessage"
 TELEGRAM_SEND_MESSAGE_DRAFT_METHOD = "sendMessageDraft"
 TELEGRAM_MAX_DRAFT_ID = 2_147_483_647
 TELEGRAM_THINKING_DRAFT_CUSTOM_EMOJI_ID = "5443038326535759644"
@@ -42,6 +43,7 @@ class TelegramAdapter(ChannelAdapter):
     api_base_url: str = "https://api.telegram.org"
     parse_mode: str | None = None
     render_markdown: bool = False
+    rich_messages_enabled: bool = False
     channel: str = TELEGRAM_CHANNEL
 
     def __post_init__(self) -> None:
@@ -76,7 +78,7 @@ class TelegramAdapter(ChannelAdapter):
 
         external_message_ids: list[str] = []
         for chunk in split_telegram_text(event.text):
-            attempt = await self._send_chunk(event, self._format_text(chunk))
+            attempt = await self._send_chunk(event, chunk)
             if attempt.status is not DeliveryStatus.SENT:
                 return DeliveryResult(
                     event_id=event.event_id,
@@ -127,10 +129,34 @@ class TelegramAdapter(ChannelAdapter):
         )
 
     async def _send_chunk(self, event: OutboundEvent, text: str) -> TelegramSendAttempt:
+        if self.rich_messages_enabled:
+            rich_attempt = await self._send_rich_chunk(event, text)
+            if not _should_fallback_from_rich_attempt(rich_attempt):
+                return rich_attempt
+
+        return await self._send_regular_chunk(event, self._format_text(text))
+
+    async def _send_regular_chunk(self, event: OutboundEvent, text: str) -> TelegramSendAttempt:
         try:
             response = await self.client.post(
                 self._method_url(TELEGRAM_SEND_MESSAGE_METHOD),
                 json=self._send_message_payload(event, text),
+            )
+        except httpx.TransportError as exc:
+            return TelegramSendAttempt(
+                status=DeliveryStatus.FAILED_RETRYABLE,
+                error_code=_transport_error_code(exc),
+                error_message=_transport_error_message(exc),
+                metadata={"error_type": type(exc).__name__},
+            )
+
+        return self._send_attempt_from_response(response)
+
+    async def _send_rich_chunk(self, event: OutboundEvent, text: str) -> TelegramSendAttempt:
+        try:
+            response = await self.client.post(
+                self._method_url(TELEGRAM_SEND_RICH_MESSAGE_METHOD),
+                json=self._send_rich_message_payload(event, text),
             )
         except httpx.TransportError as exc:
             return TelegramSendAttempt(
@@ -243,6 +269,22 @@ class TelegramAdapter(ChannelAdapter):
 
         return payload
 
+    def _send_rich_message_payload(self, event: OutboundEvent, text: str) -> dict[str, Any]:
+        payload: dict[str, Any] = {
+            "chat_id": event.external_chat_id,
+            "rich_message": {"markdown": text},
+        }
+
+        thread_id = _numeric_string_to_int(event.thread_id)
+        if thread_id is not None:
+            payload["message_thread_id"] = thread_id
+
+        reply_to_message_id = _numeric_string_to_int(event.reply_to_message_id)
+        if reply_to_message_id is not None:
+            payload["reply_parameters"] = {"message_id": reply_to_message_id}
+
+        return payload
+
     def _format_text(self, text: str) -> str:
         if not self.render_markdown:
             return text
@@ -312,6 +354,15 @@ def _numeric_string_to_int(value: str | None) -> int | None:
     if not value.isdecimal():
         return None
     return int(value)
+
+
+def _should_fallback_from_rich_attempt(attempt: TelegramSendAttempt) -> bool:
+    return attempt.status is DeliveryStatus.DEAD_LETTER and attempt.error_code in {
+        "telegram_400",
+        "telegram_http_400",
+        "telegram_404",
+        "telegram_http_404",
+    }
 
 
 def _transport_error_code(exc: httpx.TransportError) -> str:

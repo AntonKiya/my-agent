@@ -84,6 +84,110 @@ async def test_telegram_adapter_sends_text_message() -> None:
     }
 
 
+async def test_telegram_adapter_sends_rich_markdown_when_enabled() -> None:
+    requests: list[httpx.Request] = []
+    markdown_table = "\n".join(
+        [
+            "Добавил:",
+            "| Товар | Цена |",
+            "|-------|------|",
+            "| Спагетти, 400г | 89₽ |",
+        ]
+    )
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(
+            200,
+            json={"ok": True, "result": {"message_id": 100}},
+        )
+
+    async with make_client(handler) as client:
+        adapter = TelegramAdapter(bot_token="token", client=client, rich_messages_enabled=True)
+        result = await adapter.send(make_outbound_event(text=markdown_table))
+
+    assert result.status is DeliveryStatus.SENT
+    assert result.external_message_ids == ["100"]
+    assert len(requests) == 1
+    assert str(requests[0].url) == "https://api.telegram.org/bottoken/sendRichMessage"
+    assert _request_json(requests[0]) == {
+        "chat_id": "12345",
+        "rich_message": {"markdown": markdown_table},
+    }
+
+
+async def test_telegram_adapter_falls_back_to_regular_message_on_rich_dead_letter() -> None:
+    requests: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        if str(request.url).endswith("/sendRichMessage"):
+            return httpx.Response(
+                400,
+                json={
+                    "ok": False,
+                    "error_code": 400,
+                    "description": "Bad Request: can't parse rich message",
+                },
+            )
+        return httpx.Response(
+            200,
+            json={"ok": True, "result": {"message_id": 101}},
+        )
+
+    async with make_client(handler) as client:
+        adapter = TelegramAdapter(bot_token="token", client=client, rich_messages_enabled=True)
+        result = await adapter.send(make_outbound_event(text="hello"))
+
+    assert result.status is DeliveryStatus.SENT
+    assert result.external_message_ids == ["101"]
+    assert [str(request.url) for request in requests] == [
+        "https://api.telegram.org/bottoken/sendRichMessage",
+        "https://api.telegram.org/bottoken/sendMessage",
+    ]
+    assert _request_json(requests[1]) == {
+        "chat_id": "12345",
+        "text": "hello",
+    }
+
+
+async def test_telegram_adapter_does_not_fallback_on_retryable_rich_errors() -> None:
+    requests: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(503, json={"ok": False})
+
+    async with make_client(handler) as client:
+        adapter = TelegramAdapter(bot_token="token", client=client, rich_messages_enabled=True)
+        result = await adapter.send(make_outbound_event(text="hello"))
+
+    assert result.status is DeliveryStatus.FAILED_RETRYABLE
+    assert result.error_code == "telegram_http_503"
+    assert len(requests) == 1
+    assert str(requests[0].url) == "https://api.telegram.org/bottoken/sendRichMessage"
+
+
+async def test_telegram_adapter_does_not_fallback_on_rich_permission_errors() -> None:
+    requests: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(
+            403,
+            json={"ok": False, "error_code": 403, "description": "Forbidden"},
+        )
+
+    async with make_client(handler) as client:
+        adapter = TelegramAdapter(bot_token="token", client=client, rich_messages_enabled=True)
+        result = await adapter.send(make_outbound_event(text="hello"))
+
+    assert result.status is DeliveryStatus.DEAD_LETTER
+    assert result.error_code == "telegram_403"
+    assert len(requests) == 1
+    assert str(requests[0].url) == "https://api.telegram.org/bottoken/sendRichMessage"
+
+
 async def test_telegram_adapter_satisfies_channel_adapter_protocol() -> None:
     async with make_client(lambda _request: httpx.Response(200)) as client:
         adapter: ChannelAdapter = TelegramAdapter(bot_token="token", client=client)
@@ -336,6 +440,32 @@ async def test_telegram_adapter_includes_optional_thread_and_reply_ids() -> None
             "parse_mode": "HTML",
             "message_thread_id": 11,
             "reply_to_message_id": 22,
+        }
+    ]
+
+
+async def test_telegram_adapter_includes_thread_and_reply_parameters_in_rich_messages() -> None:
+    payloads: list[dict[str, object]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        payloads.append(_request_json(request))
+        return httpx.Response(200, json={"ok": True, "result": {"message_id": 100}})
+
+    event = make_outbound_event(text="hello")
+    event.thread_id = "11"
+    event.reply_to_message_id = "22"
+
+    async with make_client(handler) as client:
+        adapter = TelegramAdapter(bot_token="token", client=client, rich_messages_enabled=True)
+        result = await adapter.send(event)
+
+    assert result.status is DeliveryStatus.SENT
+    assert payloads == [
+        {
+            "chat_id": "12345",
+            "rich_message": {"markdown": "hello"},
+            "message_thread_id": 11,
+            "reply_parameters": {"message_id": 22},
         }
     ]
 

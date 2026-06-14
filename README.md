@@ -347,6 +347,7 @@ AGENT_SERVICE_REDIS_DSN=redis://:agent_service_redis_local_password@127.0.0.1:63
 AGENT_SERVICE_TELEGRAM_BOT_TOKEN=
 AGENT_SERVICE_TELEGRAM_WEBHOOK_SECRET_TOKEN=
 AGENT_SERVICE_TELEGRAM_RENDER_MARKDOWN=false
+AGENT_SERVICE_TELEGRAM_RICH_MESSAGES_ENABLED=false
 AGENT_SERVICE_TELEGRAM_THINKING_DRAFT_ENABLED=false
 AGENT_SERVICE_TELEGRAM_THINKING_DRAFT_TIMEOUT_SECONDS=1.0
 AGENT_SERVICE_TELEGRAM_HTTP_CONNECT_TIMEOUT_SECONDS=10.0
@@ -370,6 +371,12 @@ queue.
 `AGENT_SERVICE_TELEGRAM_WEBHOOK_SECRET_TOKEN` enables Telegram webhook header verification with
 `X-Telegram-Bot-Api-Secret-Token`. The check runs before update normalization or intake. The secret
 is required in every environment except `test`, so misconfigured deployments fail fast at startup.
+
+`AGENT_SERVICE_TELEGRAM_RICH_MESSAGES_ENABLED` sends final Telegram text replies through
+`sendRichMessage` with Rich Markdown, which lets Telegram render supported Markdown tables and other
+rich blocks natively. Rich payload rejections and unsupported rich-method responses fall back to the
+existing `sendMessage` path; temporary Telegram errors and permission failures keep the normal retry
+or dead-letter behavior.
 
 `AGENT_SERVICE_AGENT_PROVIDER=openrouter` selects OpenRouter-backed agent configuration. The
 container creates a managed `PydanticAIAgentBoundary` only when `AGENT_SERVICE_AGENT_MODEL` and
