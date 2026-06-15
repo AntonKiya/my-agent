@@ -129,7 +129,7 @@ class TelegramAdapter(ChannelAdapter):
         )
 
     async def _send_chunk(self, event: OutboundEvent, text: str) -> TelegramSendAttempt:
-        if self.rich_messages_enabled:
+        if self.rich_messages_enabled and should_send_rich_message(text):
             rich_attempt = await self._send_rich_chunk(event, text)
             if not _should_fallback_from_rich_attempt(rich_attempt):
                 return rich_attempt
@@ -346,6 +346,85 @@ def split_telegram_text(text: str, limit: int = TELEGRAM_TEXT_LIMIT) -> list[str
 
 def telegram_draft_id(event_id: UUID) -> int:
     return event_id.int % TELEGRAM_MAX_DRAFT_ID + 1
+
+
+def should_send_rich_message(text: str) -> bool:
+    return has_markdown_table(text) or has_block_math(text)
+
+
+def has_markdown_table(text: str) -> bool:
+    lines = text.splitlines()
+    in_code_block = False
+    previous_table_columns: int | None = None
+
+    for line in lines:
+        stripped = line.strip()
+        if stripped.startswith("```"):
+            in_code_block = not in_code_block
+            previous_table_columns = None
+            continue
+        if in_code_block:
+            continue
+
+        table_columns = _table_row_column_count(stripped)
+        if table_columns is not None:
+            if previous_table_columns is not None and _is_markdown_table_delimiter(stripped):
+                return previous_table_columns == table_columns
+            previous_table_columns = table_columns
+            continue
+
+        previous_table_columns = None
+
+    return False
+
+
+def has_block_math(text: str) -> bool:
+    in_code_block = False
+    open_math_block = False
+
+    for line in text.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("```"):
+            in_code_block = not in_code_block
+            continue
+        if in_code_block:
+            continue
+
+        delimiter_count = stripped.count("$$")
+        if delimiter_count >= 2:
+            return True
+        if delimiter_count == 1:
+            if open_math_block:
+                return True
+            open_math_block = True
+
+    return False
+
+
+def _table_row_column_count(stripped_line: str) -> int | None:
+    if "|" not in stripped_line:
+        return None
+    cells = [cell.strip() for cell in stripped_line.strip("|").split("|")]
+    if len(cells) < 2 or any(cell == "" for cell in cells):
+        return None
+    return len(cells)
+
+
+def _is_markdown_table_delimiter(stripped_line: str) -> bool:
+    cells = [cell.strip() for cell in stripped_line.strip("|").split("|")]
+    if len(cells) < 2:
+        return False
+    return all(_is_markdown_table_delimiter_cell(cell) for cell in cells)
+
+
+def _is_markdown_table_delimiter_cell(cell: str) -> bool:
+    if len(cell) < 3:
+        return False
+    if cell.startswith(":"):
+        cell = cell[1:]
+    if cell.endswith(":"):
+        cell = cell[:-1]
+    return len(cell) >= 3 and set(cell) == {"-"}
 
 
 def _numeric_string_to_int(value: str | None) -> int | None:

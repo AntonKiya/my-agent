@@ -12,6 +12,9 @@ from agent_service.channels.telegram.adapter import (
     TELEGRAM_THINKING_DRAFT_CUSTOM_EMOJI_ID,
     TELEGRAM_THINKING_DRAFT_TEXT,
     TelegramAdapter,
+    has_block_math,
+    has_markdown_table,
+    should_send_rich_message,
     telegram_draft_id,
 )
 from agent_service.channels.telegram.formatting import (
@@ -116,8 +119,57 @@ async def test_telegram_adapter_sends_rich_markdown_when_enabled() -> None:
     }
 
 
+async def test_telegram_adapter_sends_regular_message_without_rich_only_blocks() -> None:
+    requests: list[httpx.Request] = []
+    text = "Привет, я Понг.\n\nМогу помочь с задачами, фото и голосовыми."
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(
+            200,
+            json={"ok": True, "result": {"message_id": 100}},
+        )
+
+    async with make_client(handler) as client:
+        adapter = TelegramAdapter(bot_token="token", client=client, rich_messages_enabled=True)
+        result = await adapter.send(make_outbound_event(text=text))
+
+    assert result.status is DeliveryStatus.SENT
+    assert len(requests) == 1
+    assert str(requests[0].url) == "https://api.telegram.org/bottoken/sendMessage"
+    assert _request_json(requests[0]) == {
+        "chat_id": "12345",
+        "text": text,
+    }
+
+
+async def test_telegram_adapter_sends_block_math_as_rich_markdown() -> None:
+    requests: list[httpx.Request] = []
+    text = "Находим дискриминант:\n\n$$D = b^2 - 4ac$$"
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(
+            200,
+            json={"ok": True, "result": {"message_id": 100}},
+        )
+
+    async with make_client(handler) as client:
+        adapter = TelegramAdapter(bot_token="token", client=client, rich_messages_enabled=True)
+        result = await adapter.send(make_outbound_event(text=text))
+
+    assert result.status is DeliveryStatus.SENT
+    assert len(requests) == 1
+    assert str(requests[0].url) == "https://api.telegram.org/bottoken/sendRichMessage"
+    assert _request_json(requests[0]) == {
+        "chat_id": "12345",
+        "rich_message": {"markdown": text},
+    }
+
+
 async def test_telegram_adapter_falls_back_to_regular_message_on_rich_dead_letter() -> None:
     requests: list[httpx.Request] = []
+    text = "| A | B |\n|---|---|\n| 1 | 2 |"
 
     def handler(request: httpx.Request) -> httpx.Response:
         requests.append(request)
@@ -137,7 +189,7 @@ async def test_telegram_adapter_falls_back_to_regular_message_on_rich_dead_lette
 
     async with make_client(handler) as client:
         adapter = TelegramAdapter(bot_token="token", client=client, rich_messages_enabled=True)
-        result = await adapter.send(make_outbound_event(text="hello"))
+        result = await adapter.send(make_outbound_event(text=text))
 
     assert result.status is DeliveryStatus.SENT
     assert result.external_message_ids == ["101"]
@@ -147,12 +199,13 @@ async def test_telegram_adapter_falls_back_to_regular_message_on_rich_dead_lette
     ]
     assert _request_json(requests[1]) == {
         "chat_id": "12345",
-        "text": "hello",
+        "text": text,
     }
 
 
 async def test_telegram_adapter_does_not_fallback_on_retryable_rich_errors() -> None:
     requests: list[httpx.Request] = []
+    text = "| A | B |\n|---|---|\n| 1 | 2 |"
 
     def handler(request: httpx.Request) -> httpx.Response:
         requests.append(request)
@@ -160,7 +213,7 @@ async def test_telegram_adapter_does_not_fallback_on_retryable_rich_errors() -> 
 
     async with make_client(handler) as client:
         adapter = TelegramAdapter(bot_token="token", client=client, rich_messages_enabled=True)
-        result = await adapter.send(make_outbound_event(text="hello"))
+        result = await adapter.send(make_outbound_event(text=text))
 
     assert result.status is DeliveryStatus.FAILED_RETRYABLE
     assert result.error_code == "telegram_http_503"
@@ -170,6 +223,7 @@ async def test_telegram_adapter_does_not_fallback_on_retryable_rich_errors() -> 
 
 async def test_telegram_adapter_does_not_fallback_on_rich_permission_errors() -> None:
     requests: list[httpx.Request] = []
+    text = "| A | B |\n|---|---|\n| 1 | 2 |"
 
     def handler(request: httpx.Request) -> httpx.Response:
         requests.append(request)
@@ -180,7 +234,7 @@ async def test_telegram_adapter_does_not_fallback_on_rich_permission_errors() ->
 
     async with make_client(handler) as client:
         adapter = TelegramAdapter(bot_token="token", client=client, rich_messages_enabled=True)
-        result = await adapter.send(make_outbound_event(text="hello"))
+        result = await adapter.send(make_outbound_event(text=text))
 
     assert result.status is DeliveryStatus.DEAD_LETTER
     assert result.error_code == "telegram_403"
@@ -446,12 +500,13 @@ async def test_telegram_adapter_includes_optional_thread_and_reply_ids() -> None
 
 async def test_telegram_adapter_includes_thread_and_reply_parameters_in_rich_messages() -> None:
     payloads: list[dict[str, object]] = []
+    text = "| A | B |\n|---|---|\n| 1 | 2 |"
 
     def handler(request: httpx.Request) -> httpx.Response:
         payloads.append(_request_json(request))
         return httpx.Response(200, json={"ok": True, "result": {"message_id": 100}})
 
-    event = make_outbound_event(text="hello")
+    event = make_outbound_event(text=text)
     event.thread_id = "11"
     event.reply_to_message_id = "22"
 
@@ -463,7 +518,7 @@ async def test_telegram_adapter_includes_thread_and_reply_parameters_in_rich_mes
     assert payloads == [
         {
             "chat_id": "12345",
-            "rich_message": {"markdown": "hello"},
+            "rich_message": {"markdown": text},
             "message_thread_id": 11,
             "reply_parameters": {"message_id": 22},
         }
@@ -491,6 +546,36 @@ async def test_telegram_adapter_can_render_markdown_as_telegram_html() -> None:
             "parse_mode": "HTML",
         }
     ]
+
+
+def test_should_send_rich_message_detects_markdown_tables() -> None:
+    assert should_send_rich_message("| A | B |\n|---|---|\n| 1 | 2 |")
+    assert has_markdown_table("| A | B |\n|:---|---:|\n| 1 | 2 |")
+
+
+def test_should_send_rich_message_detects_block_math() -> None:
+    assert should_send_rich_message("Находим:\n\n$$D = b^2 - 4ac$$")
+    assert has_block_math("$$\nx = \\frac{-b}{2a}\n$$")
+
+
+def test_should_send_rich_message_ignores_regular_prose_and_inline_dollars() -> None:
+    text = "Могу помочь с кучей всего:\n\nПокупки — соберу корзину.\n\nЦена $100."
+
+    assert not should_send_rich_message(text)
+
+
+def test_should_send_rich_message_ignores_tables_and_math_inside_code_blocks() -> None:
+    text = "\n".join(
+        [
+            "```",
+            "| A | B |",
+            "|---|---|",
+            "$$D = b^2 - 4ac$$",
+            "```",
+        ]
+    )
+
+    assert not should_send_rich_message(text)
 
 
 def test_markdown_to_telegram_html_escapes_plain_text() -> None:
