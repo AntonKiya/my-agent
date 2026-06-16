@@ -14,6 +14,7 @@ def test_users_migration_defines_identity_tables_and_constraints() -> None:
         "0007_media_assets.sql",
         "0008_reminders.sql",
         "0009_usage_quotas.sql",
+        "0010_feedback.sql",
     ]
 
     sql = migrations[0].sql
@@ -51,6 +52,7 @@ def test_migrations_are_loaded_in_version_order() -> None:
         "0007",
         "0008",
         "0009",
+        "0010",
     )
 
 
@@ -177,3 +179,21 @@ def test_usage_quotas_migration_defines_daily_agent_turn_limits() -> None:
     assert "'agent_turn'" in sql
     assert "'day'" in sql
     assert "100" in sql
+
+
+def test_feedback_migration_defines_channel_agnostic_feedback_table() -> None:
+    migrations = load_sql_migrations()
+
+    sql = migrations[9].sql
+    assert "CREATE TABLE IF NOT EXISTS feedback" in sql
+    assert "user_id uuid NOT NULL REFERENCES users(id) ON DELETE RESTRICT" in sql
+    assert "conversation_id uuid NOT NULL REFERENCES conversations(id) ON DELETE RESTRICT" in sql
+    assert "source_channel text NOT NULL" in sql
+    assert "source_external_user_id text NOT NULL" in sql
+    assert "source_external_chat_id text NOT NULL" in sql
+    assert "source_inbound_event_id uuid REFERENCES inbound_event_processing(event_id)" in sql
+    assert "request_inbound_event_id uuid REFERENCES inbound_event_processing(event_id)" in sql
+    assert "metadata jsonb NOT NULL DEFAULT '{}'::jsonb" in sql
+    assert "UNIQUE (source_inbound_event_id)" in sql
+    assert "feedback_user_created_at_idx" in sql
+    assert "feedback_source_channel_created_at_idx" in sql

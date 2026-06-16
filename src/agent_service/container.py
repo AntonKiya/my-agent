@@ -27,7 +27,14 @@ from agent_service.conversations import (
 from agent_service.conversations import (
     PostgresPool as ConversationPostgresPool,
 )
-from agent_service.delivery import DeliveryRetryPolicy, DeliveryWorker
+from agent_service.delivery import DeliveryRetryPolicy, DeliveryStatus, DeliveryWorker
+from agent_service.feedback import (
+    FeedbackStateStore,
+    FeedbackStore,
+    InMemoryFeedbackStateStore,
+    PostgresFeedbackStore,
+    RedisFeedbackStateStore,
+)
 from agent_service.image_analysis import (
     OpenRouterVisionAnalyzer,
     build_image_analysis_toolsets,
@@ -165,6 +172,8 @@ class AppContainer:
     memory_service: ConversationMemoryService | None = field(init=False)
     media_asset_store: MediaAssetStore | None = field(init=False)
     media_group_aggregator: RedisInboundMediaGroupAggregator | None = field(init=False)
+    feedback_store: FeedbackStore | None = field(init=False)
+    feedback_state_store: FeedbackStateStore = field(init=False)
     reminder_store: ReminderStore | None = field(init=False)
     notification_outbox_store: NotificationOutboxStore | None = field(init=False)
     quota_service: QuotaService | None = field(init=False)
@@ -227,6 +236,8 @@ class AppContainer:
         self.memory_service = None
         self.media_asset_store = None
         self.media_group_aggregator = None
+        self.feedback_store = None
+        self.feedback_state_store = InMemoryFeedbackStateStore()
         self.reminder_store = None
         self.notification_outbox_store = None
         self.quota_service = None
@@ -252,6 +263,7 @@ class AppContainer:
                 self.content_preprocessor = self._build_content_preprocessor()
             await self._start_redis_dependencies()
             await self._start_postgres_dependencies()
+            await self._configure_telegram_bot_commands()
             self._start_media_group_flush_worker()
             self._start_inbound_workers()
             self._start_reminder_workers()
@@ -303,6 +315,7 @@ class AppContainer:
             self.conversation_compaction_store = None
             self.memory_service = None
             self.media_asset_store = None
+            self.feedback_store = None
             self.reminder_store = None
             self.notification_outbox_store = None
             self.quota_service = None
@@ -311,6 +324,7 @@ class AppContainer:
             self._redis_client = None
             self.conversation_snapshot_store = None
             self.media_group_aggregator = None
+            self.feedback_state_store = InMemoryFeedbackStateStore()
         self._started = False
 
     def _build_telegram_adapter(self) -> TelegramAdapter | None:
@@ -530,6 +544,7 @@ class AppContainer:
             ttl_seconds=self.settings.telegram_media_group_ttl_seconds,
             lock_ttl_seconds=self.settings.telegram_media_group_lock_ttl_seconds,
         )
+        self.feedback_state_store = RedisFeedbackStateStore(self._redis_client)
 
     async def _start_postgres_dependencies(self) -> None:
         if self.settings.postgres_dsn is None:
@@ -556,6 +571,7 @@ class AppContainer:
             cast(MemoryPostgresPool, self._postgres_pool)
         )
         self.media_asset_store = PostgresMediaAssetStore(self._postgres_pool)
+        self.feedback_store = PostgresFeedbackStore(self._postgres_pool)
         self.reminder_store = PostgresReminderStore(cast(ReminderPostgresPool, self._postgres_pool))
         self.notification_outbox_store = PostgresNotificationOutboxStore(
             cast(ReminderPostgresPool, self._postgres_pool)
@@ -613,6 +629,8 @@ class AppContainer:
                 lock_manager=self.conversation_lock_manager,
                 idempotency_store=self.inbound_idempotency_store,
                 quota_service=self.quota_service,
+                feedback_store=self.feedback_store,
+                feedback_state_store=self.feedback_state_store,
                 retry_policy=retry_policy,
                 error_backoff_seconds=self.settings.inbound_worker_error_backoff_seconds,
                 outbound_publish_timeout_seconds=self.settings.outbound_publish_timeout_seconds,
@@ -640,6 +658,32 @@ class AppContainer:
                 name=f"inbound-worker-{index + 1}",
                 group="inbound",
             )
+
+    async def _configure_telegram_bot_commands(self) -> None:
+        if self.settings.environment == "test":
+            return
+        if self.telegram_adapter is None:
+            return
+        attempt = await self.telegram_adapter.set_bot_commands()
+        if attempt.status is DeliveryStatus.SENT:
+            log_event(
+                logger,
+                logging.INFO,
+                "Telegram bot commands configured",
+                event="telegram_bot_commands_configured",
+                channel=self.telegram_adapter.channel,
+            )
+            return
+        log_event(
+            logger,
+            logging.WARNING,
+            "Telegram bot commands configuration failed",
+            event="telegram_bot_commands_configuration_failed",
+            channel=self.telegram_adapter.channel,
+            status=attempt.status.value,
+            error_code=attempt.error_code,
+            error_message=attempt.error_message,
+        )
 
     def _start_media_group_flush_worker(self) -> None:
         if self.media_group_aggregator is None:

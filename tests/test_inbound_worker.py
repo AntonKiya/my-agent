@@ -25,6 +25,12 @@ from agent_service.channels import (
 )
 from agent_service.conversations import AsyncioConversationLockManager, Conversation
 from agent_service.delivery import DeliveryResult, DeliveryStatus
+from agent_service.feedback import (
+    FeedbackEntry,
+    FeedbackStateStore,
+    InMemoryFeedbackStateStore,
+    PendingFeedback,
+)
 from agent_service.inbound import (
     AgentRetryPolicy,
     ContentProcessingError,
@@ -35,7 +41,12 @@ from agent_service.inbound import (
     OutboundOverloadedError,
     UnresolvedInboundEventError,
 )
-from agent_service.inbound.static_responses import TELEGRAM_START_MESSAGE
+from agent_service.inbound.static_responses import (
+    FEEDBACK_RECORDED_MESSAGE,
+    FEEDBACK_TEXT_ONLY_MESSAGE,
+    TELEGRAM_FEEDBACK_PROMPT,
+    TELEGRAM_START_MESSAGE,
+)
 from agent_service.memory import (
     ConversationCompactionDecision,
     ConversationCompactionPolicy,
@@ -275,6 +286,15 @@ class FakeQuotaService:
 
 
 @dataclass(slots=True)
+class FakeFeedbackStore:
+    feedback: list[FeedbackEntry] = field(default_factory=list)
+
+    async def create(self, *, feedback: FeedbackEntry) -> FeedbackEntry:
+        self.feedback.append(feedback)
+        return feedback
+
+
+@dataclass(slots=True)
 class TrackingAgentBoundary:
     entered: asyncio.Event
     release: asyncio.Event
@@ -378,6 +398,8 @@ def worker(
     compaction_policy: ConversationCompactionPolicy | None = None,
     idempotency_store: InboundIdempotencyStore | None = None,
     quota_service: FakeQuotaService | None = None,
+    feedback_store: FakeFeedbackStore | None = None,
+    feedback_state_store: FeedbackStateStore | None = None,
     retry_policy: AgentRetryPolicy | None = None,
     thinking_indicator_sender: FakeThinkingIndicatorSender | None = None,
     content_preprocessor: FakeContentPreprocessor | None = None,
@@ -396,6 +418,8 @@ def worker(
             lock_manager=AsyncioConversationLockManager(),
             idempotency_store=idempotency_store,
             quota_service=quota_service,
+            feedback_store=feedback_store,
+            feedback_state_store=feedback_state_store,
             retry_policy=retry_policy or AgentRetryPolicy(max_attempts=1),
             thinking_indicator_sender=thinking_indicator_sender,
             content_preprocessor=cast(InboundContentPreprocessor | None, content_preprocessor),
@@ -577,6 +601,149 @@ async def test_inbound_worker_handles_telegram_start_with_payload() -> None:
     assert memory.user_messages == []
     assert memory.assistant_messages == []
     assert agent.requests == []
+
+
+async def test_inbound_worker_handles_telegram_feedback_command_without_memory_or_agent() -> None:
+    user_id = uuid4()
+    resolved_conversation = conversation(user_id=user_id)
+    agent = FakeAgentBoundary()
+    quota_service = FakeQuotaService()
+    feedback_store = FakeFeedbackStore()
+    feedback_state_store = InMemoryFeedbackStateStore()
+    inbound_worker, _inbound_queue, outbound_queue, memory = worker(
+        conversations_by_chat_id={"12345": resolved_conversation},
+        agent_boundary=agent,
+        quota_service=quota_service,
+        feedback_store=feedback_store,
+        feedback_state_store=feedback_state_store,
+    )
+    event = inbound_event(user_id=user_id, text="/feedback")
+
+    await inbound_worker.process_event(event)
+
+    outbound = await outbound_queue.consume()
+    pending = await feedback_state_store.get_pending(conversation_id=resolved_conversation.id)
+    assert pending is not None
+    assert pending.user_id == user_id
+    assert pending.conversation_id == resolved_conversation.id
+    assert pending.request_inbound_event_id == event.event_id
+    assert event.status is InboundEventStatus.COMPLETED
+    assert outbound.text == TELEGRAM_FEEDBACK_PROMPT
+    assert outbound.metadata == {"static_response": "telegram_feedback_prompt"}
+    assert feedback_store.feedback == []
+    assert quota_service.requests == []
+    assert memory.user_messages == []
+    assert agent.requests == []
+
+
+async def test_inbound_worker_records_pending_feedback_without_agent_or_quota() -> None:
+    user_id = uuid4()
+    resolved_conversation = conversation(user_id=user_id)
+    agent = FakeAgentBoundary()
+    quota_service = FakeQuotaService()
+    feedback_store = FakeFeedbackStore()
+    feedback_state_store = InMemoryFeedbackStateStore()
+    request_event_id = uuid4()
+    await feedback_state_store.set_pending(
+        pending=PendingFeedback(
+            user_id=user_id,
+            conversation_id=resolved_conversation.id,
+            channel="telegram",
+            request_inbound_event_id=request_event_id,
+        )
+    )
+    inbound_worker, _inbound_queue, outbound_queue, memory = worker(
+        conversations_by_chat_id={"12345": resolved_conversation},
+        agent_boundary=agent,
+        quota_service=quota_service,
+        feedback_store=feedback_store,
+        feedback_state_store=feedback_state_store,
+    )
+    event = inbound_event(user_id=user_id, text="  очень нужен экспорт истории  ")
+
+    await inbound_worker.process_event(event)
+
+    outbound = await outbound_queue.consume()
+    assert event.status is InboundEventStatus.COMPLETED
+    assert outbound.text == FEEDBACK_RECORDED_MESSAGE
+    assert outbound.metadata == {"static_response": "feedback_recorded"}
+    assert len(feedback_store.feedback) == 1
+    feedback = feedback_store.feedback[0]
+    assert feedback.user_id == user_id
+    assert feedback.conversation_id == resolved_conversation.id
+    assert feedback.source_channel == "telegram"
+    assert feedback.source_external_user_id == "67890"
+    assert feedback.source_external_chat_id == "12345"
+    assert feedback.source_inbound_event_id == event.event_id
+    assert feedback.request_inbound_event_id == request_event_id
+    assert feedback.text == "очень нужен экспорт истории"
+    assert feedback.metadata["external_message_id"] == "42"
+    assert await feedback_state_store.get_pending(conversation_id=resolved_conversation.id) is None
+    assert quota_service.requests == []
+    assert memory.user_messages == []
+    assert agent.requests == []
+
+
+async def test_inbound_worker_treats_start_as_feedback_when_feedback_is_pending() -> None:
+    user_id = uuid4()
+    resolved_conversation = conversation(user_id=user_id)
+    feedback_store = FakeFeedbackStore()
+    feedback_state_store = InMemoryFeedbackStateStore()
+    await feedback_state_store.set_pending(
+        pending=PendingFeedback(
+            user_id=user_id,
+            conversation_id=resolved_conversation.id,
+            channel="telegram",
+            request_inbound_event_id=uuid4(),
+        )
+    )
+    inbound_worker, _inbound_queue, outbound_queue, memory = worker(
+        conversations_by_chat_id={"12345": resolved_conversation},
+        agent_boundary=FakeAgentBoundary(),
+        feedback_store=feedback_store,
+        feedback_state_store=feedback_state_store,
+    )
+    event = inbound_event(user_id=user_id, text="/start")
+
+    await inbound_worker.process_event(event)
+
+    outbound = await outbound_queue.consume()
+    assert outbound.text == FEEDBACK_RECORDED_MESSAGE
+    assert feedback_store.feedback[0].text == "/start"
+    assert memory.user_messages == []
+
+
+async def test_inbound_worker_keeps_pending_feedback_for_non_text_message() -> None:
+    user_id = uuid4()
+    resolved_conversation = conversation(user_id=user_id)
+    feedback_store = FakeFeedbackStore()
+    feedback_state_store = InMemoryFeedbackStateStore()
+    await feedback_state_store.set_pending(
+        pending=PendingFeedback(
+            user_id=user_id,
+            conversation_id=resolved_conversation.id,
+            channel="telegram",
+            request_inbound_event_id=uuid4(),
+        )
+    )
+    inbound_worker, _inbound_queue, outbound_queue, memory = worker(
+        conversations_by_chat_id={"12345": resolved_conversation},
+        agent_boundary=FakeAgentBoundary(),
+        feedback_store=feedback_store,
+        feedback_state_store=feedback_state_store,
+    )
+    event = voice_event(user_id=user_id)
+
+    await inbound_worker.process_event(event)
+
+    outbound = await outbound_queue.consume()
+    assert outbound.text == FEEDBACK_TEXT_ONLY_MESSAGE
+    assert feedback_store.feedback == []
+    assert (
+        await feedback_state_store.get_pending(conversation_id=resolved_conversation.id)
+        is not None
+    )
+    assert memory.user_messages == []
 
 
 async def test_inbound_worker_does_not_treat_start_prefix_as_command() -> None:

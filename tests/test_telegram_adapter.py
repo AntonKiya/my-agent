@@ -8,6 +8,7 @@ import pytest
 from agent_service.channels import Attachment, ChannelAdapter
 from agent_service.channels.models import InboundEvent
 from agent_service.channels.telegram.adapter import (
+    TELEGRAM_BOT_COMMANDS,
     TELEGRAM_TEXT_LIMIT,
     TELEGRAM_THINKING_DRAFT_CUSTOM_EMOJI_ID,
     TELEGRAM_THINKING_DRAFT_TEXT,
@@ -85,6 +86,23 @@ async def test_telegram_adapter_sends_text_message() -> None:
         "chat_id": "12345",
         "text": "hello",
     }
+
+
+async def test_telegram_adapter_sets_bot_commands() -> None:
+    requests: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(200, json={"ok": True, "result": True})
+
+    async with make_client(handler) as client:
+        adapter = TelegramAdapter(bot_token="token", client=client)
+        result = await adapter.set_bot_commands()
+
+    assert result.status is DeliveryStatus.SENT
+    assert len(requests) == 1
+    assert str(requests[0].url) == "https://api.telegram.org/bottoken/setMyCommands"
+    assert _request_json(requests[0]) == {"commands": list(TELEGRAM_BOT_COMMANDS)}
 
 
 async def test_telegram_adapter_sends_rich_markdown_when_enabled() -> None:

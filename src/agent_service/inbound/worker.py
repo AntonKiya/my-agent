@@ -16,6 +16,7 @@ from agent_service.conversations import (
     ConversationResolverProtocol,
 )
 from agent_service.delivery.models import DeliveryResult, DeliveryStatus
+from agent_service.feedback import FeedbackEntry, FeedbackStateStore, FeedbackStore, PendingFeedback
 from agent_service.inbound.errors import OutboundOverloadedError, UnresolvedInboundEventError
 from agent_service.inbound.idempotency import InboundIdempotencyStore
 from agent_service.inbound.preprocessing import (
@@ -23,7 +24,12 @@ from agent_service.inbound.preprocessing import (
     InboundContentPreprocessor,
     event_needs_content_preprocessing,
 )
-from agent_service.inbound.static_responses import TELEGRAM_START_MESSAGE
+from agent_service.inbound.static_responses import (
+    FEEDBACK_RECORDED_MESSAGE,
+    FEEDBACK_TEXT_ONLY_MESSAGE,
+    TELEGRAM_FEEDBACK_PROMPT,
+    TELEGRAM_START_MESSAGE,
+)
 from agent_service.memory import (
     ConversationCompactionJob,
     ConversationCompactionPolicyProtocol,
@@ -94,6 +100,8 @@ class InboundWorker:
     lock_manager: ConversationLockManager
     idempotency_store: InboundIdempotencyStore | None = None
     quota_service: QuotaService | None = None
+    feedback_store: FeedbackStore | None = None
+    feedback_state_store: FeedbackStateStore | None = None
     retry_policy: AgentRetryPolicy = field(default_factory=AgentRetryPolicy)
     fallback_text: str = DEFAULT_FALLBACK_TEXT
     quota_exceeded_text: str = DEFAULT_QUOTA_EXCEEDED_TEXT
@@ -243,6 +251,11 @@ class InboundWorker:
                 user_id=str(conversation.user_id),
                 inbound_event_id=str(event.event_id),
             )
+            if _is_telegram_feedback_command(event):
+                await self._handle_telegram_feedback_command(event, conversation=conversation)
+                return
+            if await self._handle_pending_feedback_if_needed(event, conversation=conversation):
+                return
             if _is_telegram_start_command(event):
                 await self._handle_telegram_start_command(event, conversation=conversation)
                 return
@@ -820,6 +833,154 @@ class InboundWorker:
             channel=event.channel,
         )
 
+    async def _handle_telegram_feedback_command(
+        self,
+        event: InboundEvent,
+        *,
+        conversation: Conversation,
+    ) -> None:
+        if event.user_id is None:
+            raise UnresolvedInboundEventError("Inbound worker requires event.user_id")
+        if self.feedback_state_store is not None:
+            await self.feedback_state_store.set_pending(
+                pending=PendingFeedback(
+                    user_id=event.user_id,
+                    conversation_id=conversation.id,
+                    channel=event.channel,
+                    request_inbound_event_id=event.event_id,
+                )
+            )
+        else:
+            log_event(
+                logger,
+                logging.WARNING,
+                "Feedback command handled without state store",
+                event="feedback_state_store_unavailable",
+                inbound_event_id=str(event.event_id),
+                conversation_id=str(conversation.id),
+                user_id=str(event.user_id),
+                channel=event.channel,
+            )
+        await self._publish_static_response(
+            event,
+            conversation=conversation,
+            text=TELEGRAM_FEEDBACK_PROMPT,
+            metadata={"static_response": "telegram_feedback_prompt"},
+        )
+        event.status = InboundEventStatus.COMPLETED
+        await self._mark_idempotency_status(event)
+        log_event(
+            logger,
+            logging.INFO,
+            "Telegram feedback command handled",
+            event="telegram_feedback_command_handled",
+            inbound_event_id=str(event.event_id),
+            conversation_id=str(conversation.id),
+            user_id=str(event.user_id),
+            channel=event.channel,
+        )
+
+    async def _handle_pending_feedback_if_needed(
+        self,
+        event: InboundEvent,
+        *,
+        conversation: Conversation,
+    ) -> bool:
+        if self.feedback_store is None or self.feedback_state_store is None:
+            return False
+        pending = await self.feedback_state_store.get_pending(conversation_id=conversation.id)
+        if pending is None:
+            return False
+        if event.user_id is None:
+            raise UnresolvedInboundEventError("Inbound worker requires event.user_id")
+        if event.message_type is not MessageType.TEXT or event.attachments or event.text is None:
+            await self._publish_static_response(
+                event,
+                conversation=conversation,
+                text=FEEDBACK_TEXT_ONLY_MESSAGE,
+                metadata={"static_response": "feedback_text_only"},
+            )
+            event.status = InboundEventStatus.COMPLETED
+            await self._mark_idempotency_status(event)
+            return True
+        text = event.text.strip()
+        if not text:
+            await self._publish_static_response(
+                event,
+                conversation=conversation,
+                text=FEEDBACK_TEXT_ONLY_MESSAGE,
+                metadata={"static_response": "feedback_text_only"},
+            )
+            event.status = InboundEventStatus.COMPLETED
+            await self._mark_idempotency_status(event)
+            return True
+
+        feedback = FeedbackEntry(
+            user_id=event.user_id,
+            conversation_id=conversation.id,
+            source_channel=event.channel,
+            source_external_user_id=event.external_user_id,
+            source_external_chat_id=event.external_chat_id,
+            source_thread_id=event.thread_id,
+            source_inbound_event_id=event.event_id,
+            request_inbound_event_id=pending.request_inbound_event_id,
+            text=text,
+            metadata={
+                "external_message_id": event.external_message_id,
+                "external_update_id": event.external_update_id,
+                "idempotency_key": event.idempotency_key,
+            },
+        )
+        await self.feedback_store.create(feedback=feedback)
+        await self._publish_static_response(
+            event,
+            conversation=conversation,
+            text=FEEDBACK_RECORDED_MESSAGE,
+            metadata={"static_response": "feedback_recorded"},
+        )
+        await self.feedback_state_store.clear_pending(conversation_id=conversation.id)
+        event.status = InboundEventStatus.COMPLETED
+        await self._mark_idempotency_status(event)
+        log_event(
+            logger,
+            logging.INFO,
+            "Feedback recorded",
+            event="feedback_recorded",
+            inbound_event_id=str(event.event_id),
+            conversation_id=str(conversation.id),
+            user_id=str(event.user_id),
+            channel=event.channel,
+            feedback_id=str(feedback.id),
+        )
+        return True
+
+    async def _publish_static_response(
+        self,
+        event: InboundEvent,
+        *,
+        conversation: Conversation,
+        text: str,
+        metadata: dict[str, object],
+    ) -> OutboundEvent:
+        if event.user_id is None:
+            raise UnresolvedInboundEventError("Inbound worker requires event.user_id")
+        outbound_event = OutboundEvent(
+            channel=event.channel,
+            user_id=event.user_id,
+            conversation_id=conversation.id,
+            external_chat_id=event.external_chat_id,
+            text=text,
+            thread_id=event.thread_id,
+            metadata=metadata,
+            trace_id=event.trace_id,
+        )
+        await self._publish_outbound(
+            outbound_event,
+            inbound_event=event,
+            conversation_id=conversation.id,
+        )
+        return outbound_event
+
     async def _handle_quota_exceeded(
         self,
         event: InboundEvent,
@@ -964,6 +1125,17 @@ def _is_telegram_start_command(event: InboundEvent) -> bool:
         return False
     text = event.text.strip()
     return text == "/start" or text.startswith("/start ")
+
+
+def _is_telegram_feedback_command(event: InboundEvent) -> bool:
+    if event.channel != TELEGRAM_CHANNEL:
+        return False
+    if event.message_type is not MessageType.TEXT or event.attachments:
+        return False
+    if event.text is None:
+        return False
+    text = event.text.strip()
+    return text == "/feedback" or text.startswith("/feedback ")
 
 
 def _pydantic_ai_new_message_counts(response: AgentResponse) -> dict[str, int]:

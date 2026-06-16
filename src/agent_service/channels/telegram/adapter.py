@@ -19,10 +19,15 @@ TELEGRAM_TEXT_LIMIT = 4096
 TELEGRAM_SEND_MESSAGE_METHOD = "sendMessage"
 TELEGRAM_SEND_RICH_MESSAGE_METHOD = "sendRichMessage"
 TELEGRAM_SEND_MESSAGE_DRAFT_METHOD = "sendMessageDraft"
+TELEGRAM_SET_MY_COMMANDS_METHOD = "setMyCommands"
 TELEGRAM_MAX_DRAFT_ID = 2_147_483_647
 TELEGRAM_THINKING_DRAFT_CUSTOM_EMOJI_ID = "5443038326535759644"
 TELEGRAM_THINKING_DRAFT_TEXT = (
     f'Думаю <tg-emoji emoji-id="{TELEGRAM_THINKING_DRAFT_CUSTOM_EMOJI_ID}">💬</tg-emoji>'
+)
+TELEGRAM_BOT_COMMANDS = (
+    {"command": "start", "description": "Начать"},
+    {"command": "feedback", "description": "Поделиться мнением"},
 )
 
 
@@ -127,6 +132,22 @@ class TelegramAdapter(ChannelAdapter):
             retry_after_seconds=attempt.retry_after_seconds,
             metadata=attempt.metadata or {},
         )
+
+    async def set_bot_commands(self) -> TelegramSendAttempt:
+        try:
+            response = await self.client.post(
+                self._method_url(TELEGRAM_SET_MY_COMMANDS_METHOD),
+                json={"commands": list(TELEGRAM_BOT_COMMANDS)},
+            )
+        except httpx.TransportError as exc:
+            return TelegramSendAttempt(
+                status=DeliveryStatus.FAILED_RETRYABLE,
+                error_code=_transport_error_code(exc),
+                error_message=_transport_error_message(exc),
+                metadata={"error_type": type(exc).__name__},
+            )
+
+        return self._send_attempt_from_response(response)
 
     async def _send_chunk(self, event: OutboundEvent, text: str) -> TelegramSendAttempt:
         if self.rich_messages_enabled and should_send_rich_message(text):
