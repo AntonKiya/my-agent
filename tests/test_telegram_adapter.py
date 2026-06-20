@@ -14,6 +14,7 @@ from agent_service.channels.telegram.adapter import (
     TELEGRAM_THINKING_DRAFT_TEXT,
     TelegramAdapter,
     has_block_math,
+    has_inline_math,
     has_markdown_table,
     should_send_rich_message,
     telegram_draft_id,
@@ -164,6 +165,30 @@ async def test_telegram_adapter_sends_regular_message_without_rich_only_blocks()
 async def test_telegram_adapter_sends_block_math_as_rich_markdown() -> None:
     requests: list[httpx.Request] = []
     text = "Находим дискриминант:\n\n$$D = b^2 - 4ac$$"
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(
+            200,
+            json={"ok": True, "result": {"message_id": 100}},
+        )
+
+    async with make_client(handler) as client:
+        adapter = TelegramAdapter(bot_token="token", client=client, rich_messages_enabled=True)
+        result = await adapter.send(make_outbound_event(text=text))
+
+    assert result.status is DeliveryStatus.SENT
+    assert len(requests) == 1
+    assert str(requests[0].url) == "https://api.telegram.org/bottoken/sendRichMessage"
+    assert _request_json(requests[0]) == {
+        "chat_id": "12345",
+        "rich_message": {"markdown": text},
+    }
+
+
+async def test_telegram_adapter_sends_inline_math_as_rich_markdown() -> None:
+    requests: list[httpx.Request] = []
+    text = "Определение: $\\log_a b$ — это степень, а $2^3 = 8$."
 
     def handler(request: httpx.Request) -> httpx.Response:
         requests.append(request)
@@ -576,10 +601,21 @@ def test_should_send_rich_message_detects_block_math() -> None:
     assert has_block_math("$$\nx = \\frac{-b}{2a}\n$$")
 
 
-def test_should_send_rich_message_ignores_regular_prose_and_inline_dollars() -> None:
+def test_should_send_rich_message_detects_inline_math() -> None:
+    assert should_send_rich_message("Определение: $\\log_a b$ и пример $2^3 = 8$.")
+    assert has_inline_math("$a > 0$ и $a \\neq 1$")
+
+
+def test_should_send_rich_message_ignores_regular_prose_and_unmatched_dollars() -> None:
     text = "Могу помочь с кучей всего:\n\nПокупки — соберу корзину.\n\nЦена $100."
 
     assert not should_send_rich_message(text)
+
+
+def test_should_send_rich_message_ignores_escaped_empty_and_inline_code_dollars() -> None:
+    assert not has_inline_math("Цена \\$100, формулы нет.")
+    assert not has_inline_math("Пусто: $   $.")
+    assert not has_inline_math("Код: `$HOME` и `$PATH`.")
 
 
 def test_should_send_rich_message_ignores_tables_and_math_inside_code_blocks() -> None:
@@ -589,6 +625,7 @@ def test_should_send_rich_message_ignores_tables_and_math_inside_code_blocks() -
             "| A | B |",
             "|---|---|",
             "$$D = b^2 - 4ac$$",
+            "$x + y$",
             "```",
         ]
     )

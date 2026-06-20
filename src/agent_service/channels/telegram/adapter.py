@@ -370,7 +370,7 @@ def telegram_draft_id(event_id: UUID) -> int:
 
 
 def should_send_rich_message(text: str) -> bool:
-    return has_markdown_table(text) or has_block_math(text)
+    return has_markdown_table(text) or has_block_math(text) or has_inline_math(text)
 
 
 def has_markdown_table(text: str) -> bool:
@@ -420,6 +420,68 @@ def has_block_math(text: str) -> bool:
             open_math_block = True
 
     return False
+
+
+def has_inline_math(text: str) -> bool:
+    in_code_block = False
+
+    for line in text.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("```"):
+            in_code_block = not in_code_block
+            continue
+        if in_code_block:
+            continue
+        if _line_has_inline_math(line):
+            return True
+
+    return False
+
+
+def _line_has_inline_math(line: str) -> bool:
+    in_inline_code = False
+    opening_dollar_index: int | None = None
+    cursor = 0
+
+    while cursor < len(line):
+        character = line[cursor]
+        if character == "`":
+            in_inline_code = not in_inline_code
+            cursor += 1
+            continue
+
+        if character != "$" or in_inline_code or _is_escaped(line, cursor):
+            cursor += 1
+            continue
+
+        if _is_double_dollar(line, cursor):
+            cursor += 2
+            continue
+
+        if opening_dollar_index is None:
+            opening_dollar_index = cursor
+        elif line[opening_dollar_index + 1 : cursor].strip():
+            return True
+        else:
+            opening_dollar_index = cursor
+        cursor += 1
+
+    return False
+
+
+def _is_double_dollar(text: str, cursor: int) -> bool:
+    previous_is_dollar = cursor > 0 and text[cursor - 1] == "$"
+    next_is_dollar = cursor + 1 < len(text) and text[cursor + 1] == "$"
+    return previous_is_dollar or next_is_dollar
+
+
+def _is_escaped(text: str, cursor: int) -> bool:
+    backslash_count = 0
+    cursor -= 1
+    while cursor >= 0 and text[cursor] == "\\":
+        backslash_count += 1
+        cursor -= 1
+    return backslash_count % 2 == 1
 
 
 def _table_row_column_count(stripped_line: str) -> int | None:
