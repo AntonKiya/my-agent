@@ -202,3 +202,31 @@ async def test_telegram_inbound_normalizer_builds_image_document_event() -> None
     assert attachment.external_id == "document-file-id"
     assert attachment.content_type == "image/png"
     assert attachment.metadata["file_name"] == "screen.png"
+
+
+async def test_telegram_inbound_normalizer_builds_document_event() -> None:
+    payload = private_text_update()
+    message = payload["message"]
+    assert isinstance(message, dict)
+    message.pop("text")
+    message["caption"] = "Что в файле?"
+    message["document"] = {
+        "file_id": "document-file-id",
+        "file_unique_id": "document-unique-id",
+        "mime_type": "text/markdown",
+        "file_name": "notes.md",
+        "file_size": 1234,
+    }
+
+    event = await TelegramInboundNormalizer().normalize(payload)
+
+    assert event is not None
+    assert event.message_type is MessageType.MIXED
+    assert event.text == "Что в файле?"
+    attachment = event.attachments[0]
+    assert attachment.attachment_type is AttachmentType.DOCUMENT
+    assert attachment.external_id == "document-file-id"
+    assert attachment.attachment_id == "document-unique-id"
+    assert attachment.content_type == "text/markdown"
+    assert attachment.metadata["file_name"] == "notes.md"
+    assert attachment.metadata["file_size"] == 1234

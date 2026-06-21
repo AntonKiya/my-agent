@@ -101,6 +101,11 @@ class AppSettings(BaseSettings):
     image_analysis_max_images: int = Field(default=5, gt=0)
     image_max_size_bytes: int = Field(default=10_000_000, gt=0)
     image_media_dir: Path = Path("var/media/images")
+    document_reading_enabled: bool = True
+    document_reading_tool_timeout_seconds: float = Field(default=10.0, gt=0)
+    document_max_size_bytes: int = Field(default=2_000_000, gt=0)
+    document_max_extracted_chars: int = Field(default=80_000, gt=0)
+    document_media_dir: Path = Path("var/media/documents")
     groq_api_key: SecretStr | None = None
     groq_http_connect_timeout_seconds: float = Field(default=10.0, gt=0)
     groq_http_read_timeout_seconds: float = Field(default=30.0, gt=0)

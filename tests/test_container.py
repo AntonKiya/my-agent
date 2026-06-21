@@ -676,6 +676,7 @@ async def test_container_passes_image_analysis_as_direct_openrouter_toolset_afte
     assert {cast(Any, toolset).id for toolset in direct_toolsets} == {
         "time",
         "image-analysis",
+        "file-reading",
     }
     assert container._image_analysis_http_client is not None
 
@@ -730,7 +731,10 @@ async def test_container_passes_reminders_as_deferred_capability_after_postgres(
     assert len(reminder_toolsets) == 1
     direct_toolsets = captured["toolsets"]
     assert isinstance(direct_toolsets, tuple)
-    assert {cast(Any, toolset).id for toolset in direct_toolsets} == {"time"}
+    assert {cast(Any, toolset).id for toolset in direct_toolsets} == {
+        "time",
+        "file-reading",
+    }
 
     await container.stop()
 

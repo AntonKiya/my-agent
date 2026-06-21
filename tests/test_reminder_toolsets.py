@@ -9,7 +9,7 @@ from agent_service.reminders.toolsets import build_reminder_toolsets
 
 @pytest.mark.asyncio
 async def test_reminder_toolset_does_not_emit_global_instructions() -> None:
-    store = SimpleNamespace()
+    store = cast(Any, SimpleNamespace())
 
     toolsets = build_reminder_toolsets(
         AppSettings(environment="test", reminders_enabled=True),
@@ -23,7 +23,7 @@ async def test_reminder_toolset_does_not_emit_global_instructions() -> None:
 
 
 def test_reminder_create_tools_require_timezone_in_tool_schema() -> None:
-    store = SimpleNamespace()
+    store = cast(Any, SimpleNamespace())
 
     toolsets = build_reminder_toolsets(
         AppSettings(environment="test", reminders_enabled=True),
