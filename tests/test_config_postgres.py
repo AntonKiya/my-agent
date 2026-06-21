@@ -82,6 +82,11 @@ def test_postgres_pool_settings_have_safe_defaults() -> None:
     assert settings.image_analysis_max_images == 5
     assert settings.image_max_size_bytes == 10_000_000
     assert str(settings.image_media_dir) == "var/media/images"
+    assert settings.document_reading_enabled
+    assert settings.document_reading_tool_timeout_seconds == 10.0
+    assert settings.document_max_size_bytes == 2_000_000
+    assert settings.document_max_extracted_chars == 80_000
+    assert str(settings.document_media_dir) == "var/media/documents"
     assert settings.groq_api_key is None
     assert settings.groq_http_connect_timeout_seconds == 10.0
     assert settings.groq_http_read_timeout_seconds == 30.0

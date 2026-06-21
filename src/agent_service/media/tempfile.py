@@ -78,6 +78,10 @@ def _safe_suffix(filename: str | None, content_type: str | None) -> str:
         return ".webp"
     if content_type == "image/gif":
         return ".gif"
+    if content_type == "text/plain":
+        return ".txt"
+    if content_type in {"text/markdown", "text/x-markdown"}:
+        return ".md"
     return ".bin"
 
 

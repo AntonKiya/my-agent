@@ -116,6 +116,9 @@ def _normalized_content(
         attachment = _telegram_image_document_attachment(document)
         if attachment is not None:
             return _image_content(message, attachment)
+        attachment = _telegram_document_attachment(document)
+        if attachment is not None:
+            return _document_content(message, attachment)
 
     return None
 
@@ -202,6 +205,28 @@ def _telegram_image_document_attachment(document: Mapping[str, Any]) -> Attachme
     )
 
 
+def _telegram_document_attachment(document: Mapping[str, Any]) -> Attachment | None:
+    file_id = _value_as_str(document.get("file_id"))
+    if file_id is None:
+        return None
+    file_unique_id = _value_as_str(document.get("file_unique_id"))
+    file_size = document.get("file_size")
+    file_name = _value_as_str(document.get("file_name"))
+    metadata: dict[str, Any] = {
+        "file_unique_id": file_unique_id,
+        "file_size": file_size if isinstance(file_size, int) else None,
+    }
+    if file_name is not None:
+        metadata["file_name"] = file_name
+    return Attachment(
+        attachment_id=file_unique_id or file_id,
+        attachment_type=AttachmentType.DOCUMENT,
+        external_id=file_id,
+        content_type=_value_as_str(document.get("mime_type")),
+        metadata={key: value for key, value in metadata.items() if value is not None},
+    )
+
+
 def _image_content(
     message: Mapping[str, Any],
     attachment: Attachment,
@@ -210,6 +235,19 @@ def _image_content(
     text = caption if isinstance(caption, str) else None
     return (
         MessageType.MIXED if text else MessageType.MEDIA,
+        text,
+        [attachment],
+    )
+
+
+def _document_content(
+    message: Mapping[str, Any],
+    attachment: Attachment,
+) -> tuple[MessageType, str | None, list[Attachment]]:
+    caption = message.get("caption")
+    text = caption if isinstance(caption, str) else None
+    return (
+        MessageType.MIXED if text else MessageType.DOCUMENT,
         text,
         [attachment],
     )

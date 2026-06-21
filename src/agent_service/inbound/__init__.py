@@ -17,6 +17,7 @@ from agent_service.inbound.preprocessing import (
     ContentProcessingError,
     ContentProcessingRetryPolicy,
     InboundContentPreprocessor,
+    event_needs_content_preprocessing,
 )
 from agent_service.inbound.service import InboundIntake, InboundIntakeService, InboundUserResolver
 from agent_service.inbound.worker import AgentRetryPolicy, InboundWorker
@@ -43,4 +44,5 @@ __all__ = [
     "PostgresInboundIdempotencyStore",
     "RedisInboundMediaGroupAggregator",
     "UnresolvedInboundEventError",
+    "event_needs_content_preprocessing",
 ]

@@ -28,6 +28,7 @@ from agent_service.conversations import (
     PostgresPool as ConversationPostgresPool,
 )
 from agent_service.delivery import DeliveryRetryPolicy, DeliveryStatus, DeliveryWorker
+from agent_service.document_reading import build_file_reading_toolsets
 from agent_service.feedback import (
     FeedbackStateStore,
     FeedbackStore,
@@ -367,6 +368,7 @@ class AppContainer:
 
         direct_toolsets.extend(build_time_toolsets())
         direct_toolsets.extend(self._build_image_analysis_toolsets())
+        direct_toolsets.extend(self._build_file_reading_toolsets())
         direct_toolsets.extend(self._build_web_research_toolsets())
         reminder_toolsets = self._build_reminder_toolsets()
         if reminder_toolsets:
@@ -390,7 +392,7 @@ class AppContainer:
                 TelegramMediaFetcher(
                     bot_token=self.settings.telegram_bot_token,
                     client=self._telegram_http_client,
-                    max_file_size_bytes=self.settings.transcription_max_audio_size_bytes,
+                    max_file_size_bytes=_telegram_media_fetch_max_file_size(self.settings),
                 )
             )
         if not media_fetchers.channels:
@@ -418,7 +420,13 @@ class AppContainer:
         if self.settings.image_analysis_enabled and self.media_asset_store is not None:
             image_media_store = PersistentFileMediaStore(base_dir=self.settings.image_media_dir)
 
-        if audio_transcriber is None and image_media_store is None:
+        document_media_store = None
+        if self.settings.document_reading_enabled and self.media_asset_store is not None:
+            document_media_store = PersistentFileMediaStore(
+                base_dir=self.settings.document_media_dir
+            )
+
+        if audio_transcriber is None and image_media_store is None and document_media_store is None:
             return None
 
         return InboundContentPreprocessor(
@@ -426,6 +434,7 @@ class AppContainer:
             audio_media_store=audio_media_store,
             audio_transcriber=audio_transcriber,
             image_media_store=image_media_store,
+            document_media_store=document_media_store,
             media_asset_store=self.media_asset_store,
             retry_policy=ContentProcessingRetryPolicy(
                 max_attempts=self.settings.transcription_retry_max_attempts,
@@ -433,6 +442,7 @@ class AppContainer:
             ),
             max_audio_size_bytes=self.settings.transcription_max_audio_size_bytes,
             max_image_size_bytes=self.settings.image_max_size_bytes,
+            max_document_size_bytes=self.settings.document_max_size_bytes,
         )
 
     def _build_weather_forecast_toolsets(self) -> tuple[AgentToolset[Any], ...]:
@@ -484,6 +494,16 @@ class AppContainer:
         return build_image_analysis_toolsets(
             self.settings,
             analyzer=analyzer,
+            media_asset_store=self.media_asset_store,
+        )
+
+    def _build_file_reading_toolsets(self) -> tuple[AgentToolset[Any], ...]:
+        if not self.settings.document_reading_enabled:
+            return ()
+        if self.media_asset_store is None:
+            return ()
+        return build_file_reading_toolsets(
+            self.settings,
             media_asset_store=self.media_asset_store,
         )
 
@@ -857,6 +877,17 @@ def _create_telegram_http_client(settings: AppSettings) -> httpx.AsyncClient:
         keepalive_expiry_seconds=settings.telegram_http_keepalive_expiry_seconds,
         worker_count=settings.delivery_worker_count,
     )
+
+
+def _telegram_media_fetch_max_file_size(settings: AppSettings) -> int | None:
+    limits = []
+    if settings.transcription_audio_enabled:
+        limits.append(settings.transcription_max_audio_size_bytes)
+    if settings.image_analysis_enabled:
+        limits.append(settings.image_max_size_bytes)
+    if settings.document_reading_enabled:
+        limits.append(settings.document_max_size_bytes)
+    return max(limits) if limits else None
 
 
 def _create_openrouter_http_client(
