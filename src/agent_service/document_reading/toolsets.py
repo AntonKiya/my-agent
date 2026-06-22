@@ -35,7 +35,7 @@ def build_file_reading_toolsets(
         ctx: RunContext[dict[str, Any]],
         media_ids: list[str],
     ) -> dict[str, Any]:
-        """Read text content from attached TXT or Markdown files.
+        """Read text content from attached TXT, Markdown, DOCX, PDF, or PPTX files.
 
         Args:
             media_ids: One or more media_id values from the attached file markers.
