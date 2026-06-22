@@ -73,6 +73,17 @@ OUTBOUND_MEDIA_ID_MARKDOWN_IMAGE_RE = re.compile(
     r"!\[[^\]\n]*\]\(\s*media_id\s*[:=]\s*[\"']?([A-Za-z0-9_-]+)[\"']?\s*\)",
     re.IGNORECASE,
 )
+OUTBOUND_GENERATED_IMAGE_MARKDOWN_LINK_RE = re.compile(
+    r"\[Generated image(?:\s+\d+)?\s*:\s*"
+    r"(?:media_id\s*[:=]\s*)?[\"']?([A-Za-z0-9_-]+)[\"']?\s*\]"
+    r"\(\s*(?:media_id\s*[:=]\s*)?[\"']?([A-Za-z0-9_-]+)[\"']?\s*\)",
+    re.IGNORECASE,
+)
+OUTBOUND_GENERATED_IMAGE_MARKER_RE = re.compile(
+    r"\[Generated image(?:\s+\d+)?\s*:\s*"
+    r"(?:media_id\s*[:=]\s*)?[\"']?([A-Za-z0-9_-]+)[\"']?\s*\]",
+    re.IGNORECASE,
+)
 
 
 class ThinkingIndicatorSender(Protocol):
@@ -1184,21 +1195,28 @@ def _outbound_text(response: AgentResponse) -> str | None:
     media_ids = _attachment_media_ids(response.attachments)
     if not media_ids:
         return response.text
-    cleaned = _remove_delivered_media_id_markdown_images(response.text, media_ids)
+    cleaned = _remove_delivered_media_id_references(response.text, media_ids)
     return cleaned if cleaned else None
 
 
-def _remove_delivered_media_id_markdown_images(text: str, media_ids: set[str]) -> str:
+def _remove_delivered_media_id_references(text: str, media_ids: set[str]) -> str:
     removed = False
 
     def replace(match: re.Match[str]) -> str:
         nonlocal removed
-        if match.group(1) not in media_ids:
+        referenced_ids = {group for group in match.groups() if group}
+        if referenced_ids.isdisjoint(media_ids):
             return match.group(0)
         removed = True
         return ""
 
-    cleaned = OUTBOUND_MEDIA_ID_MARKDOWN_IMAGE_RE.sub(replace, text)
+    cleaned = text
+    for pattern in (
+        OUTBOUND_MEDIA_ID_MARKDOWN_IMAGE_RE,
+        OUTBOUND_GENERATED_IMAGE_MARKDOWN_LINK_RE,
+        OUTBOUND_GENERATED_IMAGE_MARKER_RE,
+    ):
+        cleaned = pattern.sub(replace, cleaned)
     if not removed:
         return text
     cleaned = re.sub(r"[ \t]+\n", "\n", cleaned)
