@@ -1,10 +1,12 @@
 import asyncio
 from collections.abc import Sequence
 from dataclasses import dataclass, field
-from typing import Any
+from types import SimpleNamespace
+from typing import Any, cast
 from uuid import uuid4
 
 import pytest
+from pydantic_ai.exceptions import ModelRetry, UnexpectedModelBehavior
 from pydantic_ai.messages import (
     ModelMessage,
     ModelRequest,
@@ -73,8 +75,13 @@ class FakePydanticAIAgent:
     active_count_reached: asyncio.Event | None = None
     active_count_target: int = 1
     calls: list[dict[str, Any]] = field(default_factory=list)
+    output_validators: list[Any] = field(default_factory=list)
     active_count: int = 0
     max_active_count: int = 0
+
+    def output_validator(self, func: Any) -> Any:
+        self.output_validators.append(func)
+        return func
 
     async def run(
         self,
@@ -176,10 +183,13 @@ def test_build_openrouter_agent_boundary_wires_direct_toolsets(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     created_agents: list[dict[str, Any]] = []
+    fake_agents: list[FakePydanticAIAgent] = []
 
     def fake_agent_factory(model: object, **kwargs: Any) -> object:
+        fake_agent = FakePydanticAIAgent()
         created_agents.append({"model": model, **kwargs})
-        return FakePydanticAIAgent()
+        fake_agents.append(fake_agent)
+        return fake_agent
 
     monkeypatch.setattr(pydantic_ai_module, "Agent", fake_agent_factory)
     direct_toolsets = [object()]
@@ -194,6 +204,11 @@ def test_build_openrouter_agent_boundary_wires_direct_toolsets(
     assert isinstance(boundary, PydanticAIAgentBoundary)
     assert created_agents[0]["capabilities"] == ()
     assert created_agents[0]["toolsets"] == direct_toolsets
+    assert created_agents[0]["retries"] == {
+        "tools": 1,
+        "output": pydantic_ai_module.IMAGE_GENERATION_OUTPUT_RETRIES,
+    }
+    assert len(fake_agents[0].output_validators) == 1
 
 
 def test_build_openrouter_agent_boundary_respects_enabled_skill_ids(
@@ -268,6 +283,85 @@ def test_build_openrouter_agent_boundary_passes_model_settings_to_openrouter_mod
     assert len(created_models) == 1
     assert created_models[0]["model_name"] == "minimax/minimax-m2.5"
     assert created_models[0]["settings"] == model_settings
+
+
+def test_image_generation_output_guard_retries_fake_media_id() -> None:
+    prompt = "Нарисуй Ростов-на-Дону летом"
+    ctx = SimpleNamespace(
+        prompt=prompt,
+        messages=[
+            ModelRequest(parts=[UserPromptPart(content=prompt)]),
+            ModelResponse(parts=[TextPart(content="![Ростов](media_id:YJHk9Lm3tcWn)")]),
+        ],
+    )
+
+    assert pydantic_ai_module._image_generation_output_requires_retry(
+        cast(Any, ctx),
+        "![Ростов](media_id:YJHk9Lm3tcWn)",
+    )
+
+
+def test_image_generation_output_guard_accepts_current_successful_generated_media_id() -> None:
+    prompt = "Нарисуй Ростов-на-Дону летом"
+    ctx = SimpleNamespace(
+        prompt=prompt,
+        messages=[
+            ModelRequest(parts=[UserPromptPart(content=prompt)]),
+            ModelRequest(
+                parts=[
+                    ToolReturnPart(
+                        tool_name="generateImage",
+                        content={
+                            "success": True,
+                            "data": {
+                                "generated_images": [
+                                    {
+                                        "media_id": "YJHk9Lm3tcWn",
+                                        "content_type": "image/png",
+                                    }
+                                ]
+                            },
+                        },
+                        tool_call_id="tool-call-1",
+                    )
+                ]
+            ),
+            ModelResponse(parts=[TextPart(content="![Ростов](media_id:YJHk9Lm3tcWn)")]),
+        ],
+    )
+
+    assert not pydantic_ai_module._image_generation_output_requires_retry(
+        cast(Any, ctx),
+        "![Ростов](media_id:YJHk9Lm3tcWn)",
+    )
+
+
+def test_image_generation_output_guard_ignores_prior_turn_generated_media_id() -> None:
+    prompt = "Ты не создал изображение"
+    ctx = SimpleNamespace(
+        prompt=prompt,
+        messages=[
+            ModelRequest(
+                parts=[
+                    ToolReturnPart(
+                        tool_name="generateImage",
+                        content={
+                            "success": True,
+                            "data": {"generated_images": [{"media_id": "old-image"}]},
+                        },
+                        tool_call_id="old-tool-call",
+                    )
+                ]
+            ),
+            ModelRequest(parts=[UserPromptPart(content=prompt)]),
+            ModelResponse(parts=[TextPart(content="![Ростов](media_id:old-image)")]),
+        ],
+    )
+
+    assert pydantic_ai_module._image_generation_output_requires_retry(
+        cast(Any, ctx),
+        "![Ростов](media_id:old-image)",
+    )
 
 
 async def test_pydantic_ai_agent_boundary_passes_prepared_context() -> None:
@@ -523,6 +617,92 @@ async def test_pydantic_ai_agent_boundary_extracts_generated_image_attachments()
     assert attachment.metadata["media_id"] == "generated-1"
     assert attachment.metadata["generated"] is True
     assert response.metadata["generated_image_media_ids"] == ["generated-1"]
+
+
+async def test_pydantic_ai_agent_boundary_does_not_mask_successful_unbacked_media_id_run() -> None:
+    new_messages: list[ModelMessage] = [
+        ModelResponse(
+            parts=[TextPart(content="![Ростов-на-Дону](media_id:YJHk9Lm3tcWn)")],
+            usage=RequestUsage(input_tokens=10, output_tokens=5),
+        )
+    ]
+    agent = FakePydanticAIAgent(
+        result=FakeRunResult(
+            output="![Ростов-на-Дону](media_id:YJHk9Lm3tcWn)",
+            run_usage=FakeUsage(input_tokens=10, output_tokens=5, requests=1),
+            messages=new_messages,
+        ),
+    )
+    boundary = PydanticAIAgentBoundary(agent=agent)
+
+    response = await boundary.run(agent_request())
+
+    assert response.text == "![Ростов-на-Дону](media_id:YJHk9Lm3tcWn)"
+    assert response.attachments == []
+    assert "image_generation_output_guard" not in response.metadata
+    assert response.context_usage is not None
+    assert response.context_usage.total_tokens == 15
+    assert response.run_usage is not None
+    assert response.run_usage.total_tokens == 15
+    assert response.pydantic_ai_new_messages == new_messages
+
+
+async def test_pydantic_ai_agent_boundary_allows_media_id_with_generated_attachment() -> None:
+    agent = FakePydanticAIAgent(
+        result=FakeRunResult(
+            output="![Ростов-на-Дону](media_id:generated-1)",
+            messages=[
+                ModelRequest(
+                    parts=[
+                        ToolReturnPart(
+                            tool_name="generateImage",
+                            content={
+                                "success": True,
+                                "data": {
+                                    "generated_images": [
+                                        {
+                                            "media_id": "generated-1",
+                                            "content_type": "image/png",
+                                        }
+                                    ]
+                                },
+                            },
+                            tool_call_id="tool-call-1",
+                        )
+                    ]
+                )
+            ],
+        )
+    )
+    boundary = PydanticAIAgentBoundary(agent=agent)
+
+    response = await boundary.run(agent_request())
+
+    assert response.text == "![Ростов-на-Дону](media_id:generated-1)"
+    assert response.attachments[0].attachment_id == "generated-1"
+    assert "image_generation_output_guard" not in response.metadata
+
+
+async def test_pydantic_ai_agent_boundary_returns_guard_fallback_on_retry_exhaustion() -> None:
+    try:
+        raise ModelRetry(pydantic_ai_module.IMAGE_GENERATION_OUTPUT_RETRY_MESSAGE)
+    except ModelRetry as retry_error:
+        try:
+            raise UnexpectedModelBehavior("Exceeded maximum output retries (2)") from retry_error
+        except UnexpectedModelBehavior as error:
+            guard_error = error
+
+    agent = FakePydanticAIAgent(error=guard_error)
+    boundary = PydanticAIAgentBoundary(agent=agent)
+
+    response = await boundary.run(agent_request())
+
+    assert response.text == pydantic_ai_module.IMAGE_GENERATION_OUTPUT_GUARD_FALLBACK_TEXT
+    assert response.attachments == []
+    assert (
+        response.metadata["image_generation_output_guard"]
+        == "media_id_without_successful_generate_image"
+    )
 
 
 async def test_pydantic_ai_agent_boundary_uses_fallback_text_for_image_only_output() -> None:

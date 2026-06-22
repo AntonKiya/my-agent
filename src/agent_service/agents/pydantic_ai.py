@@ -1,11 +1,19 @@
 import asyncio
-from collections.abc import Collection, Mapping, Sequence
+import re
+from collections.abc import Callable, Collection, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any, Protocol, cast
 
 import httpx
-from pydantic_ai import Agent
-from pydantic_ai.messages import ModelMessage, ModelResponse, ToolReturnPart
+from pydantic_ai import Agent, RunContext, capture_run_messages
+from pydantic_ai.exceptions import ModelRetry, UnexpectedModelBehavior
+from pydantic_ai.messages import (
+    ModelMessage,
+    ModelRequest,
+    ModelResponse,
+    ToolReturnPart,
+    UserPromptPart,
+)
 from pydantic_ai.models.openrouter import OpenRouterModel, OpenRouterModelSettings
 from pydantic_ai.providers.openrouter import OpenRouterProvider
 from pydantic_ai.toolsets import AgentToolset
@@ -30,6 +38,22 @@ SAFE_CONTEXT_METADATA_KEYS = frozenset(
         "snapshot_version",
     }
 )
+IMAGE_GENERATION_OUTPUT_RETRIES = 2
+IMAGE_GENERATION_OUTPUT_RETRY_MESSAGE = (
+    "Your previous answer referenced a media_id or [Generated image] marker, but this turn "
+    "does not contain a successful generateImage result for that media_id. If the user wants "
+    "a new or edited image, call generateImage now. Do not invent media_id values or markdown "
+    "image links. If generateImage fails or is unavailable, say that the image was not created "
+    "or changed."
+)
+IMAGE_GENERATION_OUTPUT_GUARD_FALLBACK_TEXT = (
+    "Не получилось создать или изменить изображение: инструмент генерации не вернул успешный "
+    "результат. Попробуй повторить запрос чуть позже."
+)
+MEDIA_ID_REFERENCE_RE = re.compile(r"\bmedia_id\s*[:=]\s*[\"']?([A-Za-z0-9_-]+)", re.IGNORECASE)
+GENERATED_IMAGE_MARKER_RE = re.compile(r"\[Generated image(?:\s+\d+)?\s*:", re.IGNORECASE)
+ImageOutputValidator = Callable[[RunContext[dict[str, Any]], str], str]
+ImageOutputValidatorRegistrar = Callable[[ImageOutputValidator], ImageOutputValidator]
 
 
 class AgentBoundaryError(RuntimeError):
@@ -97,25 +121,36 @@ class PydanticAIAgentBoundary(AgentBoundary):
         )
         instructions = run_context.instructions if run_context is not None else None
         metadata = _run_metadata(request)
+        captured_messages: list[ModelMessage] = []
+        initial_message_count = len(message_history)
 
-        async with asyncio.timeout(self.timeout_seconds):
-            result = await self.agent.run(
-                user_prompt,
-                output_type=str,
-                message_history=message_history,
-                conversation_id=conversation_id,
-                instructions=instructions,
-                deps={
-                    "user_id": request.user_id,
-                    "conversation_id": request.conversation_id,
-                    "inbound_event_id": request.inbound_event_id,
-                    "channel": request.channel,
-                    "external_chat_id": request.metadata.get("external_chat_id"),
-                    "thread_id": request.metadata.get("thread_id"),
-                    "user_timezone": request.metadata.get("user_timezone"),
-                    "conversation_type": request.metadata.get("conversation_type"),
-                },
-                metadata=metadata,
+        try:
+            async with asyncio.timeout(self.timeout_seconds):
+                with capture_run_messages() as captured_messages:
+                    result = await self.agent.run(
+                        user_prompt,
+                        output_type=str,
+                        message_history=message_history,
+                        conversation_id=conversation_id,
+                        instructions=instructions,
+                        deps={
+                            "user_id": request.user_id,
+                            "conversation_id": request.conversation_id,
+                            "inbound_event_id": request.inbound_event_id,
+                            "channel": request.channel,
+                            "external_chat_id": request.metadata.get("external_chat_id"),
+                            "thread_id": request.metadata.get("thread_id"),
+                            "user_timezone": request.metadata.get("user_timezone"),
+                            "conversation_type": request.metadata.get("conversation_type"),
+                        },
+                        metadata=metadata,
+                    )
+        except UnexpectedModelBehavior as exc:
+            if not _is_image_generation_output_guard_error(exc):
+                raise
+            return _image_generation_output_guard_response(
+                request,
+                new_messages=_captured_new_messages(captured_messages, initial_message_count),
             )
 
         run_usage = _result_usage(result)
@@ -158,20 +193,20 @@ def build_openrouter_agent_boundary(
         provider=OpenRouterProvider(api_key=api_key, http_client=http_client),
         settings=model_settings,
     )
-    return PydanticAIAgentBoundary(
-        agent=cast(
-            PydanticAIAgent,
-            Agent(
-                model,
-                output_type=str,
-                instructions=load_base_agent_instructions(),
-                capabilities=load_builtin_skill_capabilities(
-                    toolsets_by_skill_id=capability_toolsets,
-                    enabled_skill_ids=enabled_skill_ids,
-                ),
-                toolsets=toolsets,
-            ),
+    agent = Agent(
+        model,
+        output_type=str,
+        instructions=load_base_agent_instructions(),
+        capabilities=load_builtin_skill_capabilities(
+            toolsets_by_skill_id=capability_toolsets,
+            enabled_skill_ids=enabled_skill_ids,
         ),
+        toolsets=toolsets,
+        retries={"tools": 1, "output": IMAGE_GENERATION_OUTPUT_RETRIES},
+    )
+    _register_image_generation_output_validator(agent)
+    return PydanticAIAgentBoundary(
+        agent=cast(PydanticAIAgent, agent),
         timeout_seconds=timeout_seconds,
     )
 
@@ -190,6 +225,123 @@ def _run_metadata(request: AgentRequest) -> dict[str, Any]:
         "trace_id": request.trace_id,
     }
     return {key: value for key, value in metadata.items() if value is not None}
+
+
+def _register_image_generation_output_validator(agent: Any) -> None:
+    output_validator = getattr(agent, "output_validator", None)
+    if not callable(output_validator):
+        return
+    typed_output_validator = cast(ImageOutputValidatorRegistrar, output_validator)
+
+    @typed_output_validator
+    def validate_image_generation_output(
+        ctx: RunContext[dict[str, Any]],
+        output: str,
+    ) -> str:
+        if _image_generation_output_requires_retry(ctx, output):
+            raise ModelRetry(IMAGE_GENERATION_OUTPUT_RETRY_MESSAGE)
+        return output
+
+
+def _image_generation_output_requires_retry(
+    ctx: RunContext[dict[str, Any]],
+    output: object,
+) -> bool:
+    if not isinstance(output, str) or not _has_generated_image_text_reference(output):
+        return False
+
+    referenced_media_ids = _referenced_media_ids(output)
+    current_run_messages = _messages_since_current_prompt(ctx.messages, ctx.prompt)
+    generated_media_ids = _successful_generated_image_media_ids(current_run_messages)
+    if referenced_media_ids:
+        return not referenced_media_ids.issubset(generated_media_ids)
+    return not generated_media_ids
+
+
+def _has_generated_image_text_reference(text: str) -> bool:
+    return bool(MEDIA_ID_REFERENCE_RE.search(text) or GENERATED_IMAGE_MARKER_RE.search(text))
+
+
+def _referenced_media_ids(text: str) -> set[str]:
+    return {
+        match.group(1).strip()
+        for match in MEDIA_ID_REFERENCE_RE.finditer(text)
+        if match.group(1).strip()
+    }
+
+
+def _messages_since_current_prompt(
+    messages: Sequence[ModelMessage],
+    prompt: object,
+) -> list[ModelMessage]:
+    if not isinstance(prompt, str):
+        return list(messages)
+    for index in range(len(messages) - 1, -1, -1):
+        message = messages[index]
+        if not isinstance(message, ModelRequest):
+            continue
+        if any(
+            isinstance(part, UserPromptPart) and part.content == prompt
+            for part in message.parts
+        ):
+            return list(messages[index:])
+    return list(messages)
+
+
+def _successful_generated_image_media_ids(messages: Sequence[ModelMessage]) -> set[str]:
+    media_ids: set[str] = set()
+    for message in messages:
+        for part in message.parts:
+            if not isinstance(part, ToolReturnPart):
+                continue
+            if part.tool_name != IMAGE_GENERATION_TOOL_NAME:
+                continue
+            for image in _generated_images_from_tool_content(part.content):
+                media_ids.add(image["media_id"])
+    return media_ids
+
+
+def _is_image_generation_output_guard_error(exc: UnexpectedModelBehavior) -> bool:
+    cause: BaseException | None = exc.__cause__
+    while cause is not None:
+        if (
+            isinstance(cause, ModelRetry)
+            and cause.message == IMAGE_GENERATION_OUTPUT_RETRY_MESSAGE
+        ):
+            return True
+        cause = cause.__cause__
+    return False
+
+
+def _captured_new_messages(
+    captured_messages: Sequence[ModelMessage],
+    initial_message_count: int,
+) -> list[ModelMessage]:
+    if initial_message_count <= 0:
+        return list(captured_messages)
+    return list(captured_messages[initial_message_count:])
+
+
+def _image_generation_output_guard_response(
+    request: AgentRequest,
+    *,
+    new_messages: list[ModelMessage],
+) -> AgentResponse:
+    context_usage = _latest_model_response_usage(new_messages)
+    return AgentResponse(
+        text=IMAGE_GENERATION_OUTPUT_GUARD_FALLBACK_TEXT,
+        attachments=[],
+        metadata={
+            "agent": "pydantic_ai",
+            **_safe_response_metadata(request),
+            "image_generation_output_guard": "media_id_without_successful_generate_image",
+        },
+        context_usage=_agent_usage_from_usage(context_usage),
+        run_usage=None,
+        model_response_usages=_model_response_usages(new_messages),
+        pydantic_ai_new_messages=new_messages,
+        trace_id=request.trace_id,
+    )
 
 
 def _safe_response_metadata(request: AgentRequest) -> dict[str, Any]:
