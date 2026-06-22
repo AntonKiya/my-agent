@@ -12,7 +12,6 @@ def test_builtin_skills_include_vkusvill_shopping_as_deferred_capability() -> No
 
     capability_by_id = {capability.id: capability for capability in capabilities}
     assert set(capability_by_id) == {
-        "image-generation",
         "reminders",
         "vkusvill-shopping",
         "weather-forecast",
@@ -68,25 +67,6 @@ def test_builtin_skills_include_reminders_as_deferred_capability() -> None:
     assert "`create_weekly_reminder`" in instructions[0]
     assert "`create_interval_window_reminder`" in instructions[0]
     assert "`get_current_time`" in instructions[0]
-
-
-def test_builtin_skills_include_image_generation_as_deferred_capability() -> None:
-    capabilities = load_builtin_skill_capabilities()
-
-    capability_by_id = {capability.id: capability for capability in capabilities}
-    capability = capability_by_id["image-generation"]
-    assert capability.defer_loading is True
-    description = cast(str, capability.get_description())
-    assert "TRIGGER when: the user asks to create" in description
-    assert "follows up on a recent image" in description
-    instructions = cast(list[str], capability.get_instructions())
-    assert len(instructions) == 1
-    assert instructions[0].startswith("# Image Generation Skill")
-    assert "`generateImage`" in instructions[0]
-    assert '[Generated image: media_id="..."]' in instructions[0]
-    assert "`source_media_ids`" in instructions[0]
-    assert "Do not claim an image was created or changed" in instructions[0]
-    assert "quota limit" in instructions[0]
 
 
 def test_builtin_skills_can_be_filtered_by_enabled_skill_ids() -> None:

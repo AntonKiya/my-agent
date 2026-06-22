@@ -41,7 +41,6 @@ from agent_service.image_analysis import (
     build_image_analysis_toolsets,
 )
 from agent_service.image_generation import (
-    IMAGE_GENERATION_SKILL_ID,
     OpenRouterImageGenerator,
     build_image_generation_toolsets,
 )
@@ -381,13 +380,9 @@ class AppContainer:
             enabled_skill_ids.add(VKUSVILL_SHOPPING_SKILL_ID)
             capability_toolsets[VKUSVILL_SHOPPING_SKILL_ID] = vkusvill_toolsets
 
-        image_generation_toolsets = self._build_image_generation_toolsets()
-        if image_generation_toolsets:
-            enabled_skill_ids.add(IMAGE_GENERATION_SKILL_ID)
-            capability_toolsets[IMAGE_GENERATION_SKILL_ID] = image_generation_toolsets
-
         direct_toolsets.extend(build_time_toolsets())
         direct_toolsets.extend(self._build_image_analysis_toolsets())
+        direct_toolsets.extend(self._build_image_generation_toolsets())
         direct_toolsets.extend(self._build_file_reading_toolsets())
         direct_toolsets.extend(self._build_web_research_toolsets())
         reminder_toolsets = self._build_reminder_toolsets()
