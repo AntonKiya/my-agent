@@ -406,7 +406,7 @@ async def test_pydantic_ai_agent_boundary_passes_prepared_context() -> None:
     assert len(agent.calls) == 1
     call = agent.calls[0]
     assert call["user_prompt"] == "hello from memory"
-    assert call["output_type"] is str
+    assert call["output_type"] is None
     assert call["message_history"] == history
     assert call["conversation_id"] == "conversation-1"
     assert call["instructions"] == "compressed memory"

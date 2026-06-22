@@ -129,7 +129,6 @@ class PydanticAIAgentBoundary(AgentBoundary):
                 with capture_run_messages() as captured_messages:
                     result = await self.agent.run(
                         user_prompt,
-                        output_type=str,
                         message_history=message_history,
                         conversation_id=conversation_id,
                         instructions=instructions,
