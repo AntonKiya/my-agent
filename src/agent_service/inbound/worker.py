@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import re
 from collections.abc import Awaitable, Callable
 from contextlib import suppress
 from dataclasses import dataclass, field
@@ -9,7 +10,7 @@ from uuid import UUID
 from pydantic_ai.messages import ToolCallPart, ToolReturnPart
 
 from agent_service.agents import AgentBoundary, AgentRequest, AgentResponse
-from agent_service.channels import InboundEvent, InboundEventStatus, MessageType
+from agent_service.channels import Attachment, InboundEvent, InboundEventStatus, MessageType
 from agent_service.conversations import (
     Conversation,
     ConversationLockManager,
@@ -67,6 +68,10 @@ DEFAULT_QUOTA_EXCEEDED_TEXT = "Лимит запросов на сегодня �
 DOCUMENT_TOO_LARGE_FALLBACK_TEXT = "Файл слишком большой. Максимальный размер файла: {limit}."
 DOCUMENT_TOO_LARGE_FALLBACK_TEXT_WITHOUT_LIMIT = (
     "Файл слишком большой. Максимальный размер файла превышен."
+)
+OUTBOUND_MEDIA_ID_MARKDOWN_IMAGE_RE = re.compile(
+    r"!\[[^\]\n]*\]\(\s*media_id\s*[:=]\s*[\"']?([A-Za-z0-9_-]+)[\"']?\s*\)",
+    re.IGNORECASE,
 )
 
 
@@ -699,7 +704,7 @@ class InboundWorker:
             user_id=event.user_id,
             conversation_id=conversation_id,
             external_chat_id=event.external_chat_id,
-            text=response.text,
+            text=_outbound_text(response),
             attachments=list(response.attachments),
             message_type=MessageType.MIXED if response.attachments else MessageType.TEXT,
             thread_id=event.thread_id,
@@ -1173,6 +1178,44 @@ def _pydantic_ai_new_message_counts(response: AgentResponse) -> dict[str, int]:
         "pydantic_ai_tool_call_count": tool_call_count,
         "pydantic_ai_tool_result_count": tool_result_count,
     }
+
+
+def _outbound_text(response: AgentResponse) -> str | None:
+    media_ids = _attachment_media_ids(response.attachments)
+    if not media_ids:
+        return response.text
+    cleaned = _remove_delivered_media_id_markdown_images(response.text, media_ids)
+    return cleaned if cleaned else None
+
+
+def _remove_delivered_media_id_markdown_images(text: str, media_ids: set[str]) -> str:
+    removed = False
+
+    def replace(match: re.Match[str]) -> str:
+        nonlocal removed
+        if match.group(1) not in media_ids:
+            return match.group(0)
+        removed = True
+        return ""
+
+    cleaned = OUTBOUND_MEDIA_ID_MARKDOWN_IMAGE_RE.sub(replace, text)
+    if not removed:
+        return text
+    cleaned = re.sub(r"[ \t]+\n", "\n", cleaned)
+    cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
+    return cleaned.strip()
+
+
+def _attachment_media_ids(attachments: list[Attachment]) -> set[str]:
+    media_ids: set[str] = set()
+    for attachment in attachments:
+        media_id = attachment.metadata.get("media_id")
+        if isinstance(media_id, str) and media_id.strip():
+            media_ids.add(media_id.strip())
+            continue
+        if attachment.attachment_id is not None and attachment.attachment_id.strip():
+            media_ids.add(attachment.attachment_id.strip())
+    return media_ids
 
 
 def _content_processing_fallback_text(

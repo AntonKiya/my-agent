@@ -486,6 +486,60 @@ async def test_inbound_worker_carries_agent_response_attachments_to_outbound_que
     assert outbound.message_type is MessageType.MIXED
 
 
+async def test_inbound_worker_hides_delivered_media_id_markdown_from_outbound_text() -> None:
+    user_id = uuid4()
+    resolved_conversation = conversation(user_id=user_id)
+    attachment = Attachment(
+        attachment_id="generated-1",
+        attachment_type=AttachmentType.IMAGE,
+        content_type="image/png",
+        metadata={"media_id": "generated-1", "generated": True},
+    )
+    raw_text = (
+        "Готово! Вот картинка:\n\n"
+        "![Картинка](media_id:generated-1)\n\n"
+        "Хочешь изменить стиль?"
+    )
+    agent = FakeAgentBoundary(responses=[AgentResponse(text=raw_text, attachments=[attachment])])
+    inbound_worker, _inbound_queue, outbound_queue, memory = worker(
+        conversations_by_chat_id={"12345": resolved_conversation},
+        agent_boundary=agent,
+    )
+    event = inbound_event(user_id=user_id)
+
+    await inbound_worker.process_event(event)
+
+    outbound = await outbound_queue.consume()
+    assert outbound.text == "Готово! Вот картинка:\n\nХочешь изменить стиль?"
+    assert outbound.attachments == [attachment]
+    assert memory.assistant_messages[0].text == raw_text
+
+
+async def test_inbound_worker_keeps_unbacked_media_id_markdown_in_outbound_text() -> None:
+    user_id = uuid4()
+    resolved_conversation = conversation(user_id=user_id)
+    attachment = Attachment(
+        attachment_id="generated-1",
+        attachment_type=AttachmentType.IMAGE,
+        content_type="image/png",
+        metadata={"media_id": "generated-1", "generated": True},
+    )
+    raw_text = "Готово!\n\n![Картинка](media_id:other-image)"
+    agent = FakeAgentBoundary(responses=[AgentResponse(text=raw_text, attachments=[attachment])])
+    inbound_worker, _inbound_queue, outbound_queue, memory = worker(
+        conversations_by_chat_id={"12345": resolved_conversation},
+        agent_boundary=agent,
+    )
+    event = inbound_event(user_id=user_id)
+
+    await inbound_worker.process_event(event)
+
+    outbound = await outbound_queue.consume()
+    assert outbound.text == raw_text
+    assert outbound.attachments == [attachment]
+    assert memory.assistant_messages[0].text == raw_text
+
+
 async def test_inbound_worker_reserves_agent_turn_quota_before_processing() -> None:
     user_id = uuid4()
     resolved_conversation = conversation(user_id=user_id)
