@@ -82,6 +82,12 @@ def _safe_suffix(filename: str | None, content_type: str | None) -> str:
         return ".txt"
     if content_type in {"text/markdown", "text/x-markdown"}:
         return ".md"
+    if content_type == "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
+        return ".docx"
+    if content_type == "application/vnd.openxmlformats-officedocument.presentationml.presentation":
+        return ".pptx"
+    if content_type == "application/pdf":
+        return ".pdf"
     return ".bin"
 
 
