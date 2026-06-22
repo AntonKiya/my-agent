@@ -3,6 +3,7 @@ import logging
 from functools import lru_cache
 from typing import Any
 
+from agent_service.channels import Attachment
 from agent_service.memory.models import ConversationMemoryMessage, ConversationMemoryRole
 from agent_service.observability.events import log_event
 
@@ -115,15 +116,50 @@ def _message_payload_for_estimate(message: ConversationMemoryMessage) -> str:
 
 
 def _message_text(message: ConversationMemoryMessage) -> str:
+    attachment_markers = _attachment_markers(message.attachments)
     if message.text:
+        if attachment_markers:
+            return "\n".join([message.text, *attachment_markers])
         return message.text
-    if message.attachments:
-        return "[attachments]"
+    if attachment_markers:
+        return "\n".join(attachment_markers)
     if message.role is ConversationMemoryRole.TOOL_CALL:
         return f"Tool call: {message.tool_name or 'unknown'}"
     if message.role is ConversationMemoryRole.TOOL_RESULT:
         return f"Tool result: {message.tool_name or 'unknown'}"
     return "[empty message]"
+
+
+def _attachment_markers(attachments: list[Attachment]) -> list[str]:
+    markers: list[str] = []
+    image_index = 0
+    image_count = sum(
+        1 for attachment in attachments if attachment.attachment_type.value == "image"
+    )
+    for attachment in attachments:
+        if attachment.attachment_type.value != "image":
+            continue
+        media_id = _attachment_media_id(attachment)
+        if media_id is None:
+            continue
+        image_index += 1
+        label = (
+            "Generated image" if attachment.metadata.get("generated") is True else "Attached image"
+        )
+        if image_count == 1:
+            markers.append(f'[{label}: media_id="{media_id}"]')
+        else:
+            markers.append(f'[{label} {image_index}: media_id="{media_id}"]')
+    return markers
+
+
+def _attachment_media_id(attachment: Attachment) -> str | None:
+    media_id = attachment.metadata.get("media_id")
+    if isinstance(media_id, str) and media_id.strip():
+        return media_id.strip()
+    if attachment.attachment_id is not None and attachment.attachment_id.strip():
+        return attachment.attachment_id.strip()
+    return None
 
 
 def _tool_args(message: ConversationMemoryMessage) -> str | dict[str, Any] | None:

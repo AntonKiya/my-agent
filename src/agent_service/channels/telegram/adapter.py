@@ -1,4 +1,6 @@
+import asyncio
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 from uuid import UUID
 
@@ -6,17 +8,20 @@ import httpx
 from pydantic import SecretStr
 
 from agent_service.channels.interfaces import ChannelAdapter
-from agent_service.channels.models import InboundEvent
+from agent_service.channels.models import Attachment, AttachmentType, InboundEvent
 from agent_service.channels.telegram.formatting import (
     TELEGRAM_HTML_PARSE_MODE,
     markdown_to_telegram_html,
 )
 from agent_service.delivery.models import DeliveryResult, DeliveryStatus
+from agent_service.media import MediaAsset, MediaAssetStore, MediaAssetType
 from agent_service.outbound.models import OutboundEvent
 
 TELEGRAM_CHANNEL = "telegram"
 TELEGRAM_TEXT_LIMIT = 4096
+TELEGRAM_CAPTION_LIMIT = 1024
 TELEGRAM_SEND_MESSAGE_METHOD = "sendMessage"
+TELEGRAM_SEND_PHOTO_METHOD = "sendPhoto"
 TELEGRAM_SEND_RICH_MESSAGE_METHOD = "sendRichMessage"
 TELEGRAM_SEND_MESSAGE_DRAFT_METHOD = "sendMessageDraft"
 TELEGRAM_SET_MY_COMMANDS_METHOD = "setMyCommands"
@@ -49,6 +54,7 @@ class TelegramAdapter(ChannelAdapter):
     parse_mode: str | None = None
     render_markdown: bool = False
     rich_messages_enabled: bool = False
+    media_asset_store: MediaAssetStore | None = None
     channel: str = TELEGRAM_CHANNEL
 
     def __post_init__(self) -> None:
@@ -69,11 +75,7 @@ class TelegramAdapter(ChannelAdapter):
                 error_message=f"Telegram adapter cannot send channel {event.channel!r}",
             )
         if event.attachments:
-            return self._dead_letter(
-                event,
-                error_code="unsupported_attachments",
-                error_message="Telegram adapter currently supports text messages only",
-            )
+            return await self._send_attachments(event)
         if event.text is None or not event.text:
             return self._dead_letter(
                 event,
@@ -100,6 +102,70 @@ class TelegramAdapter(ChannelAdapter):
                 )
             if attempt.external_message_id is not None:
                 external_message_ids.append(attempt.external_message_id)
+
+        return DeliveryResult(
+            event_id=event.event_id,
+            channel=self.channel,
+            status=DeliveryStatus.SENT,
+            external_message_ids=external_message_ids,
+        )
+
+    async def _send_attachments(self, event: OutboundEvent) -> DeliveryResult:
+        if any(
+            attachment.attachment_type is not AttachmentType.IMAGE
+            for attachment in event.attachments
+        ):
+            return self._dead_letter(
+                event,
+                error_code="unsupported_attachments",
+                error_message="Telegram adapter only supports image attachments",
+            )
+
+        caption = self._caption_text(event.text)
+        text_after_media = event.text if event.text and caption is None else None
+        external_message_ids: list[str] = []
+        for index, attachment in enumerate(event.attachments):
+            attempt = await self._send_photo_attachment(
+                event,
+                attachment=attachment,
+                caption=caption if index == 0 else None,
+            )
+            if attempt.status is not DeliveryStatus.SENT:
+                return DeliveryResult(
+                    event_id=event.event_id,
+                    channel=self.channel,
+                    status=attempt.status,
+                    external_message_ids=external_message_ids,
+                    error_code=attempt.error_code,
+                    error_message=attempt.error_message,
+                    retry_after_seconds=attempt.retry_after_seconds,
+                    metadata={
+                        **(attempt.metadata or {}),
+                        "partial_delivery": bool(external_message_ids),
+                    },
+                )
+            if attempt.external_message_id is not None:
+                external_message_ids.append(attempt.external_message_id)
+
+        if text_after_media:
+            for chunk in split_telegram_text(text_after_media):
+                attempt = await self._send_chunk(event, chunk)
+                if attempt.status is not DeliveryStatus.SENT:
+                    return DeliveryResult(
+                        event_id=event.event_id,
+                        channel=self.channel,
+                        status=attempt.status,
+                        external_message_ids=external_message_ids,
+                        error_code=attempt.error_code,
+                        error_message=attempt.error_message,
+                        retry_after_seconds=attempt.retry_after_seconds,
+                        metadata={
+                            **(attempt.metadata or {}),
+                            "partial_delivery": bool(external_message_ids),
+                        },
+                    )
+                if attempt.external_message_id is not None:
+                    external_message_ids.append(attempt.external_message_id)
 
         return DeliveryResult(
             event_id=event.event_id,
@@ -188,6 +254,78 @@ class TelegramAdapter(ChannelAdapter):
             )
 
         return self._send_attempt_from_response(response)
+
+    async def _send_photo_attachment(
+        self,
+        event: OutboundEvent,
+        *,
+        attachment: Attachment,
+        caption: str | None,
+    ) -> TelegramSendAttempt:
+        prepared = await self._photo_file(event, attachment=attachment)
+        if isinstance(prepared, TelegramSendAttempt):
+            return prepared
+        filename, content, content_type = prepared
+        try:
+            response = await self.client.post(
+                self._method_url(TELEGRAM_SEND_PHOTO_METHOD),
+                data=self._send_photo_payload(event, caption=caption),
+                files={"photo": (filename, content, content_type)},
+            )
+        except httpx.TransportError as exc:
+            return TelegramSendAttempt(
+                status=DeliveryStatus.FAILED_RETRYABLE,
+                error_code=_transport_error_code(exc),
+                error_message=_transport_error_message(exc),
+                metadata={"error_type": type(exc).__name__},
+            )
+
+        return self._send_attempt_from_response(response)
+
+    async def _photo_file(
+        self,
+        event: OutboundEvent,
+        *,
+        attachment: Attachment,
+    ) -> tuple[str, bytes, str] | TelegramSendAttempt:
+        if self.media_asset_store is None:
+            return TelegramSendAttempt(
+                status=DeliveryStatus.DEAD_LETTER,
+                error_code="media_asset_store_not_configured",
+                error_message="Telegram image delivery requires a media asset store",
+            )
+        media_id = _attachment_media_id(attachment)
+        if media_id is None:
+            return TelegramSendAttempt(
+                status=DeliveryStatus.DEAD_LETTER,
+                error_code="missing_media_id",
+                error_message="Image attachment is missing media_id",
+            )
+        asset = await self.media_asset_store.get(
+            media_id=media_id,
+            user_id=event.user_id,
+            conversation_id=event.conversation_id,
+        )
+        if asset is None or asset.media_type is not MediaAssetType.IMAGE:
+            return TelegramSendAttempt(
+                status=DeliveryStatus.DEAD_LETTER,
+                error_code="image_not_found_or_not_accessible",
+                error_message="Image attachment was not found for this user and conversation",
+            )
+        try:
+            content = await asyncio.to_thread(Path(asset.storage_key).read_bytes)
+        except Exception as exc:
+            return TelegramSendAttempt(
+                status=DeliveryStatus.FAILED_RETRYABLE,
+                error_code="media_file_read_failed",
+                error_message="Image attachment could not be read from storage",
+                metadata={"error_type": type(exc).__name__},
+            )
+        return (
+            _media_filename(asset, attachment),
+            content,
+            asset.content_type or attachment.content_type or "application/octet-stream",
+        )
 
     async def _send_message_draft(
         self,
@@ -290,6 +428,25 @@ class TelegramAdapter(ChannelAdapter):
 
         return payload
 
+    def _send_photo_payload(self, event: OutboundEvent, *, caption: str | None) -> dict[str, Any]:
+        payload: dict[str, Any] = {"chat_id": event.external_chat_id}
+        if caption:
+            payload["caption"] = caption
+            if self.parse_mode is not None:
+                payload["parse_mode"] = self.parse_mode
+            elif self.render_markdown:
+                payload["parse_mode"] = TELEGRAM_HTML_PARSE_MODE
+
+        thread_id = _numeric_string_to_int(event.thread_id)
+        if thread_id is not None:
+            payload["message_thread_id"] = thread_id
+
+        reply_to_message_id = _numeric_string_to_int(event.reply_to_message_id)
+        if reply_to_message_id is not None:
+            payload["reply_to_message_id"] = reply_to_message_id
+
+        return payload
+
     def _send_rich_message_payload(self, event: OutboundEvent, text: str) -> dict[str, Any]:
         payload: dict[str, Any] = {
             "chat_id": event.external_chat_id,
@@ -310,6 +467,14 @@ class TelegramAdapter(ChannelAdapter):
         if not self.render_markdown:
             return text
         return markdown_to_telegram_html(text)
+
+    def _caption_text(self, text: str | None) -> str | None:
+        if not text:
+            return None
+        caption = self._format_text(text)
+        if len(caption) > TELEGRAM_CAPTION_LIMIT:
+            return None
+        return caption
 
     def _method_url(self, method: str) -> str:
         return f"{self.api_base_url.rstrip('/')}/bot{self.token}/{method}"
@@ -363,6 +528,26 @@ def split_telegram_text(text: str, limit: int = TELEGRAM_TEXT_LIMIT) -> list[str
     if limit < 1:
         raise ValueError("Telegram text split limit must be greater than zero")
     return [text[index : index + limit] for index in range(0, len(text), limit)]
+
+
+def _attachment_media_id(attachment: Attachment) -> str | None:
+    media_id = attachment.metadata.get("media_id")
+    if isinstance(media_id, str) and media_id.strip():
+        return media_id.strip()
+    if attachment.attachment_id is not None and attachment.attachment_id.strip():
+        return attachment.attachment_id.strip()
+    return None
+
+
+def _media_filename(asset: MediaAsset, attachment: Attachment) -> str:
+    metadata_filename = attachment.metadata.get("file_name")
+    if isinstance(metadata_filename, str) and metadata_filename.strip():
+        return Path(metadata_filename).name
+    asset_filename = asset.metadata.get("original_filename")
+    if isinstance(asset_filename, str) and asset_filename.strip():
+        return Path(asset_filename).name
+    suffix = Path(asset.storage_key).suffix
+    return f"{asset.media_id}{suffix or '.bin'}"
 
 
 def telegram_draft_id(event_id: UUID) -> int:

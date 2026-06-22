@@ -676,15 +676,20 @@ async def test_container_passes_image_analysis_as_direct_openrouter_toolset_afte
     assert {cast(Any, toolset).id for toolset in direct_toolsets} == {
         "time",
         "image-analysis",
+        "image-generation",
         "file-reading",
     }
     assert container._image_analysis_http_client is not None
+    assert container._image_generation_http_client is not None
 
     image_analysis_http_client = container._image_analysis_http_client
+    image_generation_http_client = container._image_generation_http_client
     await container.stop()
 
     assert image_analysis_http_client.is_closed
+    assert image_generation_http_client.is_closed
     assert container._image_analysis_http_client is None
+    assert container._image_generation_http_client is None
 
 
 async def test_container_passes_reminders_as_deferred_capability_after_postgres(
@@ -733,6 +738,7 @@ async def test_container_passes_reminders_as_deferred_capability_after_postgres(
     assert isinstance(direct_toolsets, tuple)
     assert {cast(Any, toolset).id for toolset in direct_toolsets} == {
         "time",
+        "image-generation",
         "file-reading",
     }
 

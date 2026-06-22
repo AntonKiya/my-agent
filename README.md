@@ -35,6 +35,8 @@ This repository currently contains the service foundation:
 - Agent boundary contracts and Pydantic AI-oriented run context shape.
 - Pydantic AI agent boundary implementation with OpenRouter model factory, run timeout, safe text
   output normalization, and usage mapping.
+- OpenRouter-backed image analysis plus image generation/editing toolsets with persisted media
+  assets and conversation-visible media markers for follow-up turns.
 - Daily per-user usage quotas for public beta access, enforced before costly content preprocessing,
   memory preparation, and agent execution.
 - Explicit service-facing agent boundary safety contract: raw transport metadata is not passed into
@@ -86,19 +88,21 @@ tokens did this assistant turn spend?" The third answers "which model round spen
 
 ## Usage Quotas
 
-Public beta usage is protected by a Postgres-backed quota gate in the inbound worker. The current
-default policy is:
+Public beta usage is protected by Postgres-backed quota gates. The current default policies are:
 
-- Metric: `agent_turn`
-- Period: `day`
-- Limit: `100`
-- Reset boundary: UTC calendar day
+- `agent_turn` / `day` = `100`, reset on the UTC calendar day boundary.
+- `image_generation` / `day` = `3`, reset on the UTC calendar day boundary.
 
 `agent_turn` means one accepted user request that reaches the normal processing path. It is not a
 model provider request and it is not token usage. One user request can still perform multiple model
 rounds or tool calls internally, but it spends one `agent_turn`. Voice, audio, image, and aggregated
 media-group requests also spend one `agent_turn`. Duplicate inbound events and `/start` do not spend
 quota.
+
+`image_generation` is reserved inside the `generateImage` tool before an OpenRouter image
+generation/edit request is sent. This keeps image creation/editing on a separate daily limit from
+ordinary conversation turns while still allowing the inbound worker to count the user request itself
+as one `agent_turn`.
 
 The quota check runs after user resolution, idempotency, conversation resolution, and `/start`
 handling, but before transcription, image persistence, memory writes, context preparation, and agent
@@ -112,17 +116,18 @@ and stops without writing the denial into conversation memory.
 
 Quota state is split across three tables:
 
-- `usage_quota_policies`: default limits, currently `agent_turn`/`day` = `100`.
+- `usage_quota_policies`: default limits, including `agent_turn`/`day` and
+  `image_generation`/`day`.
 - `user_quota_overrides`: optional per-user custom limits for a metric and period.
 - `usage_quota_counters`: per-user usage counters keyed by `user_id`, `metric`, `period`, and
   `period_start`.
 
 To raise a specific user's beta limit, insert or update a row in `user_quota_overrides` for that
-`user_id`, `metric = 'agent_turn'`, and `period = 'day'`.
+`user_id`, the target metric such as `agent_turn` or `image_generation`, and `period = 'day'`.
 
-The schema is intentionally metric- and period-oriented. Today only `agent_turn` and `day` are used,
-but the same model can be extended later with periods such as `week` or `month`, and metrics such as
-image analysis, web research, transcription, tokens, or cost.
+The schema is intentionally metric- and period-oriented. The same model can be extended later with
+periods such as `week` or `month`, and metrics such as image analysis, web research, transcription,
+tokens, or cost.
 
 ## Implemented Guarantees
 
@@ -308,6 +313,21 @@ AGENT_SERVICE_TRANSCRIPTION_RETRY_MAX_ATTEMPTS=3
 AGENT_SERVICE_TRANSCRIPTION_RETRY_BACKOFF_SECONDS='[1.0,5.0]'
 AGENT_SERVICE_TRANSCRIPTION_MAX_AUDIO_SIZE_BYTES=25000000
 AGENT_SERVICE_TRANSCRIPTION_AUDIO_TEMP_DIR=
+AGENT_SERVICE_IMAGE_ANALYSIS_ENABLED=true
+AGENT_SERVICE_IMAGE_ANALYSIS_MODEL=
+AGENT_SERVICE_IMAGE_ANALYSIS_TIMEOUT_SECONDS=60.0
+AGENT_SERVICE_IMAGE_ANALYSIS_TOOL_TIMEOUT_SECONDS=90.0
+AGENT_SERVICE_IMAGE_ANALYSIS_MAX_IMAGES=5
+AGENT_SERVICE_IMAGE_MAX_SIZE_BYTES=10000000
+AGENT_SERVICE_IMAGE_MEDIA_DIR=var/media/images
+AGENT_SERVICE_IMAGE_GENERATION_ENABLED=true
+AGENT_SERVICE_IMAGE_GENERATION_MODEL=google/gemini-2.5-flash-image
+AGENT_SERVICE_IMAGE_GENERATION_TIMEOUT_SECONDS=120.0
+AGENT_SERVICE_IMAGE_GENERATION_TOOL_TIMEOUT_SECONDS=150.0
+AGENT_SERVICE_IMAGE_GENERATION_MAX_SOURCE_IMAGES=5
+AGENT_SERVICE_IMAGE_GENERATION_MAX_OUTPUT_IMAGES=1
+AGENT_SERVICE_IMAGE_GENERATION_MAX_OUTPUT_SIZE_BYTES=10000000
+AGENT_SERVICE_IMAGE_GENERATION_MEDIA_DIR=var/media/generated-images
 AGENT_SERVICE_GROQ_HTTP_CONNECT_TIMEOUT_SECONDS=10.0
 AGENT_SERVICE_GROQ_HTTP_READ_TIMEOUT_SECONDS=30.0
 AGENT_SERVICE_GROQ_HTTP_WRITE_TIMEOUT_SECONDS=30.0
@@ -396,11 +416,19 @@ transcription layer receives only a temporary local audio file and uses
 `AGENT_SERVICE_TRANSCRIPTION_MODEL` (default `whisper-large-v3-turbo`). Temporary audio is deleted
 after successful transcription or final fallback.
 
+`AGENT_SERVICE_OPENROUTER_API_KEY` also enables image tools when their feature flags are on and
+Postgres-backed media assets are configured. `analyzeImage` reads only media ids stored for the same
+`user_id` and `conversation_id`. `generateImage` creates new images or edits source images through
+OpenRouter model `google/gemini-2.5-flash-image`, persists the generated files as media assets, and
+returns them as outbound image attachments. Generated assistant images are recorded in memory with a
+`[Generated image: media_id="..."]` marker so a later user message can ask for a small edit without
+re-uploading the same image.
+
 The content preprocessing boundary is the single place where inbound non-text content should be
 prepared before memory and agent execution. Channel webhooks only normalize transport payloads into
 attachments; they must not download, store, transcribe, OCR, summarize, or otherwise process media.
-Future image and document handling should be added as processors behind this same boundary, with
-channel-specific file access hidden behind media fetcher interfaces.
+Image and document processors live behind this same boundary, with channel-specific file access
+hidden behind media fetcher interfaces.
 
 `AGENT_SERVICE_REDIS_DSN` enables Redis working context snapshots. When configured, the container
 creates a Redis client on startup, pings it, and wires `RedisConversationContextSnapshotStore` into

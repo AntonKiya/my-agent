@@ -5,7 +5,14 @@ from typing import Any
 from uuid import uuid4
 
 import pytest
-from pydantic_ai.messages import ModelMessage, ModelRequest, ModelResponse, TextPart, UserPromptPart
+from pydantic_ai.messages import (
+    ModelMessage,
+    ModelRequest,
+    ModelResponse,
+    TextPart,
+    ToolReturnPart,
+    UserPromptPart,
+)
 from pydantic_ai.models.openrouter import OpenRouterModelSettings
 from pydantic_ai.usage import RequestUsage
 
@@ -472,6 +479,85 @@ async def test_pydantic_ai_agent_boundary_does_not_pass_transport_metadata() -> 
         "channel": "telegram",
         "trace_id": "trace-1",
     }
+
+
+async def test_pydantic_ai_agent_boundary_extracts_generated_image_attachments() -> None:
+    agent = FakePydanticAIAgent(
+        result=FakeRunResult(
+            output="Готово",
+            messages=[
+                ModelRequest(
+                    parts=[
+                        ToolReturnPart(
+                            tool_name="generateImage",
+                            content={
+                                "success": True,
+                                "data": {
+                                    "generated_images": [
+                                        {
+                                            "media_id": "generated-1",
+                                            "content_type": "image/png",
+                                            "filename": "generated.png",
+                                            "size_bytes": 42,
+                                        }
+                                    ]
+                                },
+                            },
+                            tool_call_id="tool-call-1",
+                        )
+                    ]
+                )
+            ],
+        )
+    )
+    boundary = PydanticAIAgentBoundary(agent=agent)
+
+    response = await boundary.run(agent_request())
+
+    assert response.text == "Готово"
+    assert len(response.attachments) == 1
+    attachment = response.attachments[0]
+    assert attachment.attachment_type is AttachmentType.IMAGE
+    assert attachment.attachment_id == "generated-1"
+    assert attachment.content_type == "image/png"
+    assert attachment.metadata["media_id"] == "generated-1"
+    assert attachment.metadata["generated"] is True
+    assert response.metadata["generated_image_media_ids"] == ["generated-1"]
+
+
+async def test_pydantic_ai_agent_boundary_uses_fallback_text_for_image_only_output() -> None:
+    agent = FakePydanticAIAgent(
+        result=FakeRunResult(
+            output="   ",
+            messages=[
+                ModelRequest(
+                    parts=[
+                        ToolReturnPart(
+                            tool_name="generateImage",
+                            content={
+                                "success": True,
+                                "data": {
+                                    "generated_images": [
+                                        {
+                                            "media_id": "generated-1",
+                                            "content_type": "image/png",
+                                        }
+                                    ]
+                                },
+                            },
+                            tool_call_id="tool-call-1",
+                        )
+                    ]
+                )
+            ],
+        )
+    )
+    boundary = PydanticAIAgentBoundary(agent=agent)
+
+    response = await boundary.run(agent_request())
+
+    assert response.text == "Готово."
+    assert response.attachments[0].attachment_id == "generated-1"
 
 
 async def test_pydantic_ai_agent_boundary_rejects_attachment_requests() -> None:

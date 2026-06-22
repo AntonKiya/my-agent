@@ -1,12 +1,14 @@
 import json
 from collections.abc import Callable
+from dataclasses import dataclass, field
+from pathlib import Path
 from uuid import uuid4
 
 import httpx
 import pytest
 
 from agent_service.channels import Attachment, ChannelAdapter
-from agent_service.channels.models import InboundEvent
+from agent_service.channels.models import AttachmentType, InboundEvent
 from agent_service.channels.telegram.adapter import (
     TELEGRAM_BOT_COMMANDS,
     TELEGRAM_TEXT_LIMIT,
@@ -24,6 +26,7 @@ from agent_service.channels.telegram.formatting import (
     markdown_to_telegram_html,
 )
 from agent_service.delivery import DeliveryStatus
+from agent_service.media import MediaAsset, MediaAssetType
 from agent_service.outbound import OutboundEvent
 
 
@@ -65,6 +68,24 @@ def make_client(
     return httpx.AsyncClient(transport=httpx.MockTransport(handler))
 
 
+@dataclass(slots=True)
+class FakeMediaAssetStore:
+    assets: dict[tuple[str, object, object], MediaAsset] = field(default_factory=dict)
+
+    async def create(self, *, asset: MediaAsset) -> MediaAsset:
+        self.assets[(asset.media_id, asset.user_id, asset.conversation_id)] = asset
+        return asset
+
+    async def get(
+        self,
+        *,
+        media_id: str,
+        user_id: object,
+        conversation_id: object,
+    ) -> MediaAsset | None:
+        return self.assets.get((media_id, user_id, conversation_id))
+
+
 async def test_telegram_adapter_sends_text_message() -> None:
     requests: list[httpx.Request] = []
 
@@ -87,6 +108,90 @@ async def test_telegram_adapter_sends_text_message() -> None:
         "chat_id": "12345",
         "text": "hello",
     }
+
+
+async def test_telegram_adapter_sends_image_attachment_as_photo(tmp_path: Path) -> None:
+    requests: list[httpx.Request] = []
+    image_path = tmp_path / "generated.png"
+    image_path.write_bytes(b"generated-image")
+    event = make_outbound_event(text="Готово")
+    event.attachments = [
+        Attachment(
+            attachment_id="generated-1",
+            attachment_type=AttachmentType.IMAGE,
+            content_type="image/png",
+            metadata={"media_id": "generated-1", "generated": True},
+        )
+    ]
+    store = FakeMediaAssetStore()
+    await store.create(
+        asset=MediaAsset(
+            media_id="generated-1",
+            user_id=event.user_id,
+            conversation_id=event.conversation_id,
+            media_type=MediaAssetType.IMAGE,
+            storage_key=str(image_path),
+            content_type="image/png",
+            source_channel="telegram",
+            metadata={"original_filename": "generated.png"},
+        )
+    )
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(
+            200,
+            json={"ok": True, "result": {"message_id": 100}},
+        )
+
+    async with make_client(handler) as client:
+        adapter = TelegramAdapter(
+            bot_token="token",
+            client=client,
+            media_asset_store=store,
+        )
+        result = await adapter.send(event)
+
+    assert result.status is DeliveryStatus.SENT
+    assert result.external_message_ids == ["100"]
+    assert len(requests) == 1
+    assert str(requests[0].url) == "https://api.telegram.org/bottoken/sendPhoto"
+    assert requests[0].headers["content-type"].startswith("multipart/form-data")
+    body = requests[0].content
+    assert b'name="chat_id"' in body
+    assert b"12345" in body
+    assert b'name="caption"' in body
+    assert "Готово".encode() in body
+    assert b"generated-image" in body
+
+
+async def test_telegram_adapter_rejects_inaccessible_image_attachment(tmp_path: Path) -> None:
+    _ = tmp_path
+    requests: list[httpx.Request] = []
+    event = make_outbound_event(text="Готово")
+    event.attachments = [
+        Attachment(
+            attachment_id="generated-1",
+            attachment_type=AttachmentType.IMAGE,
+            metadata={"media_id": "generated-1"},
+        )
+    ]
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(500)
+
+    async with make_client(handler) as client:
+        adapter = TelegramAdapter(
+            bot_token="token",
+            client=client,
+            media_asset_store=FakeMediaAssetStore(),
+        )
+        result = await adapter.send(event)
+
+    assert result.status is DeliveryStatus.DEAD_LETTER
+    assert result.error_code == "image_not_found_or_not_accessible"
+    assert requests == []
 
 
 async def test_telegram_adapter_sets_bot_commands() -> None:

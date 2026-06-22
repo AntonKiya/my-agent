@@ -15,6 +15,7 @@ def test_users_migration_defines_identity_tables_and_constraints() -> None:
         "0008_reminders.sql",
         "0009_usage_quotas.sql",
         "0010_feedback.sql",
+        "0011_image_generation_quota.sql",
     ]
 
     sql = migrations[0].sql
@@ -53,6 +54,7 @@ def test_migrations_are_loaded_in_version_order() -> None:
         "0008",
         "0009",
         "0010",
+        "0011",
     )
 
 
@@ -197,3 +199,14 @@ def test_feedback_migration_defines_channel_agnostic_feedback_table() -> None:
     assert "UNIQUE (source_inbound_event_id)" in sql
     assert "feedback_user_created_at_idx" in sql
     assert "feedback_source_channel_created_at_idx" in sql
+
+
+def test_image_generation_quota_migration_defines_daily_limit_policy() -> None:
+    migrations = load_sql_migrations()
+
+    sql = migrations[10].sql
+    assert "usage_quota_policies" in sql
+    assert "'free_beta_default_image_generation_day'" in sql
+    assert "'image_generation'" in sql
+    assert "'day'" in sql
+    assert "    3," in sql

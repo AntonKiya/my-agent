@@ -6,6 +6,7 @@ from uuid import UUID
 
 class QuotaMetric(StrEnum):
     AGENT_TURN = "agent_turn"
+    IMAGE_GENERATION = "image_generation"
 
 
 class QuotaPeriod(StrEnum):

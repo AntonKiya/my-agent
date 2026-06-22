@@ -700,6 +700,8 @@ class InboundWorker:
             conversation_id=conversation_id,
             external_chat_id=event.external_chat_id,
             text=response.text,
+            attachments=list(response.attachments),
+            message_type=MessageType.MIXED if response.attachments else MessageType.TEXT,
             thread_id=event.thread_id,
             channel_metadata={},
             metadata=response.metadata,

@@ -462,6 +462,30 @@ async def test_inbound_worker_processes_event_to_outbound_queue() -> None:
     assert "raw_update" not in agent.requests[0].model_dump()
 
 
+async def test_inbound_worker_carries_agent_response_attachments_to_outbound_queue() -> None:
+    user_id = uuid4()
+    resolved_conversation = conversation(user_id=user_id)
+    attachment = Attachment(
+        attachment_id="generated-1",
+        attachment_type=AttachmentType.IMAGE,
+        content_type="image/png",
+        metadata={"media_id": "generated-1", "generated": True},
+    )
+    agent = FakeAgentBoundary(responses=[AgentResponse(text="answer", attachments=[attachment])])
+    inbound_worker, _inbound_queue, outbound_queue, _memory = worker(
+        conversations_by_chat_id={"12345": resolved_conversation},
+        agent_boundary=agent,
+    )
+    event = inbound_event(user_id=user_id)
+
+    await inbound_worker.process_event(event)
+
+    outbound = await outbound_queue.consume()
+    assert outbound.text == "answer"
+    assert outbound.attachments == [attachment]
+    assert outbound.message_type is MessageType.MIXED
+
+
 async def test_inbound_worker_reserves_agent_turn_quota_before_processing() -> None:
     user_id = uuid4()
     resolved_conversation = conversation(user_id=user_id)
@@ -740,8 +764,7 @@ async def test_inbound_worker_keeps_pending_feedback_for_non_text_message() -> N
     assert outbound.text == FEEDBACK_TEXT_ONLY_MESSAGE
     assert feedback_store.feedback == []
     assert (
-        await feedback_state_store.get_pending(conversation_id=resolved_conversation.id)
-        is not None
+        await feedback_state_store.get_pending(conversation_id=resolved_conversation.id) is not None
     )
     assert memory.user_messages == []
 

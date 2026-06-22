@@ -15,6 +15,7 @@ LogLevel = Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
 AgentProvider = Literal["openrouter"]
 WebResearchSearchDepth = Literal["ultra-fast", "fast", "basic", "advanced"]
 WebResearchExtractDepth = Literal["basic", "advanced"]
+DEFAULT_IMAGE_GENERATION_MODEL = "google/gemini-2.5-flash-image"
 
 
 class AppSettings(BaseSettings):
@@ -101,6 +102,14 @@ class AppSettings(BaseSettings):
     image_analysis_max_images: int = Field(default=5, gt=0)
     image_max_size_bytes: int = Field(default=10_000_000, gt=0)
     image_media_dir: Path = Path("var/media/images")
+    image_generation_enabled: bool = True
+    image_generation_model: str = Field(default=DEFAULT_IMAGE_GENERATION_MODEL, min_length=1)
+    image_generation_timeout_seconds: float = Field(default=120.0, gt=0)
+    image_generation_tool_timeout_seconds: float = Field(default=150.0, gt=0)
+    image_generation_max_source_images: int = Field(default=5, gt=0)
+    image_generation_max_output_images: int = Field(default=1, gt=0)
+    image_generation_max_output_size_bytes: int = Field(default=10_000_000, gt=0)
+    image_generation_media_dir: Path = Path("var/media/generated-images")
     document_reading_enabled: bool = True
     document_reading_tool_timeout_seconds: float = Field(default=10.0, gt=0)
     document_max_size_bytes: int = Field(default=2_000_000, gt=0)
