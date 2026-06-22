@@ -1,4 +1,5 @@
 import asyncio
+import logging
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from types import SimpleNamespace
@@ -362,6 +363,60 @@ def test_image_generation_output_guard_ignores_prior_turn_generated_media_id() -
         cast(Any, ctx),
         "![Ростов](media_id:old-image)",
     )
+
+
+def test_image_generation_output_retry_logs_structured_details(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    prompt = "Нарисуй Ростов-на-Дону летом"
+    ctx = SimpleNamespace(
+        prompt=prompt,
+        messages=[
+            ModelRequest(parts=[UserPromptPart(content=prompt)]),
+            ModelResponse(parts=[TextPart(content="![Ростов](media_id:YJHk9Lm3tcWn)")]),
+        ],
+        metadata={
+            "trace_id": "trace-1",
+            "conversation_id": "conversation-1",
+            "user_id": "user-1",
+            "inbound_event_id": "inbound-1",
+            "channel": "telegram",
+        },
+        run_step=2,
+    )
+    details = pydantic_ai_module._image_generation_output_retry_details(
+        cast(Any, ctx),
+        "![Ростов](media_id:YJHk9Lm3tcWn)",
+    )
+    assert details is not None
+
+    with caplog.at_level(logging.INFO, logger="agent_service.agents.pydantic_ai"):
+        pydantic_ai_module._log_image_generation_output_retry_requested(
+            cast(Any, ctx),
+            details,
+        )
+
+    records = [
+        record
+        for record in caplog.records
+        if getattr(record, "event", None) == "image_generation_output_retry_requested"
+    ]
+    assert len(records) == 1
+    record = records[0]
+    record_fields = record.__dict__
+    assert record_fields["trace_id"] == "trace-1"
+    assert record_fields["conversation_id"] == "conversation-1"
+    assert record_fields["user_id"] == "user-1"
+    assert record_fields["inbound_event_id"] == "inbound-1"
+    assert record_fields["channel"] == "telegram"
+    assert record_fields["reason"] == "referenced_media_id_without_successful_generate_image"
+    assert record_fields["referenced_media_ids"] == ["YJHk9Lm3tcWn"]
+    assert record_fields["generated_media_ids"] == []
+    assert record_fields["missing_media_ids"] == ["YJHk9Lm3tcWn"]
+    assert record_fields["current_run_message_count"] == 2
+    assert record_fields["run_step"] == 2
+    assert "output" not in record_fields
+    assert "text" not in record_fields
 
 
 async def test_pydantic_ai_agent_boundary_passes_prepared_context() -> None:

@@ -1,4 +1,5 @@
 import asyncio
+import logging
 import re
 from collections.abc import Callable, Collection, Mapping, Sequence
 from dataclasses import dataclass
@@ -28,7 +29,10 @@ from agent_service.agents.models import (
 from agent_service.channels.models import Attachment, AttachmentType
 from agent_service.image_generation import IMAGE_GENERATION_TOOL_NAME
 from agent_service.instructions import load_base_agent_instructions
+from agent_service.observability.events import log_event
 from agent_service.skills import load_builtin_skill_capabilities
+
+logger = logging.getLogger(__name__)
 
 SAFE_REQUEST_METADATA_KEYS = frozenset({"retry_attempt"})
 SAFE_CONTEXT_METADATA_KEYS = frozenset(
@@ -237,7 +241,9 @@ def _register_image_generation_output_validator(agent: Any) -> None:
         ctx: RunContext[dict[str, Any]],
         output: str,
     ) -> str:
-        if _image_generation_output_requires_retry(ctx, output):
+        retry_details = _image_generation_output_retry_details(ctx, output)
+        if retry_details is not None:
+            _log_image_generation_output_retry_requested(ctx, retry_details)
             raise ModelRetry(IMAGE_GENERATION_OUTPUT_RETRY_MESSAGE)
         return output
 
@@ -246,15 +252,70 @@ def _image_generation_output_requires_retry(
     ctx: RunContext[dict[str, Any]],
     output: object,
 ) -> bool:
+    return _image_generation_output_retry_details(ctx, output) is not None
+
+
+def _image_generation_output_retry_details(
+    ctx: RunContext[dict[str, Any]],
+    output: object,
+) -> dict[str, object] | None:
     if not isinstance(output, str) or not _has_generated_image_text_reference(output):
-        return False
+        return None
 
     referenced_media_ids = _referenced_media_ids(output)
     current_run_messages = _messages_since_current_prompt(ctx.messages, ctx.prompt)
     generated_media_ids = _successful_generated_image_media_ids(current_run_messages)
     if referenced_media_ids:
-        return not referenced_media_ids.issubset(generated_media_ids)
-    return not generated_media_ids
+        missing_media_ids = referenced_media_ids - generated_media_ids
+        if not missing_media_ids:
+            return None
+        return {
+            "reason": "referenced_media_id_without_successful_generate_image",
+            "referenced_media_ids": sorted(referenced_media_ids),
+            "generated_media_ids": sorted(generated_media_ids),
+            "missing_media_ids": sorted(missing_media_ids),
+            "current_run_message_count": len(current_run_messages),
+        }
+    if generated_media_ids:
+        return None
+    return {
+        "reason": "generated_image_marker_without_successful_generate_image",
+        "referenced_media_ids": [],
+        "generated_media_ids": [],
+        "missing_media_ids": [],
+        "current_run_message_count": len(current_run_messages),
+    }
+
+
+def _log_image_generation_output_retry_requested(
+    ctx: RunContext[dict[str, Any]],
+    details: Mapping[str, object],
+) -> None:
+    metadata = ctx.metadata or {}
+    log_event(
+        logger,
+        logging.INFO,
+        "Image generation output retry requested",
+        event="image_generation_output_retry_requested",
+        trace_id=_metadata_str(metadata, "trace_id"),
+        conversation_id=_metadata_str(metadata, "conversation_id"),
+        user_id=_metadata_str(metadata, "user_id"),
+        inbound_event_id=_metadata_str(metadata, "inbound_event_id"),
+        channel=_metadata_str(metadata, "channel"),
+        reason=details.get("reason"),
+        referenced_media_ids=details.get("referenced_media_ids"),
+        generated_media_ids=details.get("generated_media_ids"),
+        missing_media_ids=details.get("missing_media_ids"),
+        current_run_message_count=details.get("current_run_message_count"),
+        run_step=ctx.run_step,
+    )
+
+
+def _metadata_str(metadata: Mapping[str, object], key: str) -> str | None:
+    value = metadata.get(key)
+    if isinstance(value, str) and value.strip():
+        return value
+    return None
 
 
 def _has_generated_image_text_reference(text: str) -> bool:
