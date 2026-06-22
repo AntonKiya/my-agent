@@ -104,9 +104,10 @@ async def test_image_generation_toolset_includes_follow_up_edit_instructions(
 
     assert instructions is not None
     content = instructions[0].content
-    assert "create a new image or edit" in content
-    assert "previously attached" in content
-    assert "Do not ask the user to re-upload" in content
+    assert "For new images, omit source_media_ids" in content
+    assert "For edits or follow-ups on an existing image" in content
+    assert "from image markers as source_media_ids" in content
+    assert "what must stay unchanged" in content
 
 
 async def test_generate_image_checks_ownership_and_stores_generated_asset(

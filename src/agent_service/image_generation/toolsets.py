@@ -31,11 +31,12 @@ logger = logging.getLogger(__name__)
 IMAGE_GENERATION_TOOLSET_ID = "image-generation"
 IMAGE_GENERATION_TOOL_NAME = "generateImage"
 IMAGE_GENERATION_TOOLSET_INSTRUCTIONS = (
-    "For any request to create a new image or edit an attached, generated, or previously attached "
-    "image, call generateImage before answering. For edits, use media_id values from current "
-    "attached/generated image markers or recent conversation context, preferring the latest "
-    "relevant image. Do not ask the user to re-upload an image when a relevant media_id is "
-    "available. If the target image is unclear, ask one short clarification."
+    "Call generateImage for image creation or image editing. "
+    "For new images, omit source_media_ids. "
+    "For edits or follow-ups on an existing image, pass the relevant media_id values from image "
+    "markers as source_media_ids. "
+    "For edits, describe the requested change and what must stay unchanged. "
+    "Ask one short clarification only if the target image is unclear."
 )
 
 
@@ -59,7 +60,8 @@ def build_image_generation_toolsets(
 
         Args:
             prompt: The user's image creation or editing instruction.
-            source_media_ids: Optional image media_id values to edit or use as references.
+            source_media_ids: Image media_id values from image markers. Required for edits or
+                follow-ups on an existing image; omit only for new images.
         """
         deps = ctx.deps or {}
         user_id = _uuid_dep(deps.get("user_id"))
