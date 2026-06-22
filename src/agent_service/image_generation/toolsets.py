@@ -31,12 +31,18 @@ logger = logging.getLogger(__name__)
 IMAGE_GENERATION_TOOLSET_ID = "image-generation"
 IMAGE_GENERATION_TOOL_NAME = "generateImage"
 IMAGE_GENERATION_TOOLSET_INSTRUCTIONS = (
-    "Call generateImage for image creation or image editing. "
-    "For new images, omit source_media_ids. "
-    "For edits or follow-ups on an existing image, pass the relevant media_id values from image "
-    "markers as source_media_ids. "
+    "Use generateImage for every request to create, generate, draw, render, design, or edit an "
+    "image, illustration, picture, poster, icon, or photo. "
+    "Do not answer with an image, markdown image link, media_id, or [Generated image: ...] unless "
+    "generateImage returned success: true; never invent media_id values. "
+    "For new images, omit source_media_ids and build the prompt from the user request and recent "
+    "context. "
+    "For edits or follow-ups, pass relevant media_id values from [Attached image] or "
+    "[Generated image] markers as source_media_ids, preferring the latest relevant generated "
+    "image. "
     "For edits, describe the requested change and what must stay unchanged. "
-    "Ask one short clarification only if the target image is unclear."
+    "Ask one short clarification only if the target image is unclear. "
+    "If generateImage returns an error or quota limit, say the image was not created or changed."
 )
 
 
@@ -57,6 +63,9 @@ def build_image_generation_toolsets(
         source_media_ids: list[str] | None = None,
     ) -> dict[str, Any]:
         """Create a new image or edit images from the current conversation.
+
+        Use this tool before answering any image creation or image editing request. The
+        generated_images returned by this tool are the only valid new image media_id values.
 
         Args:
             prompt: The user's image creation or editing instruction.

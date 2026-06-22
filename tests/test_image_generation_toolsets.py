@@ -104,10 +104,14 @@ async def test_image_generation_toolset_includes_follow_up_edit_instructions(
 
     assert instructions is not None
     content = instructions[0].content
+    assert "Use generateImage for every request to create" in content
+    assert "unless generateImage returned success: true" in content
+    assert "never invent media_id values" in content
     assert "For new images, omit source_media_ids" in content
-    assert "For edits or follow-ups on an existing image" in content
-    assert "from image markers as source_media_ids" in content
+    assert "[Attached image]" in content
+    assert "[Generated image] markers as source_media_ids" in content
     assert "what must stay unchanged" in content
+    assert "error or quota limit" in content
 
 
 async def test_generate_image_checks_ownership_and_stores_generated_asset(
