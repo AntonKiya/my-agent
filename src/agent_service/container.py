@@ -40,6 +40,10 @@ from agent_service.image_analysis import (
     OpenRouterVisionAnalyzer,
     build_image_analysis_toolsets,
 )
+from agent_service.image_generation import (
+    OpenRouterImageGenerator,
+    build_image_generation_toolsets,
+)
 from agent_service.inbound import (
     AgentRetryPolicy,
     ContentProcessingRetryPolicy,
@@ -191,6 +195,11 @@ class AppContainer:
         init=False,
         repr=False,
     )
+    _image_generation_http_client: httpx.AsyncClient | None = field(
+        default=None,
+        init=False,
+        repr=False,
+    )
     _groq_http_client: httpx.AsyncClient | None = field(default=None, init=False, repr=False)
     _weather_http_client: httpx.AsyncClient | None = field(default=None, init=False, repr=False)
     _web_research_http_client: httpx.AsyncClient | None = field(
@@ -292,6 +301,9 @@ class AppContainer:
         if self._image_analysis_http_client is not None:
             await self._image_analysis_http_client.aclose()
             self._image_analysis_http_client = None
+        if self._image_generation_http_client is not None:
+            await self._image_generation_http_client.aclose()
+            self._image_generation_http_client = None
         if self._groq_http_client is not None:
             await self._groq_http_client.aclose()
             self._groq_http_client = None
@@ -316,6 +328,8 @@ class AppContainer:
             self.conversation_compaction_store = None
             self.memory_service = None
             self.media_asset_store = None
+            if self.telegram_adapter is not None:
+                self.telegram_adapter.media_asset_store = None
             self.feedback_store = None
             self.reminder_store = None
             self.notification_outbox_store = None
@@ -368,6 +382,7 @@ class AppContainer:
 
         direct_toolsets.extend(build_time_toolsets())
         direct_toolsets.extend(self._build_image_analysis_toolsets())
+        direct_toolsets.extend(self._build_image_generation_toolsets())
         direct_toolsets.extend(self._build_file_reading_toolsets())
         direct_toolsets.extend(self._build_web_research_toolsets())
         reminder_toolsets = self._build_reminder_toolsets()
@@ -497,6 +512,37 @@ class AppContainer:
             media_asset_store=self.media_asset_store,
         )
 
+    def _build_image_generation_toolsets(self) -> tuple[AgentToolset[Any], ...]:
+        if not self.settings.image_generation_enabled:
+            return ()
+        if self.settings.openrouter_api_key is None:
+            return ()
+        if self.media_asset_store is None:
+            return ()
+        if self.quota_service is None:
+            return ()
+
+        image_generation_http_client = _create_openrouter_http_client(
+            self.settings,
+            read_timeout_seconds=self.settings.image_generation_timeout_seconds,
+            worker_count=self.settings.inbound_worker_count,
+        )
+        self._image_generation_http_client = image_generation_http_client
+        generator = OpenRouterImageGenerator(
+            api_key=self.settings.openrouter_api_key.get_secret_value(),
+            client=image_generation_http_client,
+            model=self.settings.image_generation_model,
+            timeout_seconds=self.settings.image_generation_timeout_seconds,
+            max_output_size_bytes=self.settings.image_generation_max_output_size_bytes,
+        )
+        return build_image_generation_toolsets(
+            self.settings,
+            generator=generator,
+            media_asset_store=self.media_asset_store,
+            media_store=PersistentFileMediaStore(base_dir=self.settings.image_generation_media_dir),
+            quota_service=self.quota_service,
+        )
+
     def _build_file_reading_toolsets(self) -> tuple[AgentToolset[Any], ...]:
         if not self.settings.document_reading_enabled:
             return ()
@@ -591,6 +637,8 @@ class AppContainer:
             cast(MemoryPostgresPool, self._postgres_pool)
         )
         self.media_asset_store = PostgresMediaAssetStore(self._postgres_pool)
+        if self.telegram_adapter is not None:
+            self.telegram_adapter.media_asset_store = self.media_asset_store
         self.feedback_store = PostgresFeedbackStore(self._postgres_pool)
         self.reminder_store = PostgresReminderStore(cast(ReminderPostgresPool, self._postgres_pool))
         self.notification_outbox_store = PostgresNotificationOutboxStore(
@@ -625,6 +673,9 @@ class AppContainer:
             if self._image_analysis_http_client is not None:
                 await self._image_analysis_http_client.aclose()
                 self._image_analysis_http_client = None
+            if self._image_generation_http_client is not None:
+                await self._image_generation_http_client.aclose()
+                self._image_generation_http_client = None
             self.agent_boundary = self._build_agent_boundary()
 
     def _start_inbound_workers(self) -> None:

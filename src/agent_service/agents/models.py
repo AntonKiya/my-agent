@@ -98,6 +98,7 @@ class AgentRequest(AgentModel):
 
 class AgentResponse(AgentModel):
     text: str = Field(min_length=1)
+    attachments: list[Attachment] = Field(default_factory=list)
     metadata: AgentMetadata = Field(default_factory=dict)
     context_usage: AgentUsage | None = None
     run_usage: AgentUsage | None = None

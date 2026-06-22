@@ -5,7 +5,7 @@ from typing import Any, Protocol, cast
 
 import httpx
 from pydantic_ai import Agent
-from pydantic_ai.messages import ModelMessage, ModelResponse
+from pydantic_ai.messages import ModelMessage, ModelResponse, ToolReturnPart
 from pydantic_ai.models.openrouter import OpenRouterModel, OpenRouterModelSettings
 from pydantic_ai.providers.openrouter import OpenRouterProvider
 from pydantic_ai.toolsets import AgentToolset
@@ -17,6 +17,8 @@ from agent_service.agents.models import (
     AgentResponse,
     AgentUsage,
 )
+from agent_service.channels.models import Attachment, AttachmentType
+from agent_service.image_generation import IMAGE_GENERATION_TOOL_NAME
 from agent_service.instructions import load_base_agent_instructions
 from agent_service.skills import load_builtin_skill_capabilities
 
@@ -118,13 +120,19 @@ class PydanticAIAgentBoundary(AgentBoundary):
 
         run_usage = _result_usage(result)
         new_messages = _agent_new_messages(result)
+        attachments = _generated_image_attachments(new_messages)
         context_usage = _latest_model_response_usage(new_messages) or run_usage
-        text = _response_text(result.output)
+        text = _response_text(
+            result.output,
+            fallback_text=("Готово." if attachments else None),
+        )
         return AgentResponse(
             text=text,
+            attachments=attachments,
             metadata={
                 "agent": "pydantic_ai",
                 **_safe_response_metadata(request),
+                **_generated_image_response_metadata(attachments),
             },
             context_usage=_agent_usage_from_usage(context_usage),
             run_usage=_agent_usage_from_usage(run_usage),
@@ -193,11 +201,13 @@ def _safe_response_metadata(request: AgentRequest) -> dict[str, Any]:
     return {key: value for key, value in metadata.items() if value is not None}
 
 
-def _response_text(output: Any) -> str:
+def _response_text(output: Any, *, fallback_text: str | None = None) -> str:
     if not isinstance(output, str):
         raise TypeError("Pydantic AI agent output must be text")
     text = output.strip()
     if not text:
+        if fallback_text is not None:
+            return fallback_text
         raise EmptyAgentResponseError("Pydantic AI agent returned empty text")
     return text
 
@@ -266,6 +276,87 @@ def _agent_new_messages(result: PydanticAIRunResult) -> list[ModelMessage]:
     if not isinstance(messages, list):
         return []
     return messages
+
+
+def _generated_image_attachments(messages: list[ModelMessage]) -> list[Attachment]:
+    attachments: list[Attachment] = []
+    seen_media_ids: set[str] = set()
+    for message in messages:
+        for part in message.parts:
+            if not isinstance(part, ToolReturnPart):
+                continue
+            if part.tool_name != IMAGE_GENERATION_TOOL_NAME:
+                continue
+            generated_images = _generated_images_from_tool_content(part.content)
+            for image in generated_images:
+                media_id = image["media_id"]
+                if media_id in seen_media_ids:
+                    continue
+                seen_media_ids.add(media_id)
+                attachments.append(
+                    Attachment(
+                        attachment_id=media_id,
+                        attachment_type=AttachmentType.IMAGE,
+                        content_type=image.get("content_type"),
+                        metadata={
+                            "media_id": media_id,
+                            "generated": True,
+                            "source": "image_generation",
+                            **(
+                                {"file_name": image["filename"]}
+                                if image.get("filename") is not None
+                                else {}
+                            ),
+                            **(
+                                {"file_size": image["size_bytes"]}
+                                if image.get("size_bytes") is not None
+                                else {}
+                            ),
+                        },
+                    )
+                )
+    return attachments
+
+
+def _generated_images_from_tool_content(content: Any) -> list[dict[str, Any]]:
+    if not isinstance(content, dict) or content.get("success") is not True:
+        return []
+    data = content.get("data")
+    if not isinstance(data, dict):
+        return []
+    generated_images = data.get("generated_images")
+    if not isinstance(generated_images, list):
+        return []
+    parsed: list[dict[str, Any]] = []
+    for item in generated_images:
+        if not isinstance(item, dict):
+            continue
+        media_id = item.get("media_id")
+        if not isinstance(media_id, str) or not media_id.strip():
+            continue
+        content_type = item.get("content_type")
+        filename = item.get("filename")
+        size_bytes = item.get("size_bytes")
+        parsed.append(
+            {
+                "media_id": media_id.strip(),
+                "content_type": content_type if isinstance(content_type, str) else None,
+                "filename": filename if isinstance(filename, str) else None,
+                "size_bytes": size_bytes if isinstance(size_bytes, int) else None,
+            }
+        )
+    return parsed
+
+
+def _generated_image_response_metadata(attachments: list[Attachment]) -> dict[str, Any]:
+    media_ids: list[str] = []
+    for attachment in attachments:
+        media_id = attachment.metadata.get("media_id")
+        if isinstance(media_id, str):
+            media_ids.append(media_id)
+    if not media_ids:
+        return {}
+    return {"generated_image_media_ids": media_ids}
 
 
 def _latest_model_response_usage(messages: list[ModelMessage]) -> object | None:

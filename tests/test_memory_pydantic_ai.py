@@ -14,6 +14,7 @@ from pydantic_ai.messages import (
     UserPromptPart,
 )
 
+from agent_service.channels import Attachment, AttachmentType
 from agent_service.memory import (
     ConversationMemoryMessage,
     ConversationMemoryRole,
@@ -73,6 +74,24 @@ def test_assistant_memory_message_becomes_pydantic_ai_response() -> None:
     assert converted.timestamp == message.created_at
     assert isinstance(converted.parts[0], TextPart)
     assert converted.parts[0].content == "answer"
+
+
+def test_generated_image_attachment_marker_is_visible_in_assistant_history() -> None:
+    message = memory_message(role=ConversationMemoryRole.ASSISTANT, text="Готово")
+    message.attachments = [
+        Attachment(
+            attachment_id="generated-1",
+            attachment_type=AttachmentType.IMAGE,
+            content_type="image/png",
+            metadata={"media_id": "generated-1", "generated": True},
+        )
+    ]
+
+    converted = pydantic_ai_message_from_memory(message)
+
+    assert isinstance(converted, ModelResponse)
+    assert isinstance(converted.parts[0], TextPart)
+    assert converted.parts[0].content == 'Готово\n[Generated image: media_id="generated-1"]'
 
 
 def test_tool_memory_messages_keep_tool_call_linkage() -> None:

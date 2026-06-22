@@ -22,7 +22,7 @@ from agent_service.agents import (
     AgentToolStatus,
     AgentUsage,
 )
-from agent_service.channels import InboundEvent
+from agent_service.channels import Attachment, AttachmentType, InboundEvent
 from agent_service.conversations import Conversation
 from agent_service.memory import (
     ConversationCompactionPolicy,
@@ -823,6 +823,27 @@ async def test_memory_service_records_assistant_message_with_usage_and_tool_info
     assert stored.metadata["run_usage"]["total_tokens"] == 15
     assert stored.metadata["model_response_usages"][0]["usage"]["total_tokens"] == 15
     assert stored.metadata["tool_info"][0]["tool_name"] == "search"
+
+
+async def test_memory_service_records_assistant_generated_image_attachment() -> None:
+    resolved_conversation = conversation()
+    memory_store = FakeMemoryStore()
+    service = DefaultConversationMemoryService(memory_store, FakeSnapshotStore())
+    attachment = Attachment(
+        attachment_id="generated-1",
+        attachment_type=AttachmentType.IMAGE,
+        content_type="image/png",
+        metadata={"media_id": "generated-1", "generated": True},
+    )
+
+    stored = await service.record_assistant_message(
+        conversation=resolved_conversation,
+        response=AgentResponse(text="Готово", attachments=[attachment]),
+    )
+
+    assert stored.role is ConversationMemoryRole.ASSISTANT
+    assert stored.text == "Готово"
+    assert stored.attachments == [attachment]
 
 
 async def test_memory_service_records_pydantic_ai_tool_messages_before_assistant() -> None:

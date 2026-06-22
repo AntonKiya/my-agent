@@ -82,6 +82,14 @@ def test_postgres_pool_settings_have_safe_defaults() -> None:
     assert settings.image_analysis_max_images == 5
     assert settings.image_max_size_bytes == 10_000_000
     assert str(settings.image_media_dir) == "var/media/images"
+    assert settings.image_generation_enabled
+    assert settings.image_generation_model == "google/gemini-2.5-flash-image"
+    assert settings.image_generation_timeout_seconds == 120.0
+    assert settings.image_generation_tool_timeout_seconds == 150.0
+    assert settings.image_generation_max_source_images == 5
+    assert settings.image_generation_max_output_images == 1
+    assert settings.image_generation_max_output_size_bytes == 10_000_000
+    assert str(settings.image_generation_media_dir) == "var/media/generated-images"
     assert settings.document_reading_enabled
     assert settings.document_reading_tool_timeout_seconds == 10.0
     assert settings.document_max_size_bytes == 2_000_000
@@ -253,6 +261,24 @@ def test_postgres_pool_settings_are_validated() -> None:
 
     with pytest.raises(ValidationError):
         AppSettings(environment="test", image_max_size_bytes=0)
+
+    with pytest.raises(ValidationError):
+        AppSettings(environment="test", image_generation_model="")
+
+    with pytest.raises(ValidationError):
+        AppSettings(environment="test", image_generation_timeout_seconds=0)
+
+    with pytest.raises(ValidationError):
+        AppSettings(environment="test", image_generation_tool_timeout_seconds=0)
+
+    with pytest.raises(ValidationError):
+        AppSettings(environment="test", image_generation_max_source_images=0)
+
+    with pytest.raises(ValidationError):
+        AppSettings(environment="test", image_generation_max_output_images=0)
+
+    with pytest.raises(ValidationError):
+        AppSettings(environment="test", image_generation_max_output_size_bytes=0)
 
     with pytest.raises(ValidationError):
         AppSettings(environment="test", groq_http_connect_timeout_seconds=0)
