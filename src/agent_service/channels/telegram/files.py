@@ -52,7 +52,11 @@ class TelegramMediaFetcher(ChannelMediaFetcher):
                 error_code="telegram_missing_file_id",
             )
 
-        file_info = await self._get_file(attachment.external_id)
+        file_info = await self._get_file(
+            attachment.external_id,
+            event=event,
+            attachment=attachment,
+        )
         file_size = _optional_int(file_info.get("file_size"))
         if (
             self.max_file_size_bytes is not None
@@ -72,7 +76,7 @@ class TelegramMediaFetcher(ChannelMediaFetcher):
                 error_code="telegram_missing_file_path",
             )
 
-        content = await self._download_file(file_path)
+        content = await self._download_file(file_path, event=event, attachment=attachment)
         if self.max_file_size_bytes is not None and len(content) > self.max_file_size_bytes:
             raise MediaFetchError(
                 "Telegram media download exceeds configured size limit",
@@ -104,33 +108,77 @@ class TelegramMediaFetcher(ChannelMediaFetcher):
             },
         )
 
-    async def _get_file(self, file_id: str) -> dict[str, Any]:
+    async def _get_file(
+        self,
+        file_id: str,
+        *,
+        event: InboundEvent,
+        attachment: Attachment,
+    ) -> dict[str, Any]:
         try:
             response = await self.client.post(
                 self._method_url(TELEGRAM_GET_FILE_METHOD),
                 json={"file_id": file_id},
             )
         except httpx.TransportError as exc:
+            error_code = _transport_error_code(exc)
+            _log_telegram_media_fetch_transport_error(
+                event=event,
+                attachment=attachment,
+                telegram_method=TELEGRAM_GET_FILE_METHOD,
+                error_code=error_code,
+                error_type=type(exc).__name__,
+            )
             raise MediaFetchError(
                 "Telegram getFile transport error",
                 retryable=True,
-                error_code=_transport_error_code(exc),
+                error_code=error_code,
             ) from exc
 
         body = _response_json(response)
         if response.status_code >= 500 or response.status_code == 429:
-            raise MediaFetchError(
-                _telegram_error_message(response, body),
+            error_code = _telegram_error_code(response, body)
+            error_message = _telegram_error_message(response, body)
+            _log_telegram_media_fetch_response_error(
+                event=event,
+                attachment=attachment,
+                telegram_method=TELEGRAM_GET_FILE_METHOD,
+                response=response,
+                body=body,
                 retryable=True,
-                error_code=_telegram_error_code(response, body),
+            )
+            raise MediaFetchError(
+                error_message,
+                retryable=True,
+                error_code=error_code,
             )
         if response.status_code >= 400:
-            raise MediaFetchError(
-                _telegram_error_message(response, body),
+            error_code = _telegram_error_code(response, body)
+            error_message = _telegram_error_message(response, body)
+            _log_telegram_media_fetch_response_error(
+                event=event,
+                attachment=attachment,
+                telegram_method=TELEGRAM_GET_FILE_METHOD,
+                response=response,
+                body=body,
                 retryable=False,
-                error_code=_telegram_error_code(response, body),
+            )
+            raise MediaFetchError(
+                error_message,
+                retryable=False,
+                error_code=error_code,
             )
         if not isinstance(body, dict) or body.get("ok") is not True:
+            _log_telegram_media_fetch_response_error(
+                event=event,
+                attachment=attachment,
+                telegram_method=TELEGRAM_GET_FILE_METHOD,
+                response=response,
+                body=body,
+                retryable=True,
+                fallback_error_code="telegram_get_file_failed",
+                fallback_error_message="Telegram getFile response was not successful",
+            )
             raise MediaFetchError(
                 "Telegram getFile response was not successful",
                 retryable=True,
@@ -145,23 +193,49 @@ class TelegramMediaFetcher(ChannelMediaFetcher):
             )
         return result
 
-    async def _download_file(self, file_path: str) -> bytes:
+    async def _download_file(
+        self,
+        file_path: str,
+        *,
+        event: InboundEvent,
+        attachment: Attachment,
+    ) -> bytes:
         try:
             response = await self.client.get(self._file_url(file_path))
         except httpx.TransportError as exc:
+            error_code = _transport_error_code(exc)
+            _log_telegram_media_fetch_transport_error(
+                event=event,
+                attachment=attachment,
+                telegram_method="downloadFile",
+                error_code=error_code,
+                error_type=type(exc).__name__,
+            )
             raise MediaFetchError(
                 "Telegram file download transport error",
                 retryable=True,
-                error_code=_transport_error_code(exc),
+                error_code=error_code,
             ) from exc
 
         if response.status_code >= 500 or response.status_code == 429:
+            _log_telegram_media_fetch_download_error(
+                event=event,
+                attachment=attachment,
+                response=response,
+                retryable=True,
+            )
             raise MediaFetchError(
                 "Telegram file download failed temporarily",
                 retryable=True,
                 error_code=f"telegram_file_http_{response.status_code}",
             )
         if response.status_code >= 400:
+            _log_telegram_media_fetch_download_error(
+                event=event,
+                attachment=attachment,
+                response=response,
+                retryable=False,
+            )
             raise MediaFetchError(
                 "Telegram file download failed",
                 retryable=False,
@@ -197,6 +271,92 @@ def _telegram_error_message(response: httpx.Response, body: Any) -> str:
     return response.reason_phrase or "Telegram API request failed"
 
 
+def _log_telegram_media_fetch_response_error(
+    *,
+    event: InboundEvent,
+    attachment: Attachment,
+    telegram_method: str,
+    response: httpx.Response,
+    body: Any,
+    retryable: bool,
+    fallback_error_code: str | None = None,
+    fallback_error_message: str | None = None,
+) -> None:
+    error_code = fallback_error_code or _telegram_error_code(response, body)
+    error_message = fallback_error_message or _telegram_error_message(response, body)
+    log_event(
+        logger,
+        logging.WARNING,
+        "Telegram media fetch API request failed",
+        event="telegram_media_fetch_api_failed",
+        **_telegram_media_fetch_log_fields(event=event, attachment=attachment),
+        telegram_method=telegram_method,
+        telegram_status_code=response.status_code,
+        telegram_error_code=error_code,
+        telegram_error_message=error_message,
+        retryable=retryable,
+    )
+
+
+def _log_telegram_media_fetch_download_error(
+    *,
+    event: InboundEvent,
+    attachment: Attachment,
+    response: httpx.Response,
+    retryable: bool,
+) -> None:
+    log_event(
+        logger,
+        logging.WARNING,
+        "Telegram media fetch download failed",
+        event="telegram_media_fetch_download_failed",
+        **_telegram_media_fetch_log_fields(event=event, attachment=attachment),
+        telegram_method="downloadFile",
+        telegram_status_code=response.status_code,
+        telegram_error_code=f"telegram_file_http_{response.status_code}",
+        telegram_error_message=response.reason_phrase or "Telegram file download failed",
+        retryable=retryable,
+    )
+
+
+def _log_telegram_media_fetch_transport_error(
+    *,
+    event: InboundEvent,
+    attachment: Attachment,
+    telegram_method: str,
+    error_code: str,
+    error_type: str,
+) -> None:
+    log_event(
+        logger,
+        logging.WARNING,
+        "Telegram media fetch transport error",
+        event="telegram_media_fetch_transport_error",
+        **_telegram_media_fetch_log_fields(event=event, attachment=attachment),
+        telegram_method=telegram_method,
+        telegram_error_code=error_code,
+        telegram_error_type=error_type,
+        retryable=True,
+    )
+
+
+def _telegram_media_fetch_log_fields(
+    *,
+    event: InboundEvent,
+    attachment: Attachment,
+) -> dict[str, object]:
+    return {
+        "inbound_event_id": str(event.event_id),
+        "channel": event.channel,
+        "user_id": str(event.user_id) if event.user_id is not None else None,
+        "attachment_type": attachment.attachment_type.value,
+        "attachment_id": attachment.attachment_id,
+        "content_type": attachment.content_type,
+        "file_name": _metadata_str(attachment.metadata.get("file_name")),
+        "declared_size_bytes": _optional_int(attachment.metadata.get("file_size")),
+    }
+
+
 def _transport_error_code(exc: httpx.TransportError) -> str:
     if isinstance(exc, httpx.ConnectTimeout):
         return "telegram_connect_timeout"
@@ -217,6 +377,12 @@ def _transport_error_code(exc: httpx.TransportError) -> str:
 
 def _optional_int(value: object) -> int | None:
     if isinstance(value, int):
+        return value
+    return None
+
+
+def _metadata_str(value: object) -> str | None:
+    if isinstance(value, str) and value:
         return value
     return None
 

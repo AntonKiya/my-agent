@@ -574,8 +574,7 @@ class InboundWorker:
                     "channel": event.channel,
                     "message_type": event.message_type.value,
                     "retryable": exc.retryable,
-                    "error_code": exc.error_code,
-                    "error_type": type(exc).__name__,
+                    **_content_processing_error_log_fields(exc),
                 },
             )
             await self._publish_content_processing_fallback(
@@ -1185,6 +1184,24 @@ def _content_processing_fallback_text(
     if max_size_bytes is None:
         return DOCUMENT_TOO_LARGE_FALLBACK_TEXT_WITHOUT_LIMIT
     return DOCUMENT_TOO_LARGE_FALLBACK_TEXT.format(limit=_format_size_bytes(max_size_bytes))
+
+
+def _content_processing_error_log_fields(exc: ContentProcessingError) -> dict[str, object]:
+    fields: dict[str, object] = {
+        "error_code": exc.error_code,
+        "error_type": type(exc).__name__,
+        "error_message": str(exc),
+    }
+    if exc.details:
+        fields["error_details"] = dict(exc.details)
+    cause = exc.__cause__
+    if cause is not None:
+        fields["error_cause_type"] = type(cause).__name__
+        fields["error_cause_message"] = str(cause)
+        cause_error_code = getattr(cause, "error_code", None)
+        if cause_error_code is not None:
+            fields["error_cause_code"] = cause_error_code
+    return fields
 
 
 def _positive_int_detail(details: dict[str, object] | None, key: str) -> int | None:

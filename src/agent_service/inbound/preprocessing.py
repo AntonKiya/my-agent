@@ -183,8 +183,7 @@ class InboundContentPreprocessor:
                         user_id=str(event.user_id) if event.user_id is not None else None,
                         attempt=attempt_number,
                         retryable=exc.retryable,
-                        error_code=exc.error_code,
-                        error_type=type(exc).__name__,
+                        **_content_processing_error_log_fields(exc),
                         duration_ms=elapsed_ms(started_at),
                     )
                     raise
@@ -199,7 +198,7 @@ class InboundContentPreprocessor:
                     user_id=str(event.user_id) if event.user_id is not None else None,
                     attempt=attempt_number,
                     delay_seconds=delay_seconds,
-                    error_code=exc.error_code,
+                    **_content_processing_error_log_fields(exc),
                     duration_ms=elapsed_ms(started_at),
                 )
                 await self.sleep(delay_seconds)
@@ -350,8 +349,7 @@ class InboundContentPreprocessor:
                         media_count=len(attachments),
                         attempt=attempt_number,
                         retryable=exc.retryable,
-                        error_code=exc.error_code,
-                        error_type=type(exc).__name__,
+                        **_content_processing_error_log_fields(exc),
                         duration_ms=elapsed_ms(started_at),
                     )
                     raise
@@ -368,7 +366,7 @@ class InboundContentPreprocessor:
                     media_count=len(attachments),
                     attempt=attempt_number,
                     delay_seconds=delay_seconds,
-                    error_code=exc.error_code,
+                    **_content_processing_error_log_fields(exc),
                     duration_ms=elapsed_ms(started_at),
                 )
                 await self.sleep(delay_seconds)
@@ -747,6 +745,24 @@ def _validate_declared_size(
                 "max_size_bytes": max_size_bytes,
             },
         )
+
+
+def _content_processing_error_log_fields(exc: ContentProcessingError) -> dict[str, object]:
+    fields: dict[str, object] = {
+        "error_code": exc.error_code,
+        "error_type": type(exc).__name__,
+        "error_message": str(exc),
+    }
+    if exc.details:
+        fields["error_details"] = dict(exc.details)
+    cause = exc.__cause__
+    if cause is not None:
+        fields["error_cause_type"] = type(cause).__name__
+        fields["error_cause_message"] = str(cause)
+        cause_error_code = getattr(cause, "error_code", None)
+        if cause_error_code is not None:
+            fields["error_cause_code"] = cause_error_code
+    return fields
 
 
 def _image_marker(*, media_id: str, index: int, count: int) -> str:
