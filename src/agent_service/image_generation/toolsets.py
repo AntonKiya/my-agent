@@ -28,7 +28,8 @@ from agent_service.quotas import (
 
 logger = logging.getLogger(__name__)
 
-IMAGE_GENERATION_TOOLSET_ID = "image-generation"
+IMAGE_GENERATION_SKILL_ID = "image-generation"
+IMAGE_GENERATION_TOOLSET_ID = IMAGE_GENERATION_SKILL_ID
 IMAGE_GENERATION_TOOL_NAME = "generateImage"
 IMAGE_GENERATION_TOOLSET_INSTRUCTIONS = (
     "Call generateImage for image creation or image editing. "

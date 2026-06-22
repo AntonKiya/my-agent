@@ -635,7 +635,7 @@ async def test_container_passes_web_research_as_direct_openrouter_toolset(
     assert container._web_research_http_client is None
 
 
-async def test_container_passes_image_analysis_as_direct_openrouter_toolset_after_postgres(
+async def test_container_passes_image_generation_capability_after_postgres(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     fake_pool = FakeManagedPostgresPool()
@@ -667,16 +667,18 @@ async def test_container_passes_image_analysis_as_direct_openrouter_toolset_afte
 
     await container.start()
 
-    assert captured["enabled_skill_ids"] == {"weather-forecast"}
+    assert captured["enabled_skill_ids"] == {"image-generation", "weather-forecast"}
     capability_toolsets = captured["capability_toolsets"]
     assert isinstance(capability_toolsets, dict)
-    assert set(capability_toolsets) == {"weather-forecast"}
+    assert set(capability_toolsets) == {"image-generation", "weather-forecast"}
+    image_generation_toolsets = capability_toolsets["image-generation"]
+    assert isinstance(image_generation_toolsets, tuple)
+    assert len(image_generation_toolsets) == 1
     direct_toolsets = captured["toolsets"]
     assert isinstance(direct_toolsets, tuple)
     assert {cast(Any, toolset).id for toolset in direct_toolsets} == {
         "time",
         "image-analysis",
-        "image-generation",
         "file-reading",
     }
     assert container._image_analysis_http_client is not None
@@ -727,10 +729,17 @@ async def test_container_passes_reminders_as_deferred_capability_after_postgres(
 
     await container.start()
 
-    assert captured["enabled_skill_ids"] == {"weather-forecast", "reminders"}
+    assert captured["enabled_skill_ids"] == {
+        "image-generation",
+        "weather-forecast",
+        "reminders",
+    }
     capability_toolsets = captured["capability_toolsets"]
     assert isinstance(capability_toolsets, dict)
-    assert set(capability_toolsets) == {"weather-forecast", "reminders"}
+    assert set(capability_toolsets) == {"image-generation", "weather-forecast", "reminders"}
+    image_generation_toolsets = capability_toolsets["image-generation"]
+    assert isinstance(image_generation_toolsets, tuple)
+    assert len(image_generation_toolsets) == 1
     reminder_toolsets = capability_toolsets["reminders"]
     assert isinstance(reminder_toolsets, tuple)
     assert len(reminder_toolsets) == 1
@@ -738,7 +747,6 @@ async def test_container_passes_reminders_as_deferred_capability_after_postgres(
     assert isinstance(direct_toolsets, tuple)
     assert {cast(Any, toolset).id for toolset in direct_toolsets} == {
         "time",
-        "image-generation",
         "file-reading",
     }
 

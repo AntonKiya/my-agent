@@ -13,6 +13,7 @@ from agent_service.image_generation.openrouter import (
     OpenRouterImageGenerator,
 )
 from agent_service.image_generation.toolsets import (
+    IMAGE_GENERATION_SKILL_ID,
     IMAGE_GENERATION_TOOL_NAME,
     IMAGE_GENERATION_TOOLSET_ID,
     build_image_generation_toolsets,
@@ -22,6 +23,7 @@ __all__ = [
     "DEFAULT_OPENROUTER_IMAGE_GENERATION_MODEL",
     "EmptyImageGenerationError",
     "GeneratedImage",
+    "IMAGE_GENERATION_SKILL_ID",
     "IMAGE_GENERATION_TOOLSET_ID",
     "IMAGE_GENERATION_TOOL_NAME",
     "ImageGenerationError",
