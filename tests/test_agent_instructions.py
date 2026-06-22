@@ -75,6 +75,15 @@ def test_base_agent_instructions_require_successful_tool_for_external_actions() 
     assert "сформировать корзину" in instructions
 
 
+def test_base_agent_instructions_require_image_tool_for_image_outputs() -> None:
+    instructions = "\n".join(load_base_agent_instructions())
+
+    assert "обязательно вызови соответствующий image tool перед ответом" in instructions
+    assert "не вставляй markdown-картинки, media_id-ссылки" in instructions
+    assert "Пока image tool не вернул успешный результат" in instructions
+    assert "завершился ошибкой или уперся в лимит" in instructions
+
+
 def test_base_agent_instructions_include_public_capabilities() -> None:
     instructions = "\n".join(load_base_agent_instructions())
 
