@@ -69,10 +69,12 @@ class ContentProcessingError(RuntimeError):
         *,
         retryable: bool = False,
         error_code: str | None = None,
+        details: dict[str, object] | None = None,
     ) -> None:
         super().__init__(message)
         self.retryable = retryable
         self.error_code = error_code
+        self.details = dict(details or {})
 
 
 @dataclass(frozen=True, slots=True)
@@ -233,6 +235,10 @@ class InboundContentPreprocessor:
                     "Inbound audio exceeds configured size limit",
                     retryable=False,
                     error_code="audio_too_large",
+                    details={
+                        "actual_size_bytes": payload.size_bytes,
+                        "max_size_bytes": self.max_audio_size_bytes,
+                    },
                 )
             stored_media = await self.audio_media_store.store(payload)
             log_event(
@@ -480,6 +486,10 @@ class InboundContentPreprocessor:
                     "Inbound image exceeds configured size limit",
                     retryable=False,
                     error_code="image_too_large",
+                    details={
+                        "actual_size_bytes": payload.size_bytes,
+                        "max_size_bytes": self.max_image_size_bytes,
+                    },
                 )
             self._validate_image_payload(payload.content_type)
             media_id = _new_media_id()
@@ -547,6 +557,10 @@ class InboundContentPreprocessor:
                     "Inbound document exceeds configured size limit",
                     retryable=False,
                     error_code="document_too_large",
+                    details={
+                        "actual_size_bytes": payload.size_bytes,
+                        "max_size_bytes": self.max_document_size_bytes,
+                    },
                 )
             self._validate_document_payload(
                 filename=payload.filename,
@@ -728,6 +742,10 @@ def _validate_declared_size(
             f"Inbound {label} exceeds configured size limit",
             retryable=False,
             error_code=error_code,
+            details={
+                "declared_size_bytes": declared_size,
+                "max_size_bytes": max_size_bytes,
+            },
         )
 
 

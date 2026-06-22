@@ -885,6 +885,41 @@ async def test_inbound_worker_fallbacks_when_voice_preprocessing_fails() -> None
     assert agent.requests == []
 
 
+async def test_inbound_worker_uses_specific_fallback_when_document_is_too_large() -> None:
+    user_id = uuid4()
+    resolved_conversation = conversation(user_id=user_id)
+    preprocessor = FakeContentPreprocessor(
+        errors=[
+            ContentProcessingError(
+                "document is too large",
+                retryable=False,
+                error_code="document_too_large",
+                details={"max_size_bytes": 2_000_000},
+            )
+        ]
+    )
+    agent = FakeAgentBoundary()
+    inbound_worker, _inbound_queue, outbound_queue, memory = worker(
+        conversations_by_chat_id={"12345": resolved_conversation},
+        agent_boundary=agent,
+        content_preprocessor=preprocessor,
+    )
+    event = inbound_event(user_id=user_id)
+
+    await inbound_worker.process_event(event)
+
+    outbound = await outbound_queue.consume()
+    assert event.status is InboundEventStatus.FALLBACK_SENT
+    assert outbound.text == "Файл слишком большой. Максимальный размер файла: 2 МБ."
+    assert event.metadata["content_processing"] == {
+        "status": "failed",
+        "error_code": "document_too_large",
+        "details": {"max_size_bytes": 2_000_000},
+    }
+    assert memory.user_messages == []
+    assert agent.requests == []
+
+
 async def test_inbound_worker_continues_when_thinking_indicator_fails() -> None:
     user_id = uuid4()
     resolved_conversation = conversation(user_id=user_id)

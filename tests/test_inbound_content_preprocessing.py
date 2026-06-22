@@ -508,6 +508,10 @@ async def test_document_preprocessor_rejects_declared_size_before_fetch(tmp_path
         await processor.process(event, conversation_id=uuid4())
 
     assert exc_info.value.error_code == "document_too_large"
+    assert exc_info.value.details == {
+        "declared_size_bytes": 11,
+        "max_size_bytes": 10,
+    }
     assert fetcher.seen_attachments == []
     assert asset_store.assets == []
 

@@ -64,6 +64,10 @@ TELEGRAM_CHANNEL = "telegram"
 DEFAULT_AGENT_RETRY_BACKOFF_SECONDS = (1.0, 5.0, 15.0)
 DEFAULT_FALLBACK_TEXT = "Sorry, I could not process that message right now. Please try again later."
 DEFAULT_QUOTA_EXCEEDED_TEXT = "Лимит запросов на сегодня исчерпан 🫣"
+DOCUMENT_TOO_LARGE_FALLBACK_TEXT = "Файл слишком большой. Максимальный размер файла: {limit}."
+DOCUMENT_TOO_LARGE_FALLBACK_TEXT_WITHOUT_LIMIT = (
+    "Файл слишком большой. Максимальный размер файла превышен."
+)
 
 
 class ThinkingIndicatorSender(Protocol):
@@ -579,6 +583,7 @@ class InboundWorker:
                 conversation=conversation,
                 failure_reason="content preprocessing failed",
                 error_code=exc.error_code,
+                details=exc.details,
             )
             return False
         return True
@@ -631,13 +636,23 @@ class InboundWorker:
         conversation: Conversation,
         failure_reason: str,
         error_code: str | None,
+        details: dict[str, object] | None = None,
     ) -> None:
-        await self._publish_fallback_event(event, conversation_id=conversation.id)
+        await self._publish_fallback_event(
+            event,
+            conversation_id=conversation.id,
+            text=_content_processing_fallback_text(
+                error_code=error_code,
+                details=details,
+            ),
+        )
         event.status = InboundEventStatus.FALLBACK_SENT
         event.metadata["content_processing"] = {
             "status": "failed",
             "error_code": error_code,
         }
+        if details:
+            event.metadata["content_processing"]["details"] = dict(details)
         await self._mark_idempotency_status(event, failure_reason=failure_reason)
 
     def _agent_request(
@@ -763,6 +778,7 @@ class InboundWorker:
         event: InboundEvent,
         *,
         conversation_id: UUID,
+        text: str | None = None,
     ) -> None:
         if event.user_id is None:
             raise UnresolvedInboundEventError("Inbound worker requires event.user_id")
@@ -771,7 +787,7 @@ class InboundWorker:
             user_id=event.user_id,
             conversation_id=conversation_id,
             external_chat_id=event.external_chat_id,
-            text=self.fallback_text,
+            text=text or self.fallback_text,
             thread_id=event.thread_id,
             metadata={"fallback": True, "failed_inbound_event_id": str(event.event_id)},
             trace_id=event.trace_id,
@@ -1156,6 +1172,42 @@ def _pydantic_ai_new_message_counts(response: AgentResponse) -> dict[str, int]:
         "pydantic_ai_tool_call_count": tool_call_count,
         "pydantic_ai_tool_result_count": tool_result_count,
     }
+
+
+def _content_processing_fallback_text(
+    *,
+    error_code: str | None,
+    details: dict[str, object] | None,
+) -> str | None:
+    if error_code != "document_too_large":
+        return None
+    max_size_bytes = _positive_int_detail(details, "max_size_bytes")
+    if max_size_bytes is None:
+        return DOCUMENT_TOO_LARGE_FALLBACK_TEXT_WITHOUT_LIMIT
+    return DOCUMENT_TOO_LARGE_FALLBACK_TEXT.format(limit=_format_size_bytes(max_size_bytes))
+
+
+def _positive_int_detail(details: dict[str, object] | None, key: str) -> int | None:
+    if details is None:
+        return None
+    value = details.get(key)
+    if not isinstance(value, int) or isinstance(value, bool) or value <= 0:
+        return None
+    return value
+
+
+def _format_size_bytes(size_bytes: int) -> str:
+    units = (
+        (1_000_000_000, "ГБ"),
+        (1_000_000, "МБ"),
+        (1_000, "КБ"),
+    )
+    for factor, unit in units:
+        if size_bytes >= factor:
+            value = size_bytes / factor
+            formatted = f"{value:.1f}".rstrip("0").rstrip(".")
+            return f"{formatted} {unit}"
+    return f"{size_bytes} байт"
 
 
 def _agent_error_log_fields(exc: BaseException) -> dict[str, object]:
