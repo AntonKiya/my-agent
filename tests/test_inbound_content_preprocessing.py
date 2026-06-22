@@ -382,6 +382,125 @@ async def test_document_preprocessor_stores_document_and_adds_marker(tmp_path: P
     )
 
 
+async def test_document_preprocessor_accepts_docx_document(tmp_path: Path) -> None:
+    content_type = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    registry = InMemoryMediaFetcherRegistry()
+    registry.register(
+        FakeMediaFetcher(
+            payloads=[
+                MediaPayload(
+                    attachment=Attachment(attachment_type=AttachmentType.DOCUMENT),
+                    content=b"docx-bytes",
+                    content_type=content_type,
+                    filename="report.docx",
+                )
+            ]
+        )
+    )
+    asset_store = RecordingMediaAssetStore()
+    processor = InboundContentPreprocessor(
+        media_fetchers=registry,
+        document_media_store=PersistentFileMediaStore(base_dir=tmp_path),
+        media_asset_store=asset_store,
+        retry_policy=ContentProcessingRetryPolicy(max_attempts=1),
+    )
+    event = document_event(text="Что в docx?")
+    event.attachments[0].content_type = content_type
+    event.attachments[0].metadata["file_name"] = "report.docx"
+
+    await processor.process(event, conversation_id=uuid4())
+
+    asset = asset_store.assets[0]
+    assert asset.media_type.value == "document"
+    assert asset.content_type == content_type
+    assert asset.storage_key.endswith(".docx")
+    assert event.metadata["document_media_ids"] == [asset.media_id]
+    assert event.text == (
+        f'[Attached file: media_id="{asset.media_id}" '
+        f'filename="report.docx" content_type="{content_type}"]\n'
+        "Что в docx?"
+    )
+
+
+async def test_document_preprocessor_accepts_pdf_document(tmp_path: Path) -> None:
+    registry = InMemoryMediaFetcherRegistry()
+    registry.register(
+        FakeMediaFetcher(
+            payloads=[
+                MediaPayload(
+                    attachment=Attachment(attachment_type=AttachmentType.DOCUMENT),
+                    content=b"pdf-bytes",
+                    content_type="application/pdf",
+                    filename="report.pdf",
+                )
+            ]
+        )
+    )
+    asset_store = RecordingMediaAssetStore()
+    processor = InboundContentPreprocessor(
+        media_fetchers=registry,
+        document_media_store=PersistentFileMediaStore(base_dir=tmp_path),
+        media_asset_store=asset_store,
+        retry_policy=ContentProcessingRetryPolicy(max_attempts=1),
+    )
+    event = document_event(text="Что в pdf?")
+    event.attachments[0].content_type = "application/pdf"
+    event.attachments[0].metadata["file_name"] = "report.pdf"
+
+    await processor.process(event, conversation_id=uuid4())
+
+    asset = asset_store.assets[0]
+    assert asset.media_type.value == "document"
+    assert asset.content_type == "application/pdf"
+    assert asset.storage_key.endswith(".pdf")
+    assert event.metadata["document_media_ids"] == [asset.media_id]
+    assert event.text == (
+        f'[Attached file: media_id="{asset.media_id}" '
+        'filename="report.pdf" content_type="application/pdf"]\n'
+        "Что в pdf?"
+    )
+
+
+async def test_document_preprocessor_accepts_pptx_document(tmp_path: Path) -> None:
+    content_type = "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+    registry = InMemoryMediaFetcherRegistry()
+    registry.register(
+        FakeMediaFetcher(
+            payloads=[
+                MediaPayload(
+                    attachment=Attachment(attachment_type=AttachmentType.DOCUMENT),
+                    content=b"pptx-bytes",
+                    content_type=content_type,
+                    filename="deck.pptx",
+                )
+            ]
+        )
+    )
+    asset_store = RecordingMediaAssetStore()
+    processor = InboundContentPreprocessor(
+        media_fetchers=registry,
+        document_media_store=PersistentFileMediaStore(base_dir=tmp_path),
+        media_asset_store=asset_store,
+        retry_policy=ContentProcessingRetryPolicy(max_attempts=1),
+    )
+    event = document_event(text="Что в презентации?")
+    event.attachments[0].content_type = content_type
+    event.attachments[0].metadata["file_name"] = "deck.pptx"
+
+    await processor.process(event, conversation_id=uuid4())
+
+    asset = asset_store.assets[0]
+    assert asset.media_type.value == "document"
+    assert asset.content_type == content_type
+    assert asset.storage_key.endswith(".pptx")
+    assert event.metadata["document_media_ids"] == [asset.media_id]
+    assert event.text == (
+        f'[Attached file: media_id="{asset.media_id}" '
+        f'filename="deck.pptx" content_type="{content_type}"]\n'
+        "Что в презентации?"
+    )
+
+
 async def test_document_preprocessor_uses_default_prompt_without_caption(tmp_path: Path) -> None:
     registry = InMemoryMediaFetcherRegistry()
     registry.register(
