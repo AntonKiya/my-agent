@@ -35,6 +35,9 @@ IMAGE_GENERATION_TOOLSET_INSTRUCTIONS = (
     "image, illustration, picture, poster, icon, or photo. "
     "Do not answer with an image, markdown image link, media_id, or [Generated image: ...] unless "
     "generateImage returned success: true; never invent media_id values. "
+    "After a successful generateImage result, if you include a generated image marker in your "
+    'final answer, use exactly [Generated image: media_id="<media_id>"]. Do not use markdown '
+    "image syntax or other generated image link formats. "
     "For new images, omit source_media_ids and build the prompt from the user request and recent "
     "context. "
     "For edits or follow-ups, pass relevant media_id values from [Attached image] or "

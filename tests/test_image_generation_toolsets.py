@@ -107,6 +107,8 @@ async def test_image_generation_toolset_includes_follow_up_edit_instructions(
     assert "Use generateImage for every request to create" in content
     assert "unless generateImage returned success: true" in content
     assert "never invent media_id values" in content
+    assert 'use exactly [Generated image: media_id="<media_id>"]' in content
+    assert "Do not use markdown image syntax or other generated image link formats" in content
     assert "For new images, omit source_media_ids" in content
     assert "[Attached image]" in content
     assert "[Generated image] markers as source_media_ids" in content
