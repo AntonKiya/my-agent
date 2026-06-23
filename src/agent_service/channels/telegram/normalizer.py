@@ -5,6 +5,7 @@ from typing import Any
 from agent_service.channels.interfaces import ChannelInboundNormalizer
 from agent_service.channels.models import Attachment, AttachmentType, InboundEvent, MessageType
 from agent_service.channels.telegram.adapter import TELEGRAM_CHANNEL
+from agent_service.channels.telegram.onboarding import TELEGRAM_ONBOARDING_CALLBACK_TEXTS
 
 
 class TelegramInboundNormalizer(ChannelInboundNormalizer[Mapping[str, Any]]):
@@ -13,50 +14,152 @@ class TelegramInboundNormalizer(ChannelInboundNormalizer[Mapping[str, Any]]):
     async def normalize(self, payload: Mapping[str, Any]) -> InboundEvent | None:
         update_id = _value_as_str(payload.get("update_id"))
         message = payload.get("message")
-        if not isinstance(message, Mapping):
-            return None
+        if isinstance(message, Mapping):
+            return _message_event(channel=self.channel, update_id=update_id, message=message)
 
-        chat = message.get("chat")
-        sender = message.get("from")
-        if not isinstance(chat, Mapping) or not isinstance(sender, Mapping):
-            return None
+        callback_query = payload.get("callback_query")
+        if isinstance(callback_query, Mapping):
+            return _callback_query_event(
+                channel=self.channel,
+                update_id=update_id,
+                callback_query=callback_query,
+            )
 
-        chat_type = chat.get("type")
-        if chat_type != "private":
-            return None
+        return None
 
-        telegram_user_id = _value_as_str(sender.get("id"))
-        chat_id = _value_as_str(chat.get("id"))
-        message_id = _value_as_str(message.get("message_id"))
-        if telegram_user_id is None or chat_id is None or message_id is None:
-            return None
 
-        normalized_content = _normalized_content(message)
-        if normalized_content is None:
-            return None
-        message_type, text, attachments = normalized_content
+def _message_event(
+    *,
+    channel: str,
+    update_id: str | None,
+    message: Mapping[str, Any],
+) -> InboundEvent | None:
+    chat = message.get("chat")
+    sender = message.get("from")
+    if not isinstance(chat, Mapping) or not isinstance(sender, Mapping):
+        return None
 
-        return InboundEvent(
-            channel=self.channel,
-            external_user_id=telegram_user_id,
-            external_chat_id=chat_id,
-            external_message_id=message_id,
-            external_update_id=update_id,
-            idempotency_key=f"{self.channel}:{chat_id}:{message_id}",
-            message_type=message_type,
-            text=text,
-            attachments=attachments,
-            thread_id=_value_as_str(message.get("message_thread_id")),
-            reply_to_message_id=_reply_to_message_id(message),
-            channel_metadata={
-                "username": _value_as_str(sender.get("username")),
-                "first_name": _value_as_str(sender.get("first_name")),
-                "language_code": _value_as_str(sender.get("language_code")),
-                "chat_type": chat_type,
-                "media_group_id": _value_as_str(message.get("media_group_id")),
-            },
-            received_at=_message_received_at(message),
-        )
+    chat_type = chat.get("type")
+    if chat_type != "private":
+        return None
+
+    telegram_user_id = _value_as_str(sender.get("id"))
+    chat_id = _value_as_str(chat.get("id"))
+    message_id = _value_as_str(message.get("message_id"))
+    if telegram_user_id is None or chat_id is None or message_id is None:
+        return None
+
+    normalized_content = _normalized_content(message)
+    if normalized_content is None:
+        return None
+    message_type, text, attachments = normalized_content
+
+    return InboundEvent(
+        channel=channel,
+        external_user_id=telegram_user_id,
+        external_chat_id=chat_id,
+        external_message_id=message_id,
+        external_update_id=update_id,
+        idempotency_key=f"{channel}:{chat_id}:{message_id}",
+        message_type=message_type,
+        text=text,
+        attachments=attachments,
+        thread_id=_value_as_str(message.get("message_thread_id")),
+        reply_to_message_id=_reply_to_message_id(message),
+        channel_metadata={
+            "username": _value_as_str(sender.get("username")),
+            "first_name": _value_as_str(sender.get("first_name")),
+            "language_code": _value_as_str(sender.get("language_code")),
+            "chat_type": chat_type,
+            "media_group_id": _value_as_str(message.get("media_group_id")),
+        },
+        received_at=_message_received_at(message),
+    )
+
+
+def _callback_query_event(
+    *,
+    channel: str,
+    update_id: str | None,
+    callback_query: Mapping[str, Any],
+) -> InboundEvent | None:
+    callback_query_id = _value_as_str(callback_query.get("id"))
+    callback_data = _value_as_str(callback_query.get("data"))
+    if callback_query_id is None or callback_data is None:
+        return None
+
+    text = TELEGRAM_ONBOARDING_CALLBACK_TEXTS.get(callback_data)
+    if text is None:
+        return None
+
+    sender = callback_query.get("from")
+    message = callback_query.get("message")
+    if not isinstance(sender, Mapping) or not isinstance(message, Mapping):
+        return None
+
+    chat = message.get("chat")
+    if not isinstance(chat, Mapping):
+        return None
+
+    chat_type = chat.get("type")
+    if chat_type != "private":
+        return None
+
+    telegram_user_id = _value_as_str(sender.get("id"))
+    chat_id = _value_as_str(chat.get("id"))
+    callback_message_id = _value_as_str(message.get("message_id"))
+    if telegram_user_id is None or chat_id is None:
+        return None
+
+    idempotency_key = _callback_idempotency_key(
+        channel=channel,
+        chat_id=chat_id,
+        callback_query_id=callback_query_id,
+        callback_message_id=callback_message_id,
+        callback_data=callback_data,
+    )
+    return InboundEvent(
+        channel=channel,
+        external_user_id=telegram_user_id,
+        external_chat_id=chat_id,
+        external_message_id=f"callback:{callback_query_id}",
+        external_update_id=update_id,
+        idempotency_key=idempotency_key,
+        message_type=MessageType.TEXT,
+        text=text,
+        thread_id=_value_as_str(message.get("message_thread_id")),
+        channel_metadata={
+            "username": _value_as_str(sender.get("username")),
+            "first_name": _value_as_str(sender.get("first_name")),
+            "language_code": _value_as_str(sender.get("language_code")),
+            "chat_type": chat_type,
+            "callback_query_id": callback_query_id,
+            "callback_data": callback_data,
+            "callback_message_id": callback_message_id,
+            "chat_instance": _value_as_str(callback_query.get("chat_instance")),
+            "update_type": "callback_query",
+        },
+        metadata={
+            "synthetic_user_message": True,
+            "telegram_update_type": "callback_query",
+            "callback_query_id": callback_query_id,
+            "callback_data": callback_data,
+            "callback_message_id": callback_message_id,
+        },
+    )
+
+
+def _callback_idempotency_key(
+    *,
+    channel: str,
+    chat_id: str,
+    callback_query_id: str,
+    callback_message_id: str | None,
+    callback_data: str,
+) -> str:
+    if callback_message_id is None:
+        return f"{channel}:callback:{callback_query_id}"
+    return f"{channel}:callback:{chat_id}:{callback_message_id}:{callback_data}"
 
 
 def _value_as_str(value: object) -> str | None:

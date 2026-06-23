@@ -23,6 +23,7 @@ from agent_service.channels import (
     InboundEventStatus,
     MessageType,
 )
+from agent_service.channels.telegram.onboarding import TELEGRAM_START_REPLY_MARKUP
 from agent_service.conversations import AsyncioConversationLockManager, Conversation
 from agent_service.delivery import DeliveryResult, DeliveryStatus
 from agent_service.feedback import (
@@ -496,9 +497,7 @@ async def test_inbound_worker_hides_delivered_media_id_markdown_from_outbound_te
         metadata={"media_id": "generated-1", "generated": True},
     )
     raw_text = (
-        "Готово! Вот картинка:\n\n"
-        "![Картинка](media_id:generated-1)\n\n"
-        "Хочешь изменить стиль?"
+        "Готово! Вот картинка:\n\n![Картинка](media_id:generated-1)\n\nХочешь изменить стиль?"
     )
     agent = FakeAgentBoundary(responses=[AgentResponse(text=raw_text, attachments=[attachment])])
     inbound_worker, _inbound_queue, outbound_queue, memory = worker(
@@ -552,7 +551,7 @@ async def test_inbound_worker_hides_delivered_generated_image_markers_from_outbo
     raw_text = (
         "Готово\n\n"
         "[Generated image: v0PchTP_LaNf](v0PchTP_LaNf)\n\n"
-        "[Generated image: media_id=\"v0PchTP_LaNf\"]\n\n"
+        '[Generated image: media_id="v0PchTP_LaNf"]\n\n'
         "Можно менять дальше."
     )
     agent = FakeAgentBoundary(responses=[AgentResponse(text=raw_text, attachments=[attachment])])
@@ -579,7 +578,7 @@ async def test_inbound_worker_keeps_unbacked_generated_image_marker_in_outbound_
         content_type="image/png",
         metadata={"media_id": "generated-1", "generated": True},
     )
-    raw_text = "[Generated image: media_id=\"other-image\"]"
+    raw_text = '[Generated image: media_id="other-image"]'
     agent = FakeAgentBoundary(responses=[AgentResponse(text=raw_text, attachments=[attachment])])
     inbound_worker, _inbound_queue, outbound_queue, memory = worker(
         conversations_by_chat_id={"12345": resolved_conversation},
@@ -685,6 +684,7 @@ async def test_inbound_worker_handles_telegram_start_without_memory_or_agent() -
     assert outbound.conversation_id == resolved_conversation.id
     assert outbound.external_chat_id == "12345"
     assert outbound.text == TELEGRAM_START_MESSAGE
+    assert outbound.channel_metadata == {"reply_markup": TELEGRAM_START_REPLY_MARKUP}
     assert outbound.metadata == {"static_response": "telegram_start"}
     assert outbound.trace_id == "trace-1"
     assert memory.user_messages == []

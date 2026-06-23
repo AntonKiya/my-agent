@@ -1,4 +1,5 @@
 import asyncio
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -24,7 +25,9 @@ TELEGRAM_SEND_MESSAGE_METHOD = "sendMessage"
 TELEGRAM_SEND_PHOTO_METHOD = "sendPhoto"
 TELEGRAM_SEND_RICH_MESSAGE_METHOD = "sendRichMessage"
 TELEGRAM_SEND_MESSAGE_DRAFT_METHOD = "sendMessageDraft"
+TELEGRAM_ANSWER_CALLBACK_QUERY_METHOD = "answerCallbackQuery"
 TELEGRAM_SET_MY_COMMANDS_METHOD = "setMyCommands"
+TELEGRAM_REPLY_MARKUP_METADATA_KEY = "reply_markup"
 TELEGRAM_MAX_DRAFT_ID = 2_147_483_647
 TELEGRAM_THINKING_DRAFT_CUSTOM_EMOJI_ID = "5443038326535759644"
 TELEGRAM_THINKING_DRAFT_TEXT = (
@@ -204,6 +207,36 @@ class TelegramAdapter(ChannelAdapter):
             response = await self.client.post(
                 self._method_url(TELEGRAM_SET_MY_COMMANDS_METHOD),
                 json={"commands": list(TELEGRAM_BOT_COMMANDS)},
+            )
+        except httpx.TransportError as exc:
+            return TelegramSendAttempt(
+                status=DeliveryStatus.FAILED_RETRYABLE,
+                error_code=_transport_error_code(exc),
+                error_message=_transport_error_message(exc),
+                metadata={"error_type": type(exc).__name__},
+            )
+
+        return self._send_attempt_from_response(response)
+
+    async def answer_callback_query(
+        self,
+        callback_query_id: str,
+        *,
+        text: str | None = None,
+        show_alert: bool | None = None,
+        cache_time: int | None = None,
+    ) -> TelegramSendAttempt:
+        payload: dict[str, Any] = {"callback_query_id": callback_query_id}
+        if text is not None:
+            payload["text"] = text
+        if show_alert is not None:
+            payload["show_alert"] = show_alert
+        if cache_time is not None:
+            payload["cache_time"] = cache_time
+        try:
+            response = await self.client.post(
+                self._method_url(TELEGRAM_ANSWER_CALLBACK_QUERY_METHOD),
+                json=payload,
             )
         except httpx.TransportError as exc:
             return TelegramSendAttempt(
@@ -426,6 +459,10 @@ class TelegramAdapter(ChannelAdapter):
         if reply_to_message_id is not None:
             payload["reply_to_message_id"] = reply_to_message_id
 
+        reply_markup = _reply_markup(event)
+        if reply_markup is not None:
+            payload["reply_markup"] = reply_markup
+
         return payload
 
     def _send_photo_payload(self, event: OutboundEvent, *, caption: str | None) -> dict[str, Any]:
@@ -537,6 +574,13 @@ def _attachment_media_id(attachment: Attachment) -> str | None:
     if attachment.attachment_id is not None and attachment.attachment_id.strip():
         return attachment.attachment_id.strip()
     return None
+
+
+def _reply_markup(event: OutboundEvent) -> dict[str, Any] | None:
+    reply_markup = event.channel_metadata.get(TELEGRAM_REPLY_MARKUP_METADATA_KEY)
+    if not isinstance(reply_markup, Mapping):
+        return None
+    return dict(reply_markup)
 
 
 def _media_filename(asset: MediaAsset, attachment: Attachment) -> str:

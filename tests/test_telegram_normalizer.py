@@ -2,6 +2,20 @@ from datetime import UTC
 
 from agent_service.channels import AttachmentType, ChannelInboundNormalizer, MessageType
 from agent_service.channels.telegram import TelegramInboundNormalizer
+from agent_service.channels.telegram.onboarding import (
+    TELEGRAM_ONBOARDING_ANALYZE_IMAGE_CALLBACK_DATA,
+    TELEGRAM_ONBOARDING_ANALYZE_IMAGE_TEXT,
+    TELEGRAM_ONBOARDING_CALLBACK_TEXTS,
+    TELEGRAM_ONBOARDING_COMPARISON_CALLBACK_DATA,
+    TELEGRAM_ONBOARDING_COMPARISON_TEXT,
+    TELEGRAM_ONBOARDING_GENERATE_IMAGE_CALLBACK_DATA,
+    TELEGRAM_ONBOARDING_GENERATE_IMAGE_TEXT,
+    TELEGRAM_ONBOARDING_LECTURE_SUMMARY_CALLBACK_DATA,
+    TELEGRAM_ONBOARDING_LECTURE_SUMMARY_TEXT,
+    TELEGRAM_ONBOARDING_WEB_RESEARCH_CALLBACK_DATA,
+    TELEGRAM_ONBOARDING_WEB_RESEARCH_TEXT,
+    TELEGRAM_START_REPLY_MARKUP,
+)
 
 
 def private_text_update() -> dict[str, object]:
@@ -18,6 +32,75 @@ def private_text_update() -> dict[str, object]:
             },
             "text": "hello",
         },
+    }
+
+
+def private_onboarding_callback_update() -> dict[str, object]:
+    return {
+        "update_id": 101,
+        "callback_query": {
+            "id": "callback-1",
+            "from": {
+                "id": 67890,
+                "username": "handle",
+                "first_name": "Anton",
+                "language_code": "ru",
+            },
+            "message": {
+                "message_id": 42,
+                "date": 1_700_000_000,
+                "chat": {"id": 12345, "type": "private"},
+                "text": "Привет",
+            },
+            "chat_instance": "chat-instance-1",
+            "data": TELEGRAM_ONBOARDING_GENERATE_IMAGE_CALLBACK_DATA,
+        },
+    }
+
+
+def test_telegram_onboarding_buttons_match_synthetic_texts() -> None:
+    rows = TELEGRAM_START_REPLY_MARKUP["inline_keyboard"]
+
+    assert rows == [
+        [
+            {
+                "text": "📷 Разбери фото конспекта",
+                "callback_data": TELEGRAM_ONBOARDING_ANALYZE_IMAGE_CALLBACK_DATA,
+            }
+        ],
+        [
+            {
+                "text": "📚 Вытащи главное из лекции",
+                "callback_data": TELEGRAM_ONBOARDING_LECTURE_SUMMARY_CALLBACK_DATA,
+            }
+        ],
+        [
+            {
+                "text": "🩻 Создай иллюстрацию",
+                "callback_data": TELEGRAM_ONBOARDING_GENERATE_IMAGE_CALLBACK_DATA,
+            }
+        ],
+        [
+            {
+                "text": "🔎 Найди материалы по теме",
+                "callback_data": TELEGRAM_ONBOARDING_WEB_RESEARCH_CALLBACK_DATA,
+            }
+        ],
+        [
+            {
+                "text": "📊 Проведи сравнение",
+                "callback_data": TELEGRAM_ONBOARDING_COMPARISON_CALLBACK_DATA,
+            }
+        ],
+    ]
+    assert TELEGRAM_ONBOARDING_CALLBACK_TEXTS == {
+        TELEGRAM_ONBOARDING_ANALYZE_IMAGE_CALLBACK_DATA: TELEGRAM_ONBOARDING_ANALYZE_IMAGE_TEXT,
+        TELEGRAM_ONBOARDING_LECTURE_SUMMARY_CALLBACK_DATA: (
+            TELEGRAM_ONBOARDING_LECTURE_SUMMARY_TEXT
+        ),
+        TELEGRAM_ONBOARDING_GENERATE_IMAGE_CALLBACK_DATA: TELEGRAM_ONBOARDING_GENERATE_IMAGE_TEXT,
+        TELEGRAM_ONBOARDING_WEB_RESEARCH_CALLBACK_DATA: TELEGRAM_ONBOARDING_WEB_RESEARCH_TEXT,
+        TELEGRAM_ONBOARDING_COMPARISON_CALLBACK_DATA: TELEGRAM_ONBOARDING_COMPARISON_TEXT,
     }
 
 
@@ -43,6 +126,37 @@ async def test_telegram_inbound_normalizer_builds_inbound_event() -> None:
     assert "message" not in event.channel_metadata
     assert "raw_update" not in event.channel_metadata
     assert event.received_at.tzinfo is UTC
+
+
+async def test_telegram_inbound_normalizer_builds_onboarding_callback_event() -> None:
+    event = await TelegramInboundNormalizer().normalize(private_onboarding_callback_update())
+
+    assert event is not None
+    assert event.channel == "telegram"
+    assert event.external_user_id == "67890"
+    assert event.external_chat_id == "12345"
+    assert event.external_message_id == "callback:callback-1"
+    assert event.external_update_id == "101"
+    assert event.idempotency_key == "telegram:callback:12345:42:onboarding:generate_image"
+    assert event.message_type is MessageType.TEXT
+    assert event.text == TELEGRAM_ONBOARDING_GENERATE_IMAGE_TEXT
+    assert event.channel_metadata["callback_query_id"] == "callback-1"
+    assert (
+        event.channel_metadata["callback_data"] == TELEGRAM_ONBOARDING_GENERATE_IMAGE_CALLBACK_DATA
+    )
+    assert event.channel_metadata["callback_message_id"] == "42"
+    assert event.channel_metadata["update_type"] == "callback_query"
+    assert event.metadata["synthetic_user_message"] is True
+    assert event.metadata["telegram_update_type"] == "callback_query"
+
+
+async def test_telegram_inbound_normalizer_ignores_unknown_callback_data() -> None:
+    payload = private_onboarding_callback_update()
+    callback_query = payload["callback_query"]
+    assert isinstance(callback_query, dict)
+    callback_query["data"] = "unknown:action"
+
+    assert await TelegramInboundNormalizer().normalize(payload) is None
 
 
 async def test_telegram_inbound_normalizer_keeps_future_thread_and_reply_fields() -> None:
