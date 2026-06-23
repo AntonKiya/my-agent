@@ -11,6 +11,7 @@ from pydantic_ai.messages import ToolCallPart, ToolReturnPart
 
 from agent_service.agents import AgentBoundary, AgentRequest, AgentResponse
 from agent_service.channels import Attachment, InboundEvent, InboundEventStatus, MessageType
+from agent_service.channels.telegram.onboarding import TELEGRAM_START_REPLY_MARKUP
 from agent_service.conversations import (
     Conversation,
     ConversationLockManager,
@@ -844,6 +845,7 @@ class InboundWorker:
             external_chat_id=event.external_chat_id,
             text=TELEGRAM_START_MESSAGE,
             thread_id=event.thread_id,
+            channel_metadata={"reply_markup": TELEGRAM_START_REPLY_MARKUP},
             metadata={"static_response": "telegram_start"},
             trace_id=event.trace_id,
         )

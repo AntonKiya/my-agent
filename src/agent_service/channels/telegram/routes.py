@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import secrets
 from typing import Any, Literal, cast
@@ -6,6 +7,7 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
 from agent_service.container import AppContainer
+from agent_service.delivery.models import DeliveryStatus
 from agent_service.inbound import InboundIntakeStatus
 from agent_service.observability.events import business_span, elapsed_ms, log_event, start_timer
 from agent_service.observability.tracing import create_trace_id, reset_trace_id, set_trace_id
@@ -17,6 +19,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/webhooks", tags=["channels"])
 telegram_normalizer = TelegramInboundNormalizer()
 TELEGRAM_SECRET_TOKEN_HEADER = "X-Telegram-Bot-Api-Secret-Token"
+TELEGRAM_CALLBACK_ANSWER_TIMEOUT_SECONDS = 1.0
 
 
 class TelegramWebhookResponse(BaseModel):
@@ -40,6 +43,14 @@ async def telegram_webhook(
         _verify_webhook_secret(request=request, container=container)
 
         event = await telegram_normalizer.normalize(payload)
+        callback_query_id = _callback_query_id(payload)
+        if callback_query_id is not None:
+            await _answer_callback_query(
+                container=container,
+                callback_query_id=callback_query_id,
+                inbound_event_id=(str(event.event_id) if event is not None else None),
+            )
+
         if event is None:
             log_event(
                 logger,
@@ -117,6 +128,61 @@ async def telegram_webhook(
             reset_trace_id(token)
 
 
+async def _answer_callback_query(
+    *,
+    container: AppContainer,
+    callback_query_id: str,
+    inbound_event_id: str | None,
+) -> None:
+    adapter = container.telegram_adapter
+    if adapter is None:
+        log_event(
+            logger,
+            logging.DEBUG,
+            "Telegram callback answer skipped",
+            event="telegram_callback_answer_skipped",
+            reason="telegram_adapter_not_configured",
+            inbound_event_id=inbound_event_id,
+        )
+        return
+    try:
+        attempt = await asyncio.wait_for(
+            adapter.answer_callback_query(callback_query_id),
+            timeout=TELEGRAM_CALLBACK_ANSWER_TIMEOUT_SECONDS,
+        )
+    except Exception as exc:
+        log_event(
+            logger,
+            logging.DEBUG,
+            "Telegram callback answer skipped",
+            event="telegram_callback_answer_skipped",
+            reason="answer_callback_query_failed",
+            inbound_event_id=inbound_event_id,
+            error_type=type(exc).__name__,
+        )
+        return
+    if attempt.status is DeliveryStatus.SENT:
+        log_event(
+            logger,
+            logging.DEBUG,
+            "Telegram callback answered",
+            event="telegram_callback_answered",
+            inbound_event_id=inbound_event_id,
+        )
+        return
+    log_event(
+        logger,
+        logging.DEBUG,
+        "Telegram callback answer skipped",
+        event="telegram_callback_answer_skipped",
+        reason="telegram_callback_answer_not_sent",
+        inbound_event_id=inbound_event_id,
+        status=attempt.status.value,
+        error_code=attempt.error_code,
+        retry_after_seconds=attempt.retry_after_seconds,
+    )
+
+
 def _verify_webhook_secret(*, request: Request, container: AppContainer) -> None:
     expected_secret = container.settings.telegram_webhook_secret_token
     if expected_secret is None:
@@ -161,6 +227,8 @@ def _verify_webhook_secret(*, request: Request, container: AppContainer) -> None
 
 
 def _unsupported_update_reason(payload: dict[str, Any]) -> str:
+    if "callback_query" in payload:
+        return "unsupported_callback_query"
     if "message" not in payload:
         return "missing_message"
     message = payload.get("message")
@@ -172,6 +240,16 @@ def _unsupported_update_reason(payload: dict[str, Any]) -> str:
     if isinstance(chat, dict) and chat.get("type") != "private":
         return "non_private_chat"
     return "unsupported_message_shape"
+
+
+def _callback_query_id(payload: dict[str, Any]) -> str | None:
+    callback_query = payload.get("callback_query")
+    if not isinstance(callback_query, dict):
+        return None
+    callback_query_id = callback_query.get("id")
+    if isinstance(callback_query_id, str) and callback_query_id:
+        return callback_query_id
+    return None
 
 
 def _has_supported_message_content(message: dict[str, Any]) -> bool:

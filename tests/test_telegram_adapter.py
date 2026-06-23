@@ -25,6 +25,7 @@ from agent_service.channels.telegram.formatting import (
     TELEGRAM_HTML_PARSE_MODE,
     markdown_to_telegram_html,
 )
+from agent_service.channels.telegram.onboarding import TELEGRAM_START_REPLY_MARKUP
 from agent_service.delivery import DeliveryStatus
 from agent_service.media import MediaAsset, MediaAssetType
 from agent_service.outbound import OutboundEvent
@@ -107,6 +108,33 @@ async def test_telegram_adapter_sends_text_message() -> None:
     assert _request_json(requests[0]) == {
         "chat_id": "12345",
         "text": "hello",
+    }
+
+
+async def test_telegram_adapter_includes_reply_markup() -> None:
+    requests: list[httpx.Request] = []
+    reply_markup = TELEGRAM_START_REPLY_MARKUP
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(
+            200,
+            json={"ok": True, "result": {"message_id": 100}},
+        )
+
+    event = make_outbound_event(text="hello")
+    event.channel_metadata["reply_markup"] = reply_markup
+
+    async with make_client(handler) as client:
+        adapter = TelegramAdapter(bot_token="token", client=client)
+        result = await adapter.send(event)
+
+    assert result.status is DeliveryStatus.SENT
+    assert len(requests) == 1
+    assert _request_json(requests[0]) == {
+        "chat_id": "12345",
+        "text": "hello",
+        "reply_markup": reply_markup,
     }
 
 
@@ -209,6 +237,23 @@ async def test_telegram_adapter_sets_bot_commands() -> None:
     assert len(requests) == 1
     assert str(requests[0].url) == "https://api.telegram.org/bottoken/setMyCommands"
     assert _request_json(requests[0]) == {"commands": list(TELEGRAM_BOT_COMMANDS)}
+
+
+async def test_telegram_adapter_answers_callback_query() -> None:
+    requests: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(200, json={"ok": True, "result": True})
+
+    async with make_client(handler) as client:
+        adapter = TelegramAdapter(bot_token="token", client=client)
+        result = await adapter.answer_callback_query("callback-1")
+
+    assert result.status is DeliveryStatus.SENT
+    assert len(requests) == 1
+    assert str(requests[0].url) == "https://api.telegram.org/bottoken/answerCallbackQuery"
+    assert _request_json(requests[0]) == {"callback_query_id": "callback-1"}
 
 
 async def test_telegram_adapter_sends_rich_markdown_when_enabled() -> None:

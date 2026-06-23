@@ -9,7 +9,13 @@ from pydantic import SecretStr
 
 from agent_service.app import create_app
 from agent_service.channels import InboundEvent
+from agent_service.channels.telegram.adapter import TelegramSendAttempt
+from agent_service.channels.telegram.onboarding import (
+    TELEGRAM_ONBOARDING_GENERATE_IMAGE_CALLBACK_DATA,
+    TELEGRAM_ONBOARDING_GENERATE_IMAGE_TEXT,
+)
 from agent_service.config import AppSettings
+from agent_service.delivery import DeliveryStatus
 from agent_service.inbound import InboundIntakeResult, InboundIntakeStatus
 from agent_service.messaging.interfaces import InboundQueue
 from agent_service.users import UserResolutionStatus
@@ -51,6 +57,15 @@ class DuplicateInboundIntake:
         )
 
 
+class CallbackAnsweringTelegramAdapter:
+    def __init__(self) -> None:
+        self.callback_query_ids: list[str] = []
+
+    async def answer_callback_query(self, callback_query_id: str) -> TelegramSendAttempt:
+        self.callback_query_ids.append(callback_query_id)
+        return TelegramSendAttempt(status=DeliveryStatus.SENT)
+
+
 def private_text_update() -> dict[str, object]:
     return {
         "update_id": 100,
@@ -64,6 +79,27 @@ def private_text_update() -> dict[str, object]:
                 "first_name": "Anton",
             },
             "text": "hello",
+        },
+    }
+
+
+def private_onboarding_callback_update() -> dict[str, object]:
+    return {
+        "update_id": 101,
+        "callback_query": {
+            "id": "callback-1",
+            "from": {
+                "id": 67890,
+                "username": "handle",
+                "first_name": "Anton",
+            },
+            "message": {
+                "message_id": 42,
+                "date": 1_700_000_000,
+                "chat": {"id": 12345, "type": "private"},
+                "text": "Привет",
+            },
+            "data": TELEGRAM_ONBOARDING_GENERATE_IMAGE_CALLBACK_DATA,
         },
     }
 
@@ -119,6 +155,33 @@ async def test_telegram_webhook_does_not_require_send_adapter_or_bot_token() -> 
     assert response.json() == {"status": "accepted", "published": True}
     assert app.state.container.telegram_adapter is None
     assert not app.state.container.inbound_queue.is_empty
+
+
+async def test_telegram_webhook_accepts_onboarding_callback_and_answers_query() -> None:
+    app = create_app(AppSettings(environment="test"))
+    app.state.container.inbound_intake_service = AcceptingInboundIntake(
+        app.state.container.inbound_queue,
+    )
+    telegram_adapter = CallbackAnsweringTelegramAdapter()
+    app.state.container.telegram_adapter = cast(Any, telegram_adapter)
+    transport = httpx.ASGITransport(app=app)
+
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.post(
+            "/webhooks/telegram", json=private_onboarding_callback_update()
+        )
+
+    assert response.status_code == 200
+    assert response.json() == {"status": "accepted", "published": True}
+    assert telegram_adapter.callback_query_ids == ["callback-1"]
+
+    event = await app.state.container.inbound_queue.consume()
+    assert event.channel == "telegram"
+    assert event.text == TELEGRAM_ONBOARDING_GENERATE_IMAGE_TEXT
+    assert event.external_message_id == "callback:callback-1"
+    assert event.idempotency_key == "telegram:callback:12345:42:onboarding:generate_image"
+    assert event.metadata["synthetic_user_message"] is True
+    assert event.user_id is not None
 
 
 async def test_telegram_webhook_accepts_voice_updates() -> None:
