@@ -100,6 +100,14 @@ def test_base_agent_instructions_include_time_context_policy() -> None:
     assert "Если пользователь уже указал точную дату" in instructions
 
 
+def test_base_agent_instructions_include_sensible_follow_up_policy() -> None:
+    instructions = "\n".join(load_base_agent_instructions())
+
+    assert "в конце ответа коротко спроси, что делаем дальше" in instructions
+    assert "предложи 1–2 уместных варианта следующего шага" in instructions
+    assert "не добавляй такой follow-up" in instructions
+
+
 def test_base_agent_instructions_protect_skill_instruction_texts() -> None:
     instructions = "\n".join(load_base_agent_instructions())
 

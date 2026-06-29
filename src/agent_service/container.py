@@ -4,6 +4,7 @@ import logging
 from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import Any, Protocol, cast
+from uuid import uuid4
 
 import asyncpg
 import httpx
@@ -114,6 +115,7 @@ from agent_service.web_research import build_web_research_toolsets
 logger = logging.getLogger(__name__)
 
 OPENROUTER_ERROR_RESPONSE_LOG_BODY_LIMIT = 12000
+OPENROUTER_REQUEST_ID_EXTENSION = "agent_service_openrouter_request_id"
 OPENROUTER_REQUEST_STARTED_AT_EXTENSION = "agent_service_openrouter_started_at"
 
 
@@ -1050,19 +1052,59 @@ def _create_external_http_client(
 
 
 async def _mark_openrouter_request_started(request: httpx.Request) -> None:
+    request_id = uuid4().hex
+    request.extensions[OPENROUTER_REQUEST_ID_EXTENSION] = request_id
     request.extensions[OPENROUTER_REQUEST_STARTED_AT_EXTENSION] = start_timer()
     log_event(
         logger,
         logging.INFO,
         "OpenRouter HTTP request started",
         event="openrouter_http_request_started",
+        openrouter_request_id=request_id,
         http_method=request.method,
         http_url_path=request.url.path,
     )
 
 
 async def _log_openrouter_response_timing(response: httpx.Response) -> None:
-    await response.aread()
+    started_at = response.request.extensions.get(OPENROUTER_REQUEST_STARTED_AT_EXTENSION)
+    headers_duration_ms = elapsed_ms(started_at) if isinstance(started_at, float) else None
+    log_event(
+        logger,
+        logging.INFO,
+        "OpenRouter HTTP response headers received",
+        event="openrouter_http_response_headers_received",
+        openrouter_request_id=_openrouter_request_id(response.request),
+        http_method=response.request.method,
+        http_url_path=response.request.url.path,
+        http_status_code=response.status_code,
+        duration_ms=headers_duration_ms,
+        http_response_content_length=_response_content_length(response),
+        **_openrouter_response_header_fields(response),
+    )
+
+    body_started_at = start_timer()
+    try:
+        body = await response.aread()
+    except Exception as exc:
+        total_duration_ms = elapsed_ms(started_at) if isinstance(started_at, float) else None
+        log_event(
+            logger,
+            logging.WARNING,
+            "OpenRouter HTTP response body read failed",
+            event="openrouter_http_response_body_read_failed",
+            openrouter_request_id=_openrouter_request_id(response.request),
+            http_method=response.request.method,
+            http_url_path=response.request.url.path,
+            http_status_code=response.status_code,
+            duration_ms=total_duration_ms,
+            body_read_duration_ms=elapsed_ms(body_started_at),
+            error_type=type(exc).__name__,
+            error_message=str(exc),
+            **_openrouter_response_header_fields(response),
+        )
+        raise
+
     started_at = response.request.extensions.get(OPENROUTER_REQUEST_STARTED_AT_EXTENSION)
     duration_ms = elapsed_ms(started_at) if isinstance(started_at, float) else None
     log_event(
@@ -1070,10 +1112,12 @@ async def _log_openrouter_response_timing(response: httpx.Response) -> None:
         logging.INFO,
         "OpenRouter HTTP response received",
         event="openrouter_http_response_received",
+        openrouter_request_id=_openrouter_request_id(response.request),
         http_method=response.request.method,
         http_url_path=response.request.url.path,
         http_status_code=response.status_code,
         duration_ms=duration_ms,
+        http_response_body_size_bytes=len(body),
         http_response_content_length=_response_content_length(response),
         **_openrouter_response_header_fields(response),
     )
@@ -1094,6 +1138,7 @@ async def _log_openrouter_error_response(response: httpx.Response) -> None:
         "OpenRouter error response received",
         extra={
             "event": "openrouter_error_response_received",
+            "openrouter_request_id": _openrouter_request_id(response.request),
             "http_method": response.request.method,
             "http_url_path": response.request.url.path,
             "http_status_code": response.status_code,
@@ -1118,6 +1163,11 @@ def _openrouter_response_error(body: bytes) -> object | None:
     if not isinstance(decoded, dict):
         return None
     return decoded.get("error")
+
+
+def _openrouter_request_id(request: httpx.Request) -> str | None:
+    request_id = request.extensions.get(OPENROUTER_REQUEST_ID_EXTENSION)
+    return request_id if isinstance(request_id, str) else None
 
 
 def _mapping_value(value: object, key: str) -> object | None:
