@@ -3,11 +3,7 @@ from datetime import UTC
 from agent_service.channels import AttachmentType, ChannelInboundNormalizer, MessageType
 from agent_service.channels.telegram import TelegramInboundNormalizer
 from agent_service.channels.telegram.onboarding import (
-    TELEGRAM_ONBOARDING_ANALYZE_IMAGE_CALLBACK_DATA,
-    TELEGRAM_ONBOARDING_ANALYZE_IMAGE_TEXT,
     TELEGRAM_ONBOARDING_CALLBACK_TEXTS,
-    TELEGRAM_ONBOARDING_COMPARISON_CALLBACK_DATA,
-    TELEGRAM_ONBOARDING_COMPARISON_TEXT,
     TELEGRAM_ONBOARDING_GENERATE_IMAGE_CALLBACK_DATA,
     TELEGRAM_ONBOARDING_GENERATE_IMAGE_TEXT,
     TELEGRAM_ONBOARDING_LECTURE_SUMMARY_CALLBACK_DATA,
@@ -64,18 +60,6 @@ def test_telegram_onboarding_buttons_match_synthetic_texts() -> None:
     assert rows == [
         [
             {
-                "text": "📷 Разбери фото конспекта",
-                "callback_data": TELEGRAM_ONBOARDING_ANALYZE_IMAGE_CALLBACK_DATA,
-            }
-        ],
-        [
-            {
-                "text": "📚 Вытащи главное из лекции",
-                "callback_data": TELEGRAM_ONBOARDING_LECTURE_SUMMARY_CALLBACK_DATA,
-            }
-        ],
-        [
-            {
                 "text": "🩻 Создай иллюстрацию",
                 "callback_data": TELEGRAM_ONBOARDING_GENERATE_IMAGE_CALLBACK_DATA,
             }
@@ -88,19 +72,17 @@ def test_telegram_onboarding_buttons_match_synthetic_texts() -> None:
         ],
         [
             {
-                "text": "📊 Проведи сравнение",
-                "callback_data": TELEGRAM_ONBOARDING_COMPARISON_CALLBACK_DATA,
+                "text": "📚 Вытащи главное из лекции",
+                "callback_data": TELEGRAM_ONBOARDING_LECTURE_SUMMARY_CALLBACK_DATA,
             }
         ],
     ]
     assert TELEGRAM_ONBOARDING_CALLBACK_TEXTS == {
-        TELEGRAM_ONBOARDING_ANALYZE_IMAGE_CALLBACK_DATA: TELEGRAM_ONBOARDING_ANALYZE_IMAGE_TEXT,
         TELEGRAM_ONBOARDING_LECTURE_SUMMARY_CALLBACK_DATA: (
             TELEGRAM_ONBOARDING_LECTURE_SUMMARY_TEXT
         ),
         TELEGRAM_ONBOARDING_GENERATE_IMAGE_CALLBACK_DATA: TELEGRAM_ONBOARDING_GENERATE_IMAGE_TEXT,
         TELEGRAM_ONBOARDING_WEB_RESEARCH_CALLBACK_DATA: TELEGRAM_ONBOARDING_WEB_RESEARCH_TEXT,
-        TELEGRAM_ONBOARDING_COMPARISON_CALLBACK_DATA: TELEGRAM_ONBOARDING_COMPARISON_TEXT,
     }
 
 
