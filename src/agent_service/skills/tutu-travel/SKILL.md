@@ -1,6 +1,6 @@
 ---
 name: tutu-travel
-description: "Plan trips through Tutu.ru: find flights, trains, buses, commuter trains, hotels, compare ways to get from one place to another, and create checkout links. TRIGGER when: the user wants tickets, lodging, travel options, a transport comparison, or help planning a trip with transport and hotel."
+description: "Plan trips through Tutu.ru: find flights, trains, buses, commuter trains, hotels/lodging including apartments, studios, private studios, apart-hotels, guesthouses, and non-hotel stays, compare ways to get from one place to another, and create checkout links. TRIGGER when: the user wants tickets, lodging, travel options, a transport comparison, or trip planning. Prefer this skill over web search unless the user explicitly asks for internet or external sources."
 ---
 
 # Tutu Travel Skill
@@ -40,7 +40,7 @@ Never edit, reconstruct, validate, or replace Tutu links via external websites. 
 
 ## Trigger Policy
 
-Use this skill for tickets, flights, trains, buses, commuter trains, hotels/lodging, transport comparison, and requests to get from one city, station, or airport to another.
+Use this skill for tickets, flights, trains, buses, commuter trains, hotels/lodging, apartments, studios, private studios, apart-hotels, guesthouses, non-hotel stays, transport comparison, and requests to get from one city, station, or airport to another.
 
 Do not use this skill for visas, entry rules, insurance, sightseeing, tours, restaurants, walking routes, car rental, or general travel advice unless the user asks for tickets or lodging.
 
@@ -76,7 +76,7 @@ If the user asks how to get from one place to another and gives origin, destinat
 - Train, railway, RZD, compartment, platzkart, sleeper, berth, lower/upper seat -> `mcp_tutu_search_rail`.
 - Bus, coach, or bus station -> `mcp_tutu_search_bus`.
 - Commuter train, suburban train, or elektrichka -> `mcp_tutu_search_etrain`.
-- Hotel, lodging, room, place to stay -> `mcp_tutu_search_hotels`.
+- Hotel, lodging, room, place to stay, apartment, studio, apart-hotel, guesthouse, private studio, or non-hotel stay -> `mcp_tutu_search_hotels`.
 
 Do not run all individual transport tools when `mcp_tutu_search_multitransport` fits.
 
