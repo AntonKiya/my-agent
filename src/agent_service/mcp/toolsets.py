@@ -14,6 +14,7 @@ from agent_service.observability.events import elapsed_ms, log_event, start_time
 
 logger = logging.getLogger(__name__)
 ToolResultTransformer = Callable[[Any], Any]
+ToolCallValidator = Callable[[str, Mapping[str, Any], RunContext[Any]], Any | None]
 MAX_LOG_ERROR_MESSAGE_CHARS = 500
 MAX_LOG_TOOL_ARGS_CHARS = 2000
 
@@ -72,6 +73,7 @@ class TransformingToolset(WrapperToolset[Any]):
     result_transformers: Mapping[str, ToolResultTransformer] = field(default_factory=dict)
     return_error_results_for_tool_names: Collection[str] = field(default_factory=frozenset)
     log_error_args_for_tool_names: Collection[str] = field(default_factory=frozenset)
+    pre_call_validators: Sequence[ToolCallValidator] = field(default_factory=tuple)
 
     async def call_tool(
         self,
@@ -91,6 +93,21 @@ class TransformingToolset(WrapperToolset[Any]):
             tool_args_keys=sorted(tool_args),
             tool_args_size=tool_args_size,
         )
+
+        preflight_result = self._preflight_result(name, tool_args, ctx)
+        if preflight_result is not None:
+            log_event(
+                logger,
+                logging.INFO,
+                "MCP tool call rejected by preflight validator",
+                event="mcp_tool_call_preflight_rejected",
+                tool_name=name,
+                tool_args_keys=sorted(tool_args),
+                tool_args_size=tool_args_size,
+                duration_ms=elapsed_ms(started_at),
+                result_size=_payload_size(preflight_result),
+            )
+            return preflight_result
 
         try:
             result = await self.wrapped.call_tool(name, tool_args, ctx, tool)
@@ -191,6 +208,30 @@ class TransformingToolset(WrapperToolset[Any]):
             transformed=transformed != result,
         )
         return transformed
+
+    def _preflight_result(
+        self,
+        name: str,
+        tool_args: Mapping[str, Any],
+        ctx: RunContext[Any],
+    ) -> Any | None:
+        for validator in self.pre_call_validators:
+            try:
+                result = validator(name, tool_args, ctx)
+            except Exception as exc:
+                log_event(
+                    logger,
+                    logging.WARNING,
+                    "MCP tool preflight validator failed",
+                    event="mcp_tool_preflight_validator_failed",
+                    tool_name=name,
+                    error_type=type(exc).__name__,
+                    error_message=_safe_error_message(exc),
+                )
+                continue
+            if result is not None:
+                return result
+        return None
 
 
 def prefixed_tool_names(prefix: str, raw_tool_names: Collection[str]) -> frozenset[str]:

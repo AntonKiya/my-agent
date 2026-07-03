@@ -1,5 +1,6 @@
 import json
 import logging
+from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any, cast
 
@@ -34,6 +35,7 @@ def _run_context() -> RunContext[Any]:
 @dataclass
 class FakeToolset(AbstractToolset[Any]):
     result: Any
+    calls: int = 0
 
     @property
     def id(self) -> str | None:
@@ -49,6 +51,7 @@ class FakeToolset(AbstractToolset[Any]):
         ctx: RunContext[Any],
         tool: Any,
     ) -> Any:
+        self.calls += 1
         return self.result
 
 
@@ -201,6 +204,39 @@ async def test_transforming_toolset_leaves_unmapped_tools_unchanged() -> None:
     )
 
     assert result == "raw-result"
+
+
+async def test_transforming_toolset_returns_preflight_result_without_calling_wrapped() -> None:
+    wrapped = FakeToolset("raw-result")
+    preflight_result = {
+        "ok": False,
+        "error": {
+            "code": "missing_required_fields",
+            "user_message": "Уточните параметры.",
+        },
+    }
+
+    def preflight_validator(
+        _name: str,
+        _args: Mapping[str, Any],
+        _ctx: RunContext[Any],
+    ) -> dict[str, Any]:
+        return preflight_result
+
+    toolset = TransformingToolset(
+        wrapped,
+        pre_call_validators=(preflight_validator,),
+    )
+
+    result = await toolset.call_tool(
+        "demo_tool",
+        {},
+        _run_context(),
+        cast(Any, object()),
+    )
+
+    assert result == preflight_result
+    assert wrapped.calls == 0
 
 
 async def test_transforming_toolset_raises_tool_errors_by_default() -> None:
