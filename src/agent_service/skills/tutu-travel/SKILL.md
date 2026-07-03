@@ -32,7 +32,11 @@ Use these Tutu MCP tools:
 - `mcp_tutu_get_rail_seatmap`
 - `mcp_tutu_create_checkout_link`
 
-Do not use web search for Tutu availability, prices, schedules, hotels, tickets, or links.
+Use Tutu MCP as the only source for tickets, hotels, prices, availability, schedules, offer details, checkout links, and changes to dates, guests, passengers, seats, rooms, or fares.
+
+Do not call web search, web research, or web page reading tools for these tasks. If a Tutu link looks broken, the user changes dates/guests/passengers, or the user asks for another link, call the relevant Tutu search tool again and then `mcp_tutu_create_checkout_link` with the selected offer's `checkout_ref`.
+
+Never edit, reconstruct, validate, or replace Tutu links via external websites. Use external websites only when the user explicitly asks to search the web, check an official site, compare with other booking platforms, or use non-Tutu sources.
 
 ## Trigger Policy
 
