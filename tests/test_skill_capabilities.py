@@ -13,6 +13,7 @@ def test_builtin_skills_include_vkusvill_shopping_as_deferred_capability() -> No
     capability_by_id = {capability.id: capability for capability in capabilities}
     assert set(capability_by_id) == {
         "reminders",
+        "tutu-travel",
         "vkusvill-shopping",
         "weather-forecast",
     }
@@ -50,6 +51,23 @@ def test_builtin_skills_include_weather_forecast_as_deferred_capability() -> Non
         "If the user asks for a forecast and the period is not clear, use `week`."
         in (instructions[0])
     )
+
+
+def test_builtin_skills_include_tutu_travel_as_deferred_capability() -> None:
+    capabilities = load_builtin_skill_capabilities()
+
+    capability_by_id = {capability.id: capability for capability in capabilities}
+    capability = capability_by_id["tutu-travel"]
+    assert capability.defer_loading is True
+    description = cast(str, capability.get_description())
+    assert "Plan trips through Tutu.ru" in description
+    assert "TRIGGER when: the user wants tickets" in description
+    instructions = cast(list[str], capability.get_instructions())
+    assert len(instructions) == 1
+    assert instructions[0].startswith("# Tutu Travel Skill")
+    assert "---" not in instructions[0]
+    assert "`mcp_tutu_search_hotels`" in instructions[0]
+    assert "`mcp_tutu_create_checkout_link`" in instructions[0]
 
 
 def test_builtin_skills_include_reminders_as_deferred_capability() -> None:

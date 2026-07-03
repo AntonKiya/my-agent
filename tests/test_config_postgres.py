@@ -392,6 +392,49 @@ def test_vkusvill_mcp_settings_reject_stdio_options_without_command() -> None:
         AppSettings(environment="test", vkusvill_mcp_env={"TOKEN": "secret"})
 
 
+def test_tutu_mcp_settings_accept_stdio_configuration() -> None:
+    settings = AppSettings(
+        environment="test",
+        tutu_mcp_command="uvx",
+        tutu_mcp_args=("tutu-mcp",),
+        tutu_mcp_env={"TOKEN": "secret"},
+    )
+
+    assert settings.tutu_mcp_command == "uvx"
+    assert settings.tutu_mcp_args == ("tutu-mcp",)
+    assert settings.tutu_mcp_env == {"TOKEN": "secret"}
+    assert settings.tutu_mcp_url is None
+
+
+def test_tutu_mcp_settings_accept_url_configuration() -> None:
+    settings = AppSettings(
+        environment="test",
+        tutu_mcp_url="https://mcp.tutu.ru/mcp",
+        tutu_mcp_headers={"Authorization": "Bearer token"},
+    )
+
+    assert settings.tutu_mcp_url == "https://mcp.tutu.ru/mcp"
+    assert settings.tutu_mcp_headers == {"Authorization": "Bearer token"}
+    assert settings.tutu_mcp_command is None
+
+
+def test_tutu_mcp_settings_reject_conflicting_transports() -> None:
+    with pytest.raises(ValidationError, match="either tutu_mcp_command or tutu_mcp_url"):
+        AppSettings(
+            environment="test",
+            tutu_mcp_command="uvx",
+            tutu_mcp_url="https://mcp.tutu.ru/mcp",
+        )
+
+
+def test_tutu_mcp_settings_reject_stdio_options_without_command() -> None:
+    with pytest.raises(ValidationError, match="tutu_mcp_args requires"):
+        AppSettings(environment="test", tutu_mcp_args=("tutu-mcp",))
+
+    with pytest.raises(ValidationError, match="tutu_mcp_env requires"):
+        AppSettings(environment="test", tutu_mcp_env={"TOKEN": "secret"})
+
+
 def test_weather_forecast_settings_accept_timeout_configuration() -> None:
     settings = AppSettings(
         environment="test",

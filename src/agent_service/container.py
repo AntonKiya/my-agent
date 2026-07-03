@@ -57,7 +57,12 @@ from agent_service.inbound import (
     PostgresInboundIdempotencyStore,
     RedisInboundMediaGroupAggregator,
 )
-from agent_service.mcp import VKUSVILL_SHOPPING_SKILL_ID, build_vkusvill_mcp_toolsets
+from agent_service.mcp import (
+    TUTU_TRAVEL_SKILL_ID,
+    VKUSVILL_SHOPPING_SKILL_ID,
+    build_tutu_mcp_toolsets,
+    build_vkusvill_mcp_toolsets,
+)
 from agent_service.media import (
     InMemoryMediaFetcherRegistry,
     MediaAssetStore,
@@ -381,6 +386,11 @@ class AppContainer:
         if vkusvill_toolsets:
             enabled_skill_ids.add(VKUSVILL_SHOPPING_SKILL_ID)
             capability_toolsets[VKUSVILL_SHOPPING_SKILL_ID] = vkusvill_toolsets
+
+        tutu_toolsets = build_tutu_mcp_toolsets(self.settings)
+        if tutu_toolsets:
+            enabled_skill_ids.add(TUTU_TRAVEL_SKILL_ID)
+            capability_toolsets[TUTU_TRAVEL_SKILL_ID] = tutu_toolsets
 
         direct_toolsets.extend(build_time_toolsets())
         direct_toolsets.extend(self._build_image_analysis_toolsets())

@@ -8,6 +8,7 @@ from pydantic_ai.toolsets import AgentToolset
 
 _SKILLS_DIR = Path(__file__).parent.resolve()
 _BUILTIN_SKILL_PATHS = (
+    Path("tutu-travel/SKILL.md"),
     Path("vkusvill-shopping/SKILL.md"),
     Path("weather-forecast/SKILL.md"),
     Path("reminders/SKILL.md"),

@@ -70,6 +70,13 @@ class AppSettings(BaseSettings):
     vkusvill_mcp_headers: dict[str, str] = Field(default_factory=dict)
     vkusvill_mcp_init_timeout_seconds: float = Field(default=5.0, gt=0)
     vkusvill_mcp_read_timeout_seconds: float = Field(default=300.0, gt=0)
+    tutu_mcp_command: str | None = None
+    tutu_mcp_args: tuple[str, ...] = ()
+    tutu_mcp_env: dict[str, str] = Field(default_factory=dict)
+    tutu_mcp_url: str | None = None
+    tutu_mcp_headers: dict[str, str] = Field(default_factory=dict)
+    tutu_mcp_init_timeout_seconds: float = Field(default=5.0, gt=0)
+    tutu_mcp_read_timeout_seconds: float = Field(default=300.0, gt=0)
     weather_forecast_enabled: bool = True
     weather_forecast_tool_timeout_seconds: float = Field(default=15.0, gt=0)
     weather_http_connect_timeout_seconds: float = Field(default=5.0, gt=0)
@@ -175,6 +182,8 @@ class AppSettings(BaseSettings):
         "agent_model",
         "vkusvill_mcp_command",
         "vkusvill_mcp_url",
+        "tutu_mcp_command",
+        "tutu_mcp_url",
         "postgres_dsn",
         "redis_dsn",
         "memory_compaction_model",
@@ -224,6 +233,12 @@ class AppSettings(BaseSettings):
             raise ValueError("vkusvill_mcp_args requires vkusvill_mcp_command")
         if self.vkusvill_mcp_env and self.vkusvill_mcp_command is None:
             raise ValueError("vkusvill_mcp_env requires vkusvill_mcp_command")
+        if self.tutu_mcp_command is not None and self.tutu_mcp_url is not None:
+            raise ValueError("configure either tutu_mcp_command or tutu_mcp_url, not both")
+        if self.tutu_mcp_args and self.tutu_mcp_command is None:
+            raise ValueError("tutu_mcp_args requires tutu_mcp_command")
+        if self.tutu_mcp_env and self.tutu_mcp_command is None:
+            raise ValueError("tutu_mcp_env requires tutu_mcp_command")
         return self
 
     @field_validator(

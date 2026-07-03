@@ -477,6 +477,44 @@ async def test_container_passes_vkusvill_mcp_toolsets_to_openrouter_boundary(
     await container.stop()
 
 
+async def test_container_passes_tutu_mcp_toolsets_to_openrouter_boundary(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, object] = {}
+
+    def fake_build_openrouter_agent_boundary(**kwargs: object) -> PydanticAIAgentBoundary:
+        captured.update(kwargs)
+        return PydanticAIAgentBoundary(agent=object())  # type: ignore[arg-type]
+
+    monkeypatch.setattr(
+        container_module,
+        "build_openrouter_agent_boundary",
+        fake_build_openrouter_agent_boundary,
+    )
+    settings = AppSettings(
+        environment="test",
+        agent_provider="openrouter",
+        agent_model="openai/gpt-4.1-mini",
+        openrouter_api_key=SecretStr("secret"),
+        tutu_mcp_url="https://mcp.tutu.ru/mcp",
+    )
+
+    container = AppContainer(settings=settings)
+
+    assert isinstance(container.agent_boundary, PydanticAIAgentBoundary)
+    assert captured["enabled_skill_ids"] == {"tutu-travel", "weather-forecast"}
+    capability_toolsets = captured["capability_toolsets"]
+    assert isinstance(capability_toolsets, dict)
+    weather_toolsets = capability_toolsets["weather-forecast"]
+    assert isinstance(weather_toolsets, tuple)
+    assert len(weather_toolsets) == 1
+    tutu_toolsets = capability_toolsets["tutu-travel"]
+    assert isinstance(tutu_toolsets, tuple)
+    assert len(tutu_toolsets) == 1
+
+    await container.stop()
+
+
 async def test_container_passes_openrouter_model_settings_to_agent_boundary(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

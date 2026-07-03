@@ -18,3 +18,5 @@ tmp/
 var/
 
 /data
+
+/agent-service-full-backup.sh

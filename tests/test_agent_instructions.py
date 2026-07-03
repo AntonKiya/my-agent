@@ -89,6 +89,8 @@ def test_base_agent_instructions_include_public_capabilities() -> None:
 
     assert "когда пользователь задаёт общий вопрос" in instructions
     assert "Собрать корзину во ВкусВилл" in instructions
+    assert "Спланировать поездку" in instructions
+    assert "Подбери поездку в Казань на выходные" in instructions
     assert "Ответить на голосовое" in instructions
 
 
