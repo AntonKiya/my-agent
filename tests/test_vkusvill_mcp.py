@@ -1,4 +1,5 @@
 import json
+import logging
 from dataclasses import dataclass
 from typing import Any, cast
 
@@ -49,6 +50,27 @@ class FakeToolset(AbstractToolset[Any]):
         tool: Any,
     ) -> Any:
         return self.result
+
+
+@dataclass
+class FailingToolset(AbstractToolset[Any]):
+    error: Exception
+
+    @property
+    def id(self) -> str | None:
+        return None
+
+    async def get_tools(self, ctx: RunContext[Any]) -> dict[str, Any]:
+        return {}
+
+    async def call_tool(
+        self,
+        name: str,
+        tool_args: dict[str, Any],
+        ctx: RunContext[Any],
+        tool: Any,
+    ) -> Any:
+        raise self.error
 
 
 def test_vkusvill_mcp_toolsets_are_disabled_without_transport_config() -> None:
@@ -179,6 +201,76 @@ async def test_transforming_toolset_leaves_unmapped_tools_unchanged() -> None:
     )
 
     assert result == "raw-result"
+
+
+async def test_transforming_toolset_raises_tool_errors_by_default() -> None:
+    toolset = TransformingToolset(FailingToolset(RuntimeError("upstream failed")))
+
+    try:
+        await toolset.call_tool(
+            "demo_tool",
+            {},
+            _run_context(),
+            cast(Any, object()),
+        )
+    except RuntimeError as exc:
+        assert str(exc) == "upstream failed"
+    else:  # pragma: no cover
+        raise AssertionError("expected tool error to be raised")
+
+
+async def test_transforming_toolset_can_return_tool_errors_as_results() -> None:
+    toolset = TransformingToolset(
+        FailingToolset(RuntimeError("upstream failed")),
+        return_error_results_for_tool_names={"demo_tool"},
+    )
+
+    result = await toolset.call_tool(
+        "demo_tool",
+        {},
+        _run_context(),
+        cast(Any, object()),
+    )
+
+    assert result == {
+        "ok": False,
+        "error": {
+            "tool_name": "demo_tool",
+            "type": "RuntimeError",
+            "message": "upstream failed",
+            "hint": (
+                "The upstream MCP service rejected the call. Do not retry the same "
+                "parameters; ask the user for the smallest useful correction."
+            ),
+        },
+    }
+
+
+async def test_transforming_toolset_logs_error_args_for_configured_tools(
+    caplog: Any,
+) -> None:
+    caplog.set_level(logging.WARNING, logger="agent_service.mcp.toolsets")
+    toolset = TransformingToolset(
+        FailingToolset(RuntimeError("upstream failed")),
+        return_error_results_for_tool_names={"demo_tool"},
+        log_error_args_for_tool_names={"demo_tool"},
+    )
+
+    await toolset.call_tool(
+        "demo_tool",
+        {"city_name": "Санкт-Петербург", "check_in": "2026-06-10"},
+        _run_context(),
+        cast(Any, object()),
+    )
+
+    failure_record = next(
+        record
+        for record in caplog.records
+        if getattr(record, "event", None) == "mcp_tool_call_failed"
+    )
+    assert failure_record.tool_args_json == (
+        '{"city_name":"Санкт-Петербург","check_in":"2026-06-10"}'
+    )
 
 
 def test_vkusvill_result_transformers_match_nanobot_scope() -> None:

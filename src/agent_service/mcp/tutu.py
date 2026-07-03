@@ -55,5 +55,7 @@ def build_tutu_mcp_toolsets(settings: AppSettings) -> tuple[AbstractToolset[Any]
         TransformingToolset(
             toolset,
             TUTU_MCP_RESULT_TRANSFORMERS,
+            return_error_results_for_tool_names=TUTU_MCP_TOOL_NAMES,
+            log_error_args_for_tool_names=TUTU_MCP_TOOL_NAMES,
         ),
     )

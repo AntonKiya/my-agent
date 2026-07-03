@@ -55,6 +55,8 @@ def test_tutu_mcp_tool_filter_allows_only_wrapped_skill_tools() -> None:
         AppSettings(environment="test", tutu_mcp_url="https://mcp.tutu.ru/mcp")
     )[0]
     assert isinstance(toolset, TransformingToolset)
+    assert toolset.return_error_results_for_tool_names == TUTU_MCP_TOOL_NAMES
+    assert toolset.log_error_args_for_tool_names == TUTU_MCP_TOOL_NAMES
     filtered = toolset.wrapped
     assert isinstance(filtered, FilteredToolset)
 

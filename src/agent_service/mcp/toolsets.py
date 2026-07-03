@@ -15,6 +15,7 @@ from agent_service.observability.events import elapsed_ms, log_event, start_time
 logger = logging.getLogger(__name__)
 ToolResultTransformer = Callable[[Any], Any]
 MAX_LOG_ERROR_MESSAGE_CHARS = 500
+MAX_LOG_TOOL_ARGS_CHARS = 2000
 
 
 @dataclass(frozen=True, slots=True)
@@ -69,6 +70,8 @@ def build_prefixed_mcp_toolset(config: PrefixedMCPToolsetConfig) -> AbstractTool
 @dataclass(slots=True)
 class TransformingToolset(WrapperToolset[Any]):
     result_transformers: Mapping[str, ToolResultTransformer] = field(default_factory=dict)
+    return_error_results_for_tool_names: Collection[str] = field(default_factory=frozenset)
+    log_error_args_for_tool_names: Collection[str] = field(default_factory=frozenset)
 
     async def call_tool(
         self,
@@ -92,18 +95,35 @@ class TransformingToolset(WrapperToolset[Any]):
         try:
             result = await self.wrapped.call_tool(name, tool_args, ctx, tool)
         except Exception as exc:
+            failure_fields = {
+                "event": "mcp_tool_call_failed",
+                "tool_name": name,
+                "tool_args_keys": sorted(tool_args),
+                "tool_args_size": tool_args_size,
+                "duration_ms": elapsed_ms(started_at),
+                "error_type": type(exc).__name__,
+                "error_message": _safe_error_message(exc),
+            }
+            if name in self.log_error_args_for_tool_names:
+                failure_fields["tool_args_json"] = _safe_log_payload(tool_args)
             log_event(
                 logger,
                 logging.WARNING,
                 "MCP tool call failed",
-                event="mcp_tool_call_failed",
-                tool_name=name,
-                tool_args_keys=sorted(tool_args),
-                tool_args_size=tool_args_size,
-                duration_ms=elapsed_ms(started_at),
-                error_type=type(exc).__name__,
-                error_message=_safe_error_message(exc),
+                **failure_fields,
             )
+            if name in self.return_error_results_for_tool_names:
+                error_result = _tool_error_result(name, exc)
+                log_event(
+                    logger,
+                    logging.INFO,
+                    "MCP tool error returned as result",
+                    event="mcp_tool_error_returned_as_result",
+                    tool_name=name,
+                    duration_ms=elapsed_ms(started_at),
+                    result_size=_payload_size(error_result),
+                )
+                return error_result
             raise
 
         transformer = self.result_transformers.get(name)
@@ -209,3 +229,27 @@ def _safe_error_message(exc: Exception) -> str | None:
     if len(message) <= MAX_LOG_ERROR_MESSAGE_CHARS:
         return message
     return f"{message[:MAX_LOG_ERROR_MESSAGE_CHARS]}..."
+
+
+def _tool_error_result(name: str, exc: Exception) -> dict[str, Any]:
+    return {
+        "ok": False,
+        "error": {
+            "tool_name": name,
+            "type": type(exc).__name__,
+            "message": _safe_error_message(exc) or type(exc).__name__,
+            "hint": (
+                "The upstream MCP service rejected the call. Do not retry the same "
+                "parameters; ask the user for the smallest useful correction."
+            ),
+        },
+    }
+
+
+def _safe_log_payload(value: Any) -> str | None:
+    text = _payload_text(value)
+    if text is None:
+        return None
+    if len(text) <= MAX_LOG_TOOL_ARGS_CHARS:
+        return text
+    return f"{text[:MAX_LOG_TOOL_ARGS_CHARS]}..."
