@@ -266,8 +266,20 @@ async def test_tutu_search_result_masking_persists_checkout_ref_and_removes_raw_
         "meta": {
             "transport": "avia",
             "total_returned": 1,
-            "from": {"name": "Москва", "geo_id": "2657260"},
-            "to": {"name": "Сочи", "geo_id": "2656918"},
+            "from": {"name": "Москва", "geo_id": "2657260", "region": "Москва"},
+            "to": {"name": "Сочи", "geo_id": "2656918", "region": "Краснодарский край"},
+            "page": 1,
+            "page_size": 10,
+            "geo_id": "drop-meta-geo",
+            "search_id": "drop-search",
+            "resolved_geo": {
+                "name": "Сочи",
+                "geo_id": "drop-resolved-geo",
+                "region": "Краснодарский край",
+                "country": "Россия",
+                "geo_type": "locality",
+                "hotels_count": 100,
+            },
         },
         "offers": [
             {
@@ -276,6 +288,9 @@ async def test_tutu_search_result_masking_persists_checkout_ref_and_removes_raw_
                 "departure_at": "2026-07-15T19:30:00+03:00",
                 "arrival_at": "2026-07-15T23:10:00+03:00",
                 "duration_min": 220,
+                "route": {"from": "drop", "to": "drop"},
+                "carriers": ["drop"],
+                "segments_count": 1,
                 "checkout_ref": {
                     "transport": "avia",
                     "offer_hash": {"opaque": "hash"},
@@ -338,11 +353,26 @@ async def test_tutu_search_result_masking_persists_checkout_ref_and_removes_raw_
 
     offer = result["offers"][0]
     assert offer["selection_id"] == "sel_testavia0001"
+    assert offer["direct"] is True
     compact_json = json.dumps(result, ensure_ascii=False)
     assert "checkout_ref" not in compact_json
     assert "offer_hash" not in compact_json
     assert "checkout_url" not in compact_json
     assert "https://drop.example" not in compact_json
+    assert "route" not in compact_json
+    assert "carriers" not in compact_json
+    assert "segments_count" not in compact_json
+    assert "page_size" not in compact_json
+    assert "drop-meta-geo" not in compact_json
+    assert "drop-search" not in compact_json
+    assert "drop-resolved-geo" not in compact_json
+    assert "hotels_count" not in compact_json
+    assert result["meta"]["resolved_geo"] == {
+        "name": "Сочи",
+        "region": "Краснодарский край",
+        "country": "Россия",
+        "geo_type": "locality",
+    }
     assert offer["fare_options"] == [
         {
             "price": {"amount": 26140.0, "currency": "RUB"},
@@ -363,6 +393,78 @@ async def test_tutu_search_result_masking_persists_checkout_ref_and_removes_raw_
     assert reference.ref_payload["checkout_ref"] == raw_payload["offers"][0]["checkout_ref"]
     assert reference.ref_payload["details_ref"] == {"opaque": "details"}
     assert reference.display_snapshot["selection_id"] == "sel_testavia0001"
+
+
+async def test_tutu_hotel_search_result_masking_removes_non_text_selection_fields() -> None:
+    user_id = uuid4()
+    conversation_id = uuid4()
+    store = InMemoryToolResultReferenceStore(
+        now_provider=lambda: datetime(2026, 7, 5, 11, 0, tzinfo=UTC)
+    )
+    raw_payload: dict[str, Any] = {
+        "meta": {
+            "total_returned": 1,
+            "resolved_geo": {
+                "name": "Сочи",
+                "geo_id": "drop-geo-id",
+                "region": "Краснодарский край",
+                "country": "Россия",
+                "geo_type": "locality",
+                "hotels_count": 24632,
+            },
+        },
+        "hotels": [
+            {
+                "name": "Империя",
+                "stars": 3,
+                "rating": 8.03,
+                "review_count": 349,
+                "address": "2.2 км от центра, 96 м до пляжа",
+                "location": {"lat": 43.622307, "lng": 39.69956},
+                "hotel_id": "8574232",
+                "hotel_geo_id": "8574232",
+                "alias": "otel_imperiya_sochi",
+                "photos_total": 100,
+                "checkout_ref": {"product_type": "hotels"},
+                "best_offer": {
+                    "price": {"amount": 32500.0, "currency": "RUB"},
+                    "room_name": "Большой Стандартный номер",
+                    "highlights": [{"text": "Бесплатная отмена", "type": "policies"}],
+                },
+            }
+        ],
+    }
+    toolset = TransformingToolset(
+        FakeToolset(raw_payload),
+        contextual_result_transformers={
+            "mcp_tutu_search_hotels": build_tutu_search_result_transformer(
+                store,
+                selection_id_provider=lambda: "sel_testhotel001",
+                now_provider=lambda: datetime(2026, 7, 5, 11, 0, tzinfo=UTC),
+            )
+        },
+    )
+
+    result = await toolset.call_tool(
+        "mcp_tutu_search_hotels",
+        {},
+        _run_context({"user_id": user_id, "conversation_id": conversation_id}),
+        cast(Any, object()),
+    )
+
+    hotel = result["hotels"][0]
+    compact_json = json.dumps(result, ensure_ascii=False)
+    assert hotel["selection_id"] == "sel_testhotel001"
+    assert hotel["hotel_id"] == "8574232"
+    assert hotel["alias"] == "otel_imperiya_sochi"
+    assert hotel["best_offer"]["highlights"] == [
+        {"text": "Бесплатная отмена", "type": "policies"}
+    ]
+    assert "hotel_geo_id" not in compact_json
+    assert "location" not in compact_json
+    assert "photos_total" not in compact_json
+    assert "drop-geo-id" not in compact_json
+    assert "hotels_count" not in compact_json
 
 
 async def test_tutu_checkout_link_transformer_resolves_selection_id_to_checkout_ref() -> None:

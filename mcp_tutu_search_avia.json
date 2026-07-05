@@ -1,1849 +1,718 @@
-[
-  {
-    "id": "571a14a7-5bcd-43bf-965c-6697ebdf1806",
-    "conversation_id": "162431f6-0ad1-40df-94c4-643cbdd8bad2",
-    "user_id": "c3305efc-4350-4c1b-a6c7-bfeaa31bccb7",
-    "sequence": 1087,
-    "role": "tool_result",
-    "text": null,
-    "attachments": [],
-    "tool_name": "mcp_tutu_search_avia",
-    "tool_call_id": "call_e6c5f3b554212c1d",
-    "inbound_event_id": null,
-    "outbound_event_id": null,
-    "trace_id": "c990d45ef67f4ab7b0bdd9daa8b3505b",
-    "metadata": {
-      "content": {
-        "meta": {
-          "to": {
-            "iata": "AER",
-            "name": "Сочи",
-            "geo_id": "2656918",
-            "region": "городской округ Сочи, Краснодарский край"
-          },
-          "from": {
-            "iata": "MOW",
-            "name": "Москва",
-            "geo_id": "2657260",
-            "region": "Москва город федерального значения"
-          },
-          "page": 1,
-          "sort": "price_asc",
-          "has_more": true,
-          "page_size": 10,
-          "transport": "avia",
-          "round_trip": false,
-          "return_date": null,
-          "upstream_note": null,
-          "total_returned": 10,
-          "post_filter_dropped_over_cap": 0
-        },
-        "offers": [
-          {
-            "legs": [
-              {
-                "to": "Сочи, AER",
-                "from": "Москва — Шереметьево (SVO)",
-                "label": "outbound",
-                "segments": [
-                  {
-                    "to": "Сочи, AER",
-                    "from": "Москва — Шереметьево (SVO)",
-                    "carrier": "Победа",
-                    "voyage_no": null,
-                    "arrival_at": "2026-07-15T23:10:00+03:00",
-                    "departure_at": "2026-07-15T19:30:00+03:00",
-                    "duration_min": 220,
-                    "review_summary": {
-                      "label": "⭐ 6.57/10 · 14 155 отзывов",
-                      "scale": 10,
-                      "scope": "carrier",
-                      "rating": 6.57,
-                      "source": "offers-api.feedback",
-                      "aspects": null,
-                      "subject": "Победа",
-                      "feedback_key": "2227",
-                      "review_count": 14155
-                    },
-                    "to_geo_point_id": 2718761,
-                    "from_geo_point_id": 2719726
-                  }
-                ],
-                "arrival_at": "2026-07-15T23:10:00+03:00",
-                "departure_at": "2026-07-15T19:30:00+03:00",
-                "duration_min": 220
-              }
-            ],
-            "price": {
-              "amount": 26140.0,
-              "currency": "RUB"
-            },
-            "carriers": [
-              "Победа"
-            ],
-            "offer_id": "5cf8a12adb138f7c00c8e20801e10d58",
-            "variants": [
-              {
-                "price": {
-                  "amount": 26140.0,
-                  "currency": "RUB"
-                },
-                "conditions": {
-                  "baggage": {
-                    "kg": 0,
-                    "pieces": 0
-                  },
-                  "changeable": false,
-                  "refundable": false,
-                  "fare_family": "Базовый",
-                  "cabin_baggage": {
-                    "kg": null,
-                    "pieces": 1,
-                    "dimensions": "36 × 30 × 27"
-                  }
-                },
-                "offer_hash": "{\"Price\":26140,\"OriginalHash\":\"[{\\\"offerVariantHash\\\":\\\"91c8743c19ced0f5b700e963b593b4bf\\\",\\\"variantConditionsHash\\\":\\\"5cf8a12adb138f7c00c8e20801e10d58:f4b7bd50b88d2aef62aa0ef78689dd61\\\",\\\"pricingVariantHash\\\":\\\"be9f69e87ce9a84d266f525b01cb52a0\\\"}]\"}",
-                "variant_id": "1ebf87819119cf083fd4d11186dd542b:671018c27b97d70aa92a2c65120e84ac",
-                "service_class": "ECONOMIC"
-              },
-              {
-                "price": {
-                  "amount": 32714.0,
-                  "currency": "RUB"
-                },
-                "conditions": {
-                  "baggage": {
-                    "kg": 10,
-                    "pieces": 1
-                  },
-                  "exchange": {
-                    "available": true,
-                    "deadline_hours": 48
-                  },
-                  "changeable": true,
-                  "refundable": false,
-                  "fare_family": "Выгодный",
-                  "cabin_baggage": {
-                    "kg": null,
-                    "pieces": 1,
-                    "dimensions": "36 × 30 × 27"
-                  }
-                },
-                "offer_hash": "{\"Price\":32714,\"OriginalHash\":\"[{\\\"offerVariantHash\\\":\\\"d7d57790528bffb73e7380c70c17d973\\\",\\\"variantConditionsHash\\\":\\\"5cf8a12adb138f7c00c8e20801e10d58:7bdef7201719c823a5aaf6841db6231e\\\",\\\"pricingVariantHash\\\":\\\"6039c5e4c7b8c9952b30c3d257f2f21f\\\"}]\"}",
-                "variant_id": "1ebf87819119cf083fd4d11186dd542b:6216f4b2c5b065a73a13b6ce8448635a",
-                "service_class": "ECONOMIC"
-              },
-              {
-                "price": {
-                  "amount": 39816.0,
-                  "currency": "RUB"
-                },
-                "conditions": {
-                  "baggage": {
-                    "kg": 20,
-                    "pieces": 1
-                  },
-                  "exchange": {
-                    "available": true,
-                    "deadline_hours": 48
-                  },
-                  "changeable": true,
-                  "refundable": true,
-                  "fare_family": "Максимум",
-                  "cabin_baggage": {
-                    "kg": null,
-                    "pieces": 1,
-                    "dimensions": "36 × 30 × 27"
-                  }
-                },
-                "offer_hash": "{\"Price\":39816,\"OriginalHash\":\"[{\\\"offerVariantHash\\\":\\\"9d1d3b5d6b834bfb18fcfd6d0ff04789\\\",\\\"variantConditionsHash\\\":\\\"5cf8a12adb138f7c00c8e20801e10d58:81e223a99b8ce32d2cd1059cbdcab4ab\\\",\\\"pricingVariantHash\\\":\\\"9b87ee6f64f7f136e4dd6696aa68032e\\\"}]\"}",
-                "variant_id": "1ebf87819119cf083fd4d11186dd542b:66fcf35c9562f0614bb9617bbea50c84",
-                "service_class": "ECONOMIC"
-              }
-            ],
-            "transport": "avia",
-            "arrival_at": "2026-07-15T23:10:00+03:00",
-            "checkout_ref": {
-              "transport": "avia",
-              "offer_hash": "{\"Price\":26140,\"OriginalHash\":\"[{\\\"offerVariantHash\\\":\\\"91c8743c19ced0f5b700e963b593b4bf\\\",\\\"variantConditionsHash\\\":\\\"5cf8a12adb138f7c00c8e20801e10d58:f4b7bd50b88d2aef62aa0ef78689dd61\\\",\\\"pricingVariantHash\\\":\\\"be9f69e87ce9a84d266f525b01cb52a0\\\"}]\"}",
-              "departure_at": "2026-07-15T19:30:00+03:00",
-              "is_round_trip": false,
-              "service_class": "ECONOMIC",
-              "passengers_full": 2,
-              "passengers_child": 0,
-              "passengers_infant": 0,
-              "search_results_url": "https://avia.tutu.ru/f/Moskva/Sochi/?class=Y&travelers=2&route[0]=491-15072026-78",
-              "arrival_geo_city_id": 2656918,
-              "departure_geo_city_id": 2657260
-            },
-            "departure_at": "2026-07-15T19:30:00+03:00",
-            "duration_min": 220,
-            "review_summary": {
-              "label": "⭐ 6.57/10 · 14 155 отзывов",
-              "scale": 10,
-              "scope": "carrier",
-              "rating": 6.57,
-              "source": "offers-api.feedback",
-              "aspects": null,
-              "subject": "Победа",
-              "feedback_key": "2227",
-              "review_count": 14155
-            },
-            "segments_count": 1,
-            "search_results_url": "https://avia.tutu.ru/f/Moskva/Sochi/?class=Y&travelers=2&route[0]=491-15072026-78"
-          },
-          {
-            "legs": [
-              {
-                "to": "Сочи, AER",
-                "from": "Москва — Шереметьево (SVO)",
-                "label": "outbound",
-                "segments": [
-                  {
-                    "to": "Сочи, AER",
-                    "from": "Москва — Шереметьево (SVO)",
-                    "carrier": "Победа",
-                    "voyage_no": null,
-                    "arrival_at": "2026-07-15T21:40:00+03:00",
-                    "departure_at": "2026-07-15T18:10:00+03:00",
-                    "duration_min": 210,
-                    "review_summary": {
-                      "label": "⭐ 6.57/10 · 14 155 отзывов",
-                      "scale": 10,
-                      "scope": "carrier",
-                      "rating": 6.57,
-                      "source": "offers-api.feedback",
-                      "aspects": null,
-                      "subject": "Победа",
-                      "feedback_key": "2227",
-                      "review_count": 14155
-                    },
-                    "to_geo_point_id": 2718761,
-                    "from_geo_point_id": 2719726
-                  }
-                ],
-                "arrival_at": "2026-07-15T21:40:00+03:00",
-                "departure_at": "2026-07-15T18:10:00+03:00",
-                "duration_min": 210
-              }
-            ],
-            "price": {
-              "amount": 26140.0,
-              "currency": "RUB"
-            },
-            "carriers": [
-              "Победа"
-            ],
-            "offer_id": "7113409517faba8c8fe92f471534eb5e",
-            "variants": [
-              {
-                "price": {
-                  "amount": 26140.0,
-                  "currency": "RUB"
-                },
-                "conditions": {
-                  "baggage": {
-                    "kg": 0,
-                    "pieces": 0
-                  },
-                  "changeable": false,
-                  "refundable": false,
-                  "fare_family": "Базовый",
-                  "cabin_baggage": {
-                    "kg": null,
-                    "pieces": 1,
-                    "dimensions": "36 × 30 × 27"
-                  }
-                },
-                "offer_hash": "{\"Price\":26140,\"OriginalHash\":\"[{\\\"offerVariantHash\\\":\\\"c15be697ad77f32ffefaac97f017c688\\\",\\\"variantConditionsHash\\\":\\\"7113409517faba8c8fe92f471534eb5e:f4b7bd50b88d2aef62aa0ef78689dd61\\\",\\\"pricingVariantHash\\\":\\\"404fb80afb6bbb8857f879ff6ecbb309\\\"}]\"}",
-                "variant_id": "a11f41144945fb7c7c1e7a37a4ac2bd6:671018c27b97d70aa92a2c65120e84ac",
-                "service_class": "ECONOMIC"
-              },
-              {
-                "price": {
-                  "amount": 32714.0,
-                  "currency": "RUB"
-                },
-                "conditions": {
-                  "baggage": {
-                    "kg": 10,
-                    "pieces": 1
-                  },
-                  "exchange": {
-                    "available": true,
-                    "deadline_hours": 48
-                  },
-                  "changeable": true,
-                  "refundable": false,
-                  "fare_family": "Выгодный",
-                  "cabin_baggage": {
-                    "kg": null,
-                    "pieces": 1,
-                    "dimensions": "36 × 30 × 27"
-                  }
-                },
-                "offer_hash": "{\"Price\":32714,\"OriginalHash\":\"[{\\\"offerVariantHash\\\":\\\"e7df9807ec855efb65d7bfb8747e97fd\\\",\\\"variantConditionsHash\\\":\\\"7113409517faba8c8fe92f471534eb5e:7bdef7201719c823a5aaf6841db6231e\\\",\\\"pricingVariantHash\\\":\\\"cf3f24b1b22bb2db1f4b7cf7ecfee6e5\\\"}]\"}",
-                "variant_id": "a11f41144945fb7c7c1e7a37a4ac2bd6:6216f4b2c5b065a73a13b6ce8448635a",
-                "service_class": "ECONOMIC"
-              },
-              {
-                "price": {
-                  "amount": 39816.0,
-                  "currency": "RUB"
-                },
-                "conditions": {
-                  "baggage": {
-                    "kg": 20,
-                    "pieces": 1
-                  },
-                  "exchange": {
-                    "available": true,
-                    "deadline_hours": 48
-                  },
-                  "changeable": true,
-                  "refundable": true,
-                  "fare_family": "Максимум",
-                  "cabin_baggage": {
-                    "kg": null,
-                    "pieces": 1,
-                    "dimensions": "36 × 30 × 27"
-                  }
-                },
-                "offer_hash": "{\"Price\":39816,\"OriginalHash\":\"[{\\\"offerVariantHash\\\":\\\"cd6a3943ca124e87c05fc6f9b45dc3e7\\\",\\\"variantConditionsHash\\\":\\\"7113409517faba8c8fe92f471534eb5e:81e223a99b8ce32d2cd1059cbdcab4ab\\\",\\\"pricingVariantHash\\\":\\\"bfaecdc1b264167074acf72f7f00a778\\\"}]\"}",
-                "variant_id": "a11f41144945fb7c7c1e7a37a4ac2bd6:66fcf35c9562f0614bb9617bbea50c84",
-                "service_class": "ECONOMIC"
-              }
-            ],
-            "transport": "avia",
-            "arrival_at": "2026-07-15T21:40:00+03:00",
-            "checkout_ref": {
-              "transport": "avia",
-              "offer_hash": "{\"Price\":26140,\"OriginalHash\":\"[{\\\"offerVariantHash\\\":\\\"c15be697ad77f32ffefaac97f017c688\\\",\\\"variantConditionsHash\\\":\\\"7113409517faba8c8fe92f471534eb5e:f4b7bd50b88d2aef62aa0ef78689dd61\\\",\\\"pricingVariantHash\\\":\\\"404fb80afb6bbb8857f879ff6ecbb309\\\"}]\"}",
-              "departure_at": "2026-07-15T18:10:00+03:00",
-              "is_round_trip": false,
-              "service_class": "ECONOMIC",
-              "passengers_full": 2,
-              "passengers_child": 0,
-              "passengers_infant": 0,
-              "search_results_url": "https://avia.tutu.ru/f/Moskva/Sochi/?class=Y&travelers=2&route[0]=491-15072026-78",
-              "arrival_geo_city_id": 2656918,
-              "departure_geo_city_id": 2657260
-            },
-            "departure_at": "2026-07-15T18:10:00+03:00",
-            "duration_min": 210,
-            "review_summary": {
-              "label": "⭐ 6.57/10 · 14 155 отзывов",
-              "scale": 10,
-              "scope": "carrier",
-              "rating": 6.57,
-              "source": "offers-api.feedback",
-              "aspects": null,
-              "subject": "Победа",
-              "feedback_key": "2227",
-              "review_count": 14155
-            },
-            "segments_count": 1,
-            "search_results_url": "https://avia.tutu.ru/f/Moskva/Sochi/?class=Y&travelers=2&route[0]=491-15072026-78"
-          },
-          {
-            "legs": [
-              {
-                "to": "Сочи, AER",
-                "from": "Москва — Внуково (VKO), терм. A",
-                "label": "outbound",
-                "segments": [
-                  {
-                    "to": "Сочи, AER",
-                    "from": "Москва — Внуково (VKO), терм. A",
-                    "carrier": "Победа",
-                    "voyage_no": null,
-                    "arrival_at": "2026-07-15T17:40:00+03:00",
-                    "departure_at": "2026-07-15T14:05:00+03:00",
-                    "duration_min": 215,
-                    "review_summary": {
-                      "label": "⭐ 6.57/10 · 14 155 отзывов",
-                      "scale": 10,
-                      "scope": "carrier",
-                      "rating": 6.57,
-                      "source": "offers-api.feedback",
-                      "aspects": null,
-                      "subject": "Победа",
-                      "feedback_key": "2227",
-                      "review_count": 14155
-                    },
-                    "to_geo_point_id": 2718761,
-                    "from_geo_point_id": 2718687
-                  }
-                ],
-                "arrival_at": "2026-07-15T17:40:00+03:00",
-                "departure_at": "2026-07-15T14:05:00+03:00",
-                "duration_min": 215
-              }
-            ],
-            "price": {
-              "amount": 29120.0,
-              "currency": "RUB"
-            },
-            "carriers": [
-              "Победа"
-            ],
-            "offer_id": "9e7f24e1dcdbda09eb1660323f07a387",
-            "variants": [
-              {
-                "price": {
-                  "amount": 29120.0,
-                  "currency": "RUB"
-                },
-                "conditions": {
-                  "baggage": {
-                    "kg": 0,
-                    "pieces": 0
-                  },
-                  "changeable": false,
-                  "refundable": false,
-                  "fare_family": "Базовый",
-                  "cabin_baggage": {
-                    "kg": null,
-                    "pieces": 1,
-                    "dimensions": "36 × 30 × 27"
-                  }
-                },
-                "offer_hash": "{\"Price\":29120,\"OriginalHash\":\"[{\\\"offerVariantHash\\\":\\\"9edf46e69936dc305ecbd2194cc423eb\\\",\\\"variantConditionsHash\\\":\\\"9e7f24e1dcdbda09eb1660323f07a387:f4b7bd50b88d2aef62aa0ef78689dd61\\\",\\\"pricingVariantHash\\\":\\\"721819046117d80bd2e738a648e71a65\\\"}]\"}",
-                "variant_id": "b6dc38f3e89ca392188e2b8410131f24:671018c27b97d70aa92a2c65120e84ac",
-                "service_class": "ECONOMIC"
-              },
-              {
-                "price": {
-                  "amount": 35956.0,
-                  "currency": "RUB"
-                },
-                "conditions": {
-                  "baggage": {
-                    "kg": 10,
-                    "pieces": 1
-                  },
-                  "exchange": {
-                    "available": true,
-                    "deadline_hours": 48
-                  },
-                  "changeable": true,
-                  "refundable": false,
-                  "fare_family": "Выгодный",
-                  "cabin_baggage": {
-                    "kg": null,
-                    "pieces": 1,
-                    "dimensions": "36 × 30 × 27"
-                  }
-                },
-                "offer_hash": "{\"Price\":35956,\"OriginalHash\":\"[{\\\"offerVariantHash\\\":\\\"bac9cfff372c845e3be47abad51862be\\\",\\\"variantConditionsHash\\\":\\\"9e7f24e1dcdbda09eb1660323f07a387:7bdef7201719c823a5aaf6841db6231e\\\",\\\"pricingVariantHash\\\":\\\"d787fc7f63f05432b2eb910441845c79\\\"}]\"}",
-                "variant_id": "b6dc38f3e89ca392188e2b8410131f24:6216f4b2c5b065a73a13b6ce8448635a",
-                "service_class": "ECONOMIC"
-              },
-              {
-                "price": {
-                  "amount": 43176.0,
-                  "currency": "RUB"
-                },
-                "conditions": {
-                  "baggage": {
-                    "kg": 20,
-                    "pieces": 1
-                  },
-                  "exchange": {
-                    "available": true,
-                    "deadline_hours": 48
-                  },
-                  "changeable": true,
-                  "refundable": true,
-                  "fare_family": "Максимум",
-                  "cabin_baggage": {
-                    "kg": null,
-                    "pieces": 1,
-                    "dimensions": "36 × 30 × 27"
-                  }
-                },
-                "offer_hash": "{\"Price\":43176,\"OriginalHash\":\"[{\\\"offerVariantHash\\\":\\\"095e188c0e8a596a92a8844f902b857c\\\",\\\"variantConditionsHash\\\":\\\"9e7f24e1dcdbda09eb1660323f07a387:81e223a99b8ce32d2cd1059cbdcab4ab\\\",\\\"pricingVariantHash\\\":\\\"73fb84e3108f013ba39554cf6f866aee\\\"}]\"}",
-                "variant_id": "b6dc38f3e89ca392188e2b8410131f24:66fcf35c9562f0614bb9617bbea50c84",
-                "service_class": "ECONOMIC"
-              }
-            ],
-            "transport": "avia",
-            "arrival_at": "2026-07-15T17:40:00+03:00",
-            "checkout_ref": {
-              "transport": "avia",
-              "offer_hash": "{\"Price\":29120,\"OriginalHash\":\"[{\\\"offerVariantHash\\\":\\\"9edf46e69936dc305ecbd2194cc423eb\\\",\\\"variantConditionsHash\\\":\\\"9e7f24e1dcdbda09eb1660323f07a387:f4b7bd50b88d2aef62aa0ef78689dd61\\\",\\\"pricingVariantHash\\\":\\\"721819046117d80bd2e738a648e71a65\\\"}]\"}",
-              "departure_at": "2026-07-15T14:05:00+03:00",
-              "is_round_trip": false,
-              "service_class": "ECONOMIC",
-              "passengers_full": 2,
-              "passengers_child": 0,
-              "passengers_infant": 0,
-              "search_results_url": "https://avia.tutu.ru/f/Moskva/Sochi/?class=Y&travelers=2&route[0]=491-15072026-78",
-              "arrival_geo_city_id": 2656918,
-              "departure_geo_city_id": 2657260
-            },
-            "departure_at": "2026-07-15T14:05:00+03:00",
-            "duration_min": 215,
-            "review_summary": {
-              "label": "⭐ 6.57/10 · 14 155 отзывов",
-              "scale": 10,
-              "scope": "carrier",
-              "rating": 6.57,
-              "source": "offers-api.feedback",
-              "aspects": null,
-              "subject": "Победа",
-              "feedback_key": "2227",
-              "review_count": 14155
-            },
-            "segments_count": 1,
-            "search_results_url": "https://avia.tutu.ru/f/Moskva/Sochi/?class=Y&travelers=2&route[0]=491-15072026-78"
-          },
-          {
-            "legs": [
-              {
-                "to": "Сочи, AER",
-                "from": "Москва — Внуково (VKO), терм. A",
-                "label": "outbound",
-                "segments": [
-                  {
-                    "to": "Сочи, AER",
-                    "from": "Москва — Внуково (VKO), терм. A",
-                    "carrier": "Победа",
-                    "voyage_no": null,
-                    "arrival_at": "2026-07-15T19:45:00+03:00",
-                    "departure_at": "2026-07-15T16:15:00+03:00",
-                    "duration_min": 210,
-                    "review_summary": {
-                      "label": "⭐ 6.57/10 · 14 155 отзывов",
-                      "scale": 10,
-                      "scope": "carrier",
-                      "rating": 6.57,
-                      "source": "offers-api.feedback",
-                      "aspects": null,
-                      "subject": "Победа",
-                      "feedback_key": "2227",
-                      "review_count": 14155
-                    },
-                    "to_geo_point_id": 2718761,
-                    "from_geo_point_id": 2718687
-                  }
-                ],
-                "arrival_at": "2026-07-15T19:45:00+03:00",
-                "departure_at": "2026-07-15T16:15:00+03:00",
-                "duration_min": 210
-              }
-            ],
-            "price": {
-              "amount": 29120.0,
-              "currency": "RUB"
-            },
-            "carriers": [
-              "Победа"
-            ],
-            "offer_id": "751e4f59ca193232dd5a7ced87da8586",
-            "variants": [
-              {
-                "price": {
-                  "amount": 29120.0,
-                  "currency": "RUB"
-                },
-                "conditions": {
-                  "baggage": {
-                    "kg": 0,
-                    "pieces": 0
-                  },
-                  "changeable": false,
-                  "refundable": false,
-                  "fare_family": "Базовый",
-                  "cabin_baggage": {
-                    "kg": null,
-                    "pieces": 1,
-                    "dimensions": "36 × 30 × 27"
-                  }
-                },
-                "offer_hash": "{\"Price\":29120,\"OriginalHash\":\"[{\\\"offerVariantHash\\\":\\\"fd7225eaf88973499bdd5d622c859ec7\\\",\\\"variantConditionsHash\\\":\\\"751e4f59ca193232dd5a7ced87da8586:f4b7bd50b88d2aef62aa0ef78689dd61\\\",\\\"pricingVariantHash\\\":\\\"1340486f9790aefc5f691c7d8ecb8145\\\"}]\"}",
-                "variant_id": "887088ac3e3291377e47067d37e30b1d:671018c27b97d70aa92a2c65120e84ac",
-                "service_class": "ECONOMIC"
-              },
-              {
-                "price": {
-                  "amount": 35956.0,
-                  "currency": "RUB"
-                },
-                "conditions": {
-                  "baggage": {
-                    "kg": 10,
-                    "pieces": 1
-                  },
-                  "exchange": {
-                    "available": true,
-                    "deadline_hours": 48
-                  },
-                  "changeable": true,
-                  "refundable": false,
-                  "fare_family": "Выгодный",
-                  "cabin_baggage": {
-                    "kg": null,
-                    "pieces": 1,
-                    "dimensions": "36 × 30 × 27"
-                  }
-                },
-                "offer_hash": "{\"Price\":35956,\"OriginalHash\":\"[{\\\"offerVariantHash\\\":\\\"85b51973211205bdd0556f552ffa07e8\\\",\\\"variantConditionsHash\\\":\\\"751e4f59ca193232dd5a7ced87da8586:7bdef7201719c823a5aaf6841db6231e\\\",\\\"pricingVariantHash\\\":\\\"fad25d396eff4ad313235bc36317cad1\\\"}]\"}",
-                "variant_id": "887088ac3e3291377e47067d37e30b1d:6216f4b2c5b065a73a13b6ce8448635a",
-                "service_class": "ECONOMIC"
-              },
-              {
-                "price": {
-                  "amount": 43176.0,
-                  "currency": "RUB"
-                },
-                "conditions": {
-                  "baggage": {
-                    "kg": 20,
-                    "pieces": 1
-                  },
-                  "exchange": {
-                    "available": true,
-                    "deadline_hours": 48
-                  },
-                  "changeable": true,
-                  "refundable": true,
-                  "fare_family": "Максимум",
-                  "cabin_baggage": {
-                    "kg": null,
-                    "pieces": 1,
-                    "dimensions": "36 × 30 × 27"
-                  }
-                },
-                "offer_hash": "{\"Price\":43176,\"OriginalHash\":\"[{\\\"offerVariantHash\\\":\\\"e8bbe016f9a0f20ff49cf55993bb14d6\\\",\\\"variantConditionsHash\\\":\\\"751e4f59ca193232dd5a7ced87da8586:81e223a99b8ce32d2cd1059cbdcab4ab\\\",\\\"pricingVariantHash\\\":\\\"02ae785590a021eff1ede6aa85f12910\\\"}]\"}",
-                "variant_id": "887088ac3e3291377e47067d37e30b1d:66fcf35c9562f0614bb9617bbea50c84",
-                "service_class": "ECONOMIC"
-              }
-            ],
-            "transport": "avia",
-            "arrival_at": "2026-07-15T19:45:00+03:00",
-            "checkout_ref": {
-              "transport": "avia",
-              "offer_hash": "{\"Price\":29120,\"OriginalHash\":\"[{\\\"offerVariantHash\\\":\\\"fd7225eaf88973499bdd5d622c859ec7\\\",\\\"variantConditionsHash\\\":\\\"751e4f59ca193232dd5a7ced87da8586:f4b7bd50b88d2aef62aa0ef78689dd61\\\",\\\"pricingVariantHash\\\":\\\"1340486f9790aefc5f691c7d8ecb8145\\\"}]\"}",
-              "departure_at": "2026-07-15T16:15:00+03:00",
-              "is_round_trip": false,
-              "service_class": "ECONOMIC",
-              "passengers_full": 2,
-              "passengers_child": 0,
-              "passengers_infant": 0,
-              "search_results_url": "https://avia.tutu.ru/f/Moskva/Sochi/?class=Y&travelers=2&route[0]=491-15072026-78",
-              "arrival_geo_city_id": 2656918,
-              "departure_geo_city_id": 2657260
-            },
-            "departure_at": "2026-07-15T16:15:00+03:00",
-            "duration_min": 210,
-            "review_summary": {
-              "label": "⭐ 6.57/10 · 14 155 отзывов",
-              "scale": 10,
-              "scope": "carrier",
-              "rating": 6.57,
-              "source": "offers-api.feedback",
-              "aspects": null,
-              "subject": "Победа",
-              "feedback_key": "2227",
-              "review_count": 14155
-            },
-            "segments_count": 1,
-            "search_results_url": "https://avia.tutu.ru/f/Moskva/Sochi/?class=Y&travelers=2&route[0]=491-15072026-78"
-          },
-          {
-            "legs": [
-              {
-                "to": "Сочи, AER",
-                "from": "Москва — Внуково (VKO)",
-                "label": "outbound",
-                "segments": [
-                  {
-                    "to": "Сочи, AER",
-                    "from": "Москва — Внуково (VKO)",
-                    "carrier": "Utair",
-                    "voyage_no": null,
-                    "arrival_at": "2026-07-15T22:25:00+03:00",
-                    "departure_at": "2026-07-15T18:35:00+03:00",
-                    "duration_min": 230,
-                    "review_summary": {
-                      "label": "⭐ 7.46/10 · 9 749 отзывов",
-                      "scale": 10,
-                      "scope": "carrier",
-                      "rating": 7.46,
-                      "source": "offers-api.feedback",
-                      "aspects": null,
-                      "subject": "Utair",
-                      "feedback_key": "1116",
-                      "review_count": 9749
-                    },
-                    "to_geo_point_id": 2718761,
-                    "from_geo_point_id": 2718687
-                  }
-                ],
-                "arrival_at": "2026-07-15T22:25:00+03:00",
-                "departure_at": "2026-07-15T18:35:00+03:00",
-                "duration_min": 230
-              }
-            ],
-            "price": {
-              "amount": 29310.0,
-              "currency": "RUB"
-            },
-            "carriers": [
-              "Utair"
-            ],
-            "offer_id": "22bd72271254cac799b1b6bb4901aa39",
-            "variants": [
-              {
-                "price": {
-                  "amount": 29310.0,
-                  "currency": "RUB"
-                },
-                "conditions": {
-                  "baggage": {
-                    "kg": 0,
-                    "pieces": 0
-                  },
-                  "changeable": true,
-                  "refundable": false,
-                  "fare_family": "Минимум",
-                  "cabin_baggage": {
-                    "kg": 5,
-                    "pieces": 1,
-                    "dimensions": "40 × 30 × 20"
-                  }
-                },
-                "offer_hash": "{\"Price\":29310,\"OriginalHash\":\"[{\\\"offerVariantHash\\\":\\\"aab7073159a4eb61e4645de90501bba5\\\",\\\"variantConditionsHash\\\":\\\"22bd72271254cac799b1b6bb4901aa39:96111129a102791865771c33f9d8b92a\\\",\\\"pricingVariantHash\\\":\\\"021decc4a0b3076772f3902d479d28fd\\\"}]\"}",
-                "variant_id": "d5d6d512f7ca8bef8e5a9645bbe63f38:06dd44ad3a22ddcce66412f835719a8b",
-                "service_class": "ECONOMIC"
-              },
-              {
-                "price": {
-                  "amount": 38236.0,
-                  "currency": "RUB"
-                },
-                "conditions": {
-                  "baggage": {
-                    "kg": 20,
-                    "pieces": 1
-                  },
-                  "changeable": true,
-                  "refundable": false,
-                  "fare_family": "Оптимум",
-                  "cabin_baggage": {
-                    "kg": 5,
-                    "pieces": 1,
-                    "dimensions": "40 × 30 × 20"
-                  }
-                },
-                "offer_hash": "{\"Price\":38236,\"OriginalHash\":\"[{\\\"offerVariantHash\\\":\\\"23d03ea956be8c2f379f362f370bf624\\\",\\\"variantConditionsHash\\\":\\\"22bd72271254cac799b1b6bb4901aa39:b4792624bdef59d8dba5c5fc58048271\\\",\\\"pricingVariantHash\\\":\\\"760bcc3293cb2a62359e1cbb59ceb696\\\"}]\"}",
-                "variant_id": "d5d6d512f7ca8bef8e5a9645bbe63f38:2809e752043148e9ec623e6ee43c62a1",
-                "service_class": "ECONOMIC"
-              },
-              {
-                "price": {
-                  "amount": 44562.0,
-                  "currency": "RUB"
-                },
-                "conditions": {
-                  "baggage": {
-                    "kg": 20,
-                    "pieces": 1
-                  },
-                  "changeable": true,
-                  "refundable": true,
-                  "fare_family": "Премиум",
-                  "cabin_baggage": {
-                    "kg": 10,
-                    "pieces": 1,
-                    "dimensions": "40 × 30 × 20"
-                  }
-                },
-                "offer_hash": "{\"Price\":44562,\"OriginalHash\":\"[{\\\"offerVariantHash\\\":\\\"d0b22135008dc574dbc9bae1f78e9b49\\\",\\\"variantConditionsHash\\\":\\\"22bd72271254cac799b1b6bb4901aa39:1c6a1b85a26340299b97129df9d9547b\\\",\\\"pricingVariantHash\\\":\\\"738c3b827afe68a5680f224ad9016d87\\\"}]\"}",
-                "variant_id": "d5d6d512f7ca8bef8e5a9645bbe63f38:66fcf35c9562f0614bb9617bbea50c84",
-                "service_class": "ECONOMIC"
-              }
-            ],
-            "transport": "avia",
-            "arrival_at": "2026-07-15T22:25:00+03:00",
-            "checkout_ref": {
-              "transport": "avia",
-              "offer_hash": "{\"Price\":29310,\"OriginalHash\":\"[{\\\"offerVariantHash\\\":\\\"aab7073159a4eb61e4645de90501bba5\\\",\\\"variantConditionsHash\\\":\\\"22bd72271254cac799b1b6bb4901aa39:96111129a102791865771c33f9d8b92a\\\",\\\"pricingVariantHash\\\":\\\"021decc4a0b3076772f3902d479d28fd\\\"}]\"}",
-              "departure_at": "2026-07-15T18:35:00+03:00",
-              "is_round_trip": false,
-              "service_class": "ECONOMIC",
-              "passengers_full": 2,
-              "passengers_child": 0,
-              "passengers_infant": 0,
-              "search_results_url": "https://avia.tutu.ru/f/Moskva/Sochi/?class=Y&travelers=2&route[0]=491-15072026-78",
-              "arrival_geo_city_id": 2656918,
-              "departure_geo_city_id": 2657260
-            },
-            "departure_at": "2026-07-15T18:35:00+03:00",
-            "duration_min": 230,
-            "review_summary": {
-              "label": "⭐ 7.46/10 · 9 749 отзывов",
-              "scale": 10,
-              "scope": "carrier",
-              "rating": 7.46,
-              "source": "offers-api.feedback",
-              "aspects": null,
-              "subject": "Utair",
-              "feedback_key": "1116",
-              "review_count": 9749
-            },
-            "segments_count": 1,
-            "search_results_url": "https://avia.tutu.ru/f/Moskva/Sochi/?class=Y&travelers=2&route[0]=491-15072026-78"
-          },
-          {
-            "legs": [
-              {
-                "to": "Сочи, AER",
-                "from": "Москва — Шереметьево (SVO), терм. B",
-                "label": "outbound",
-                "segments": [
-                  {
-                    "to": "Сочи, AER",
-                    "from": "Москва — Шереметьево (SVO), терм. B",
-                    "carrier": "Аэрофлот",
-                    "voyage_no": null,
-                    "arrival_at": "2026-07-15T05:55:00+03:00",
-                    "departure_at": "2026-07-15T02:25:00+03:00",
-                    "duration_min": 210,
-                    "review_summary": {
-                      "label": "⭐ 9.12/10 · 22 709 отзывов",
-                      "scale": 10,
-                      "scope": "carrier",
-                      "rating": 9.12,
-                      "source": "offers-api.feedback",
-                      "aspects": null,
-                      "subject": "Аэрофлот",
-                      "feedback_key": "1062",
-                      "review_count": 22709
-                    },
-                    "to_geo_point_id": 2718761,
-                    "from_geo_point_id": 2719726
-                  }
-                ],
-                "arrival_at": "2026-07-15T05:55:00+03:00",
-                "departure_at": "2026-07-15T02:25:00+03:00",
-                "duration_min": 210
-              }
-            ],
-            "price": {
-              "amount": 31204.0,
-              "currency": "RUB"
-            },
-            "carriers": [
-              "Аэрофлот"
-            ],
-            "offer_id": "2e54010c7ee0bfb6e826249d324b1503",
-            "variants": [
-              {
-                "price": {
-                  "amount": 31204.0,
-                  "currency": "RUB"
-                },
-                "conditions": {
-                  "baggage": {
-                    "kg": 0,
-                    "pieces": 0
-                  },
-                  "exchange": {
-                    "available": true,
-                    "deadline_hours": 1
-                  },
-                  "changeable": true,
-                  "refundable": false,
-                  "fare_family": "Эконом Базовый",
-                  "cabin_baggage": {
-                    "kg": 10,
-                    "pieces": 1,
-                    "dimensions": "55 × 40 × 25"
-                  },
-                  "seat_selection": "available_paid",
-                  "boarding_privileges": "unavailable"
-                },
-                "offer_hash": "{\"Price\":31204,\"OriginalHash\":\"[{\\\"offerVariantHash\\\":\\\"c7cee4e0ae863f419d3590702bd61f68\\\",\\\"variantConditionsHash\\\":\\\"2e54010c7ee0bfb6e826249d324b1503:4a15ebaf82f14491e2bac3a776e17da0\\\",\\\"pricingVariantHash\\\":\\\"3480d8db131566d65fb756ce6d7b68ca\\\"}]\"}",
-                "variant_id": "2fe2190faef2f3172864de80e9fe9b8d:06dd44ad3a22ddcce66412f835719a8b",
-                "service_class": "ECONOMIC"
-              },
-              {
-                "price": {
-                  "amount": 38678.0,
-                  "currency": "RUB"
-                },
-                "conditions": {
-                  "baggage": {
-                    "kg": 23,
-                    "pieces": 1
-                  },
-                  "exchange": {
-                    "available": true,
-                    "deadline_hours": 1
-                  },
-                  "changeable": true,
-                  "refundable": true,
-                  "fare_family": "Эконом Оптимум",
-                  "cabin_baggage": {
-                    "kg": 10,
-                    "pieces": 1,
-                    "dimensions": "55 × 40 × 25"
-                  },
-                  "seat_selection": "available_paid",
-                  "boarding_privileges": "unavailable"
-                },
-                "offer_hash": "{\"Price\":38678,\"OriginalHash\":\"[{\\\"offerVariantHash\\\":\\\"cb478e3347bec7c6db0edf2d8665ed94\\\",\\\"variantConditionsHash\\\":\\\"2e54010c7ee0bfb6e826249d324b1503:3512777c0927777baf7233034bcadd1e\\\",\\\"pricingVariantHash\\\":\\\"f9365dfa438990699986c15d2f8ad316\\\"}]\"}",
-                "variant_id": "2fe2190faef2f3172864de80e9fe9b8d:e17195945116eee5cc4360dcb82da5f9",
-                "service_class": "ECONOMIC"
-              },
-              {
-                "price": {
-                  "amount": 53306.0,
-                  "currency": "RUB"
-                },
-                "conditions": {
-                  "baggage": {
-                    "kg": 23,
-                    "pieces": 2
-                  },
-                  "exchange": {
-                    "available": true,
-                    "deadline_hours": 1
-                  },
-                  "changeable": true,
-                  "refundable": true,
-                  "fare_family": "Эконом Максимум",
-                  "cabin_baggage": {
-                    "kg": 10,
-                    "pieces": 1,
-                    "dimensions": "55 × 40 × 25"
-                  },
-                  "seat_selection": "available_free",
-                  "boarding_privileges": "free"
-                },
-                "offer_hash": "{\"Price\":53306,\"OriginalHash\":\"[{\\\"offerVariantHash\\\":\\\"3c2f7bf1c6952077787463f0696889af\\\",\\\"variantConditionsHash\\\":\\\"2e54010c7ee0bfb6e826249d324b1503:82e1de26d80c0447c4375b0fe9df31c8\\\",\\\"pricingVariantHash\\\":\\\"6d1914c3d84b27670091a56c7089660f\\\"}]\"}",
-                "variant_id": "2fe2190faef2f3172864de80e9fe9b8d:4d092885eeefcfea271ba047c06138ee",
-                "service_class": "ECONOMIC"
-              },
-              {
-                "price": {
-                  "amount": 124154.0,
-                  "currency": "RUB"
-                },
-                "conditions": {
-                  "baggage": {
-                    "kg": 32,
-                    "pieces": 1
-                  },
-                  "exchange": {
-                    "available": true,
-                    "deadline_hours": 1
-                  },
-                  "changeable": true,
-                  "refundable": false,
-                  "fare_family": "Бизнес Базовый",
-                  "cabin_baggage": {
-                    "kg": 15,
-                    "pieces": 1,
-                    "dimensions": "55 × 40 × 25"
-                  },
-                  "seat_selection": "available_free",
-                  "boarding_privileges": "free",
-                  "business_hall_allowed": true
-                },
-                "offer_hash": "{\"Price\":124154,\"OriginalHash\":\"[{\\\"offerVariantHash\\\":\\\"933ebc67ef3095bdae176edb16457d06\\\",\\\"variantConditionsHash\\\":\\\"2e54010c7ee0bfb6e826249d324b1503:71ac8e907bd67cd6dcdbf26f298bfc43\\\",\\\"pricingVariantHash\\\":\\\"958ca84027802d61ec1e17d03401089a\\\"}]\"}",
-                "variant_id": "2fe2190faef2f3172864de80e9fe9b8d:3816b3b0bc66756051ce27437191e540",
-                "service_class": "BUSINESS"
-              },
-              {
-                "price": {
-                  "amount": 142202.0,
-                  "currency": "RUB"
-                },
-                "conditions": {
-                  "baggage": {
-                    "kg": 32,
-                    "pieces": 2
-                  },
-                  "exchange": {
-                    "available": true,
-                    "deadline_hours": 1
-                  },
-                  "changeable": true,
-                  "refundable": true,
-                  "fare_family": "Бизнес Оптимум",
-                  "cabin_baggage": {
-                    "kg": 15,
-                    "pieces": 1,
-                    "dimensions": "55 × 40 × 25"
-                  },
-                  "seat_selection": "available_free",
-                  "boarding_privileges": "free",
-                  "business_hall_allowed": true
-                },
-                "offer_hash": "{\"Price\":142202,\"OriginalHash\":\"[{\\\"offerVariantHash\\\":\\\"8dbb35a2c1ff73dc97631debaee376ff\\\",\\\"variantConditionsHash\\\":\\\"2e54010c7ee0bfb6e826249d324b1503:8f2a245a2a2a76b399b0cd6268977c2f\\\",\\\"pricingVariantHash\\\":\\\"b89d46b1b715e5ac5aaadfaa9c694e05\\\"}]\"}",
-                "variant_id": "2fe2190faef2f3172864de80e9fe9b8d:46f9e51481197e3f8f65e1d51d167338",
-                "service_class": "BUSINESS"
-              }
-            ],
-            "transport": "avia",
-            "arrival_at": "2026-07-15T05:55:00+03:00",
-            "checkout_ref": {
-              "transport": "avia",
-              "offer_hash": "{\"Price\":31204,\"OriginalHash\":\"[{\\\"offerVariantHash\\\":\\\"c7cee4e0ae863f419d3590702bd61f68\\\",\\\"variantConditionsHash\\\":\\\"2e54010c7ee0bfb6e826249d324b1503:4a15ebaf82f14491e2bac3a776e17da0\\\",\\\"pricingVariantHash\\\":\\\"3480d8db131566d65fb756ce6d7b68ca\\\"}]\"}",
-              "departure_at": "2026-07-15T02:25:00+03:00",
-              "is_round_trip": false,
-              "service_class": "ECONOMIC",
-              "passengers_full": 2,
-              "passengers_child": 0,
-              "passengers_infant": 0,
-              "search_results_url": "https://avia.tutu.ru/f/Moskva/Sochi/?class=Y&travelers=2&route[0]=491-15072026-78",
-              "arrival_geo_city_id": 2656918,
-              "departure_geo_city_id": 2657260
-            },
-            "departure_at": "2026-07-15T02:25:00+03:00",
-            "duration_min": 210,
-            "review_summary": {
-              "label": "⭐ 9.12/10 · 22 709 отзывов",
-              "scale": 10,
-              "scope": "carrier",
-              "rating": 9.12,
-              "source": "offers-api.feedback",
-              "aspects": null,
-              "subject": "Аэрофлот",
-              "feedback_key": "1062",
-              "review_count": 22709
-            },
-            "segments_count": 1,
-            "search_results_url": "https://avia.tutu.ru/f/Moskva/Sochi/?class=Y&travelers=2&route[0]=491-15072026-78"
-          },
-          {
-            "legs": [
-              {
-                "to": "Сочи, AER",
-                "from": "Москва — Шереметьево (SVO), терм. B",
-                "label": "outbound",
-                "segments": [
-                  {
-                    "to": "Сочи, AER",
-                    "from": "Москва — Шереметьево (SVO), терм. B",
-                    "carrier": "Аэрофлот",
-                    "voyage_no": null,
-                    "arrival_at": "2026-07-15T08:30:00+03:00",
-                    "departure_at": "2026-07-15T04:55:00+03:00",
-                    "duration_min": 215,
-                    "review_summary": {
-                      "label": "⭐ 9.12/10 · 22 709 отзывов",
-                      "scale": 10,
-                      "scope": "carrier",
-                      "rating": 9.12,
-                      "source": "offers-api.feedback",
-                      "aspects": null,
-                      "subject": "Аэрофлот",
-                      "feedback_key": "1062",
-                      "review_count": 22709
-                    },
-                    "to_geo_point_id": 2718761,
-                    "from_geo_point_id": 2719726
-                  }
-                ],
-                "arrival_at": "2026-07-15T08:30:00+03:00",
-                "departure_at": "2026-07-15T04:55:00+03:00",
-                "duration_min": 215
-              }
-            ],
-            "price": {
-              "amount": 31204.0,
-              "currency": "RUB"
-            },
-            "carriers": [
-              "Аэрофлот"
-            ],
-            "offer_id": "d4dac07cc341a2804ea6c5de72dc47c4",
-            "variants": [
-              {
-                "price": {
-                  "amount": 31204.0,
-                  "currency": "RUB"
-                },
-                "conditions": {
-                  "baggage": {
-                    "kg": 0,
-                    "pieces": 0
-                  },
-                  "exchange": {
-                    "available": true,
-                    "deadline_hours": 1
-                  },
-                  "changeable": true,
-                  "refundable": false,
-                  "fare_family": "Эконом Базовый",
-                  "cabin_baggage": {
-                    "kg": 10,
-                    "pieces": 1,
-                    "dimensions": "55 × 40 × 25"
-                  },
-                  "seat_selection": "available_paid",
-                  "boarding_privileges": "unavailable"
-                },
-                "offer_hash": "{\"Price\":31204,\"OriginalHash\":\"[{\\\"offerVariantHash\\\":\\\"6e6074e474448fbe46f9b088b2ee3ec5\\\",\\\"variantConditionsHash\\\":\\\"d4dac07cc341a2804ea6c5de72dc47c4:4a15ebaf82f14491e2bac3a776e17da0\\\",\\\"pricingVariantHash\\\":\\\"03872ecaaf21588a288e0d302e914456\\\"}]\"}",
-                "variant_id": "f7934e34a112efedb49a94e6a0bb0cb7:06dd44ad3a22ddcce66412f835719a8b",
-                "service_class": "ECONOMIC"
-              },
-              {
-                "price": {
-                  "amount": 38678.0,
-                  "currency": "RUB"
-                },
-                "conditions": {
-                  "baggage": {
-                    "kg": 23,
-                    "pieces": 1
-                  },
-                  "exchange": {
-                    "available": true,
-                    "deadline_hours": 1
-                  },
-                  "changeable": true,
-                  "refundable": true,
-                  "fare_family": "Эконом Оптимум",
-                  "cabin_baggage": {
-                    "kg": 10,
-                    "pieces": 1,
-                    "dimensions": "55 × 40 × 25"
-                  },
-                  "seat_selection": "available_paid",
-                  "boarding_privileges": "unavailable"
-                },
-                "offer_hash": "{\"Price\":38678,\"OriginalHash\":\"[{\\\"offerVariantHash\\\":\\\"c8b177939403f24180be4c9cb37014e6\\\",\\\"variantConditionsHash\\\":\\\"d4dac07cc341a2804ea6c5de72dc47c4:3512777c0927777baf7233034bcadd1e\\\",\\\"pricingVariantHash\\\":\\\"a8d7674765590ab05fc3f116b68d1def\\\"}]\"}",
-                "variant_id": "f7934e34a112efedb49a94e6a0bb0cb7:e17195945116eee5cc4360dcb82da5f9",
-                "service_class": "ECONOMIC"
-              },
-              {
-                "price": {
-                  "amount": 53306.0,
-                  "currency": "RUB"
-                },
-                "conditions": {
-                  "baggage": {
-                    "kg": 23,
-                    "pieces": 2
-                  },
-                  "exchange": {
-                    "available": true,
-                    "deadline_hours": 1
-                  },
-                  "changeable": true,
-                  "refundable": true,
-                  "fare_family": "Эконом Максимум",
-                  "cabin_baggage": {
-                    "kg": 10,
-                    "pieces": 1,
-                    "dimensions": "55 × 40 × 25"
-                  },
-                  "seat_selection": "available_free",
-                  "boarding_privileges": "free"
-                },
-                "offer_hash": "{\"Price\":53306,\"OriginalHash\":\"[{\\\"offerVariantHash\\\":\\\"35135c98f08441d7099157c40393acfa\\\",\\\"variantConditionsHash\\\":\\\"d4dac07cc341a2804ea6c5de72dc47c4:82e1de26d80c0447c4375b0fe9df31c8\\\",\\\"pricingVariantHash\\\":\\\"8c7915924fad8e82d6163efd95ac220d\\\"}]\"}",
-                "variant_id": "f7934e34a112efedb49a94e6a0bb0cb7:4d092885eeefcfea271ba047c06138ee",
-                "service_class": "ECONOMIC"
-              },
-              {
-                "price": {
-                  "amount": 124154.0,
-                  "currency": "RUB"
-                },
-                "conditions": {
-                  "baggage": {
-                    "kg": 32,
-                    "pieces": 1
-                  },
-                  "exchange": {
-                    "available": true,
-                    "deadline_hours": 1
-                  },
-                  "changeable": true,
-                  "refundable": false,
-                  "fare_family": "Бизнес Базовый",
-                  "cabin_baggage": {
-                    "kg": 15,
-                    "pieces": 1,
-                    "dimensions": "55 × 40 × 25"
-                  },
-                  "seat_selection": "available_free",
-                  "boarding_privileges": "free",
-                  "business_hall_allowed": true
-                },
-                "offer_hash": "{\"Price\":124154,\"OriginalHash\":\"[{\\\"offerVariantHash\\\":\\\"0db97eb950add5a080cb51b084821b29\\\",\\\"variantConditionsHash\\\":\\\"d4dac07cc341a2804ea6c5de72dc47c4:71ac8e907bd67cd6dcdbf26f298bfc43\\\",\\\"pricingVariantHash\\\":\\\"be059e8953dad7c57d79532e39665086\\\"}]\"}",
-                "variant_id": "f7934e34a112efedb49a94e6a0bb0cb7:3816b3b0bc66756051ce27437191e540",
-                "service_class": "BUSINESS"
-              },
-              {
-                "price": {
-                  "amount": 142202.0,
-                  "currency": "RUB"
-                },
-                "conditions": {
-                  "baggage": {
-                    "kg": 32,
-                    "pieces": 2
-                  },
-                  "exchange": {
-                    "available": true,
-                    "deadline_hours": 1
-                  },
-                  "changeable": true,
-                  "refundable": true,
-                  "fare_family": "Бизнес Оптимум",
-                  "cabin_baggage": {
-                    "kg": 15,
-                    "pieces": 1,
-                    "dimensions": "55 × 40 × 25"
-                  },
-                  "seat_selection": "available_free",
-                  "boarding_privileges": "free",
-                  "business_hall_allowed": true
-                },
-                "offer_hash": "{\"Price\":142202,\"OriginalHash\":\"[{\\\"offerVariantHash\\\":\\\"e0c249a813ea84994b1e25f29a2ed189\\\",\\\"variantConditionsHash\\\":\\\"d4dac07cc341a2804ea6c5de72dc47c4:8f2a245a2a2a76b399b0cd6268977c2f\\\",\\\"pricingVariantHash\\\":\\\"72a05d6b00255c2bc89b4d422a6a267f\\\"}]\"}",
-                "variant_id": "f7934e34a112efedb49a94e6a0bb0cb7:46f9e51481197e3f8f65e1d51d167338",
-                "service_class": "BUSINESS"
-              }
-            ],
-            "transport": "avia",
-            "arrival_at": "2026-07-15T08:30:00+03:00",
-            "checkout_ref": {
-              "transport": "avia",
-              "offer_hash": "{\"Price\":31204,\"OriginalHash\":\"[{\\\"offerVariantHash\\\":\\\"6e6074e474448fbe46f9b088b2ee3ec5\\\",\\\"variantConditionsHash\\\":\\\"d4dac07cc341a2804ea6c5de72dc47c4:4a15ebaf82f14491e2bac3a776e17da0\\\",\\\"pricingVariantHash\\\":\\\"03872ecaaf21588a288e0d302e914456\\\"}]\"}",
-              "departure_at": "2026-07-15T04:55:00+03:00",
-              "is_round_trip": false,
-              "service_class": "ECONOMIC",
-              "passengers_full": 2,
-              "passengers_child": 0,
-              "passengers_infant": 0,
-              "search_results_url": "https://avia.tutu.ru/f/Moskva/Sochi/?class=Y&travelers=2&route[0]=491-15072026-78",
-              "arrival_geo_city_id": 2656918,
-              "departure_geo_city_id": 2657260
-            },
-            "departure_at": "2026-07-15T04:55:00+03:00",
-            "duration_min": 215,
-            "review_summary": {
-              "label": "⭐ 9.12/10 · 22 709 отзывов",
-              "scale": 10,
-              "scope": "carrier",
-              "rating": 9.12,
-              "source": "offers-api.feedback",
-              "aspects": null,
-              "subject": "Аэрофлот",
-              "feedback_key": "1062",
-              "review_count": 22709
-            },
-            "segments_count": 1,
-            "search_results_url": "https://avia.tutu.ru/f/Moskva/Sochi/?class=Y&travelers=2&route[0]=491-15072026-78"
-          },
-          {
-            "legs": [
-              {
-                "to": "Сочи, AER",
-                "from": "Москва — Шереметьево (SVO), терм. B",
-                "label": "outbound",
-                "segments": [
-                  {
-                    "to": "Сочи, AER",
-                    "from": "Москва — Шереметьево (SVO), терм. B",
-                    "carrier": "Аэрофлот",
-                    "voyage_no": null,
-                    "arrival_at": "2026-07-16T00:25:00+03:00",
-                    "departure_at": "2026-07-15T20:30:00+03:00",
-                    "duration_min": 235,
-                    "review_summary": {
-                      "label": "⭐ 9.12/10 · 22 709 отзывов",
-                      "scale": 10,
-                      "scope": "carrier",
-                      "rating": 9.12,
-                      "source": "offers-api.feedback",
-                      "aspects": null,
-                      "subject": "Аэрофлот",
-                      "feedback_key": "1062",
-                      "review_count": 22709
-                    },
-                    "to_geo_point_id": 2718761,
-                    "from_geo_point_id": 2719726
-                  }
-                ],
-                "arrival_at": "2026-07-16T00:25:00+03:00",
-                "departure_at": "2026-07-15T20:30:00+03:00",
-                "duration_min": 235
-              }
-            ],
-            "price": {
-              "amount": 31204.0,
-              "currency": "RUB"
-            },
-            "carriers": [
-              "Аэрофлот"
-            ],
-            "offer_id": "8fe5bcb8e99eac11e42a6d9521915daf",
-            "variants": [
-              {
-                "price": {
-                  "amount": 31204.0,
-                  "currency": "RUB"
-                },
-                "conditions": {
-                  "baggage": {
-                    "kg": 0,
-                    "pieces": 0
-                  },
-                  "exchange": {
-                    "available": true,
-                    "deadline_hours": 1
-                  },
-                  "changeable": true,
-                  "refundable": false,
-                  "fare_family": "Эконом Базовый",
-                  "cabin_baggage": {
-                    "kg": 10,
-                    "pieces": 1,
-                    "dimensions": "55 × 40 × 25"
-                  },
-                  "seat_selection": "available_paid",
-                  "boarding_privileges": "unavailable"
-                },
-                "offer_hash": "{\"Price\":31204,\"OriginalHash\":\"[{\\\"offerVariantHash\\\":\\\"dfd23925c4d640be718baf4ea015e64d\\\",\\\"variantConditionsHash\\\":\\\"8fe5bcb8e99eac11e42a6d9521915daf:4a15ebaf82f14491e2bac3a776e17da0\\\",\\\"pricingVariantHash\\\":\\\"d687d4443e45266cebaa4d9ca3037036\\\"}]\"}",
-                "variant_id": "daca3fd611dd01ea078d098c68ffbc34:06dd44ad3a22ddcce66412f835719a8b",
-                "service_class": "ECONOMIC"
-              },
-              {
-                "price": {
-                  "amount": 38678.0,
-                  "currency": "RUB"
-                },
-                "conditions": {
-                  "baggage": {
-                    "kg": 23,
-                    "pieces": 1
-                  },
-                  "exchange": {
-                    "available": true,
-                    "deadline_hours": 1
-                  },
-                  "changeable": true,
-                  "refundable": true,
-                  "fare_family": "Эконом Оптимум",
-                  "cabin_baggage": {
-                    "kg": 10,
-                    "pieces": 1,
-                    "dimensions": "55 × 40 × 25"
-                  },
-                  "seat_selection": "available_paid",
-                  "boarding_privileges": "unavailable"
-                },
-                "offer_hash": "{\"Price\":38678,\"OriginalHash\":\"[{\\\"offerVariantHash\\\":\\\"cf42225018f5088f4af3182813785cd0\\\",\\\"variantConditionsHash\\\":\\\"8fe5bcb8e99eac11e42a6d9521915daf:3512777c0927777baf7233034bcadd1e\\\",\\\"pricingVariantHash\\\":\\\"67b50cf382f06ca8387be9ce9f101463\\\"}]\"}",
-                "variant_id": "daca3fd611dd01ea078d098c68ffbc34:e17195945116eee5cc4360dcb82da5f9",
-                "service_class": "ECONOMIC"
-              },
-              {
-                "price": {
-                  "amount": 53306.0,
-                  "currency": "RUB"
-                },
-                "conditions": {
-                  "baggage": {
-                    "kg": 23,
-                    "pieces": 2
-                  },
-                  "exchange": {
-                    "available": true,
-                    "deadline_hours": 1
-                  },
-                  "changeable": true,
-                  "refundable": true,
-                  "fare_family": "Эконом Максимум",
-                  "cabin_baggage": {
-                    "kg": 10,
-                    "pieces": 1,
-                    "dimensions": "55 × 40 × 25"
-                  },
-                  "seat_selection": "available_free",
-                  "boarding_privileges": "free"
-                },
-                "offer_hash": "{\"Price\":53306,\"OriginalHash\":\"[{\\\"offerVariantHash\\\":\\\"584352ca4927d3c4f37997ca8d5399e1\\\",\\\"variantConditionsHash\\\":\\\"8fe5bcb8e99eac11e42a6d9521915daf:82e1de26d80c0447c4375b0fe9df31c8\\\",\\\"pricingVariantHash\\\":\\\"cd6d076a8af4e2c8ba994857689d951e\\\"}]\"}",
-                "variant_id": "daca3fd611dd01ea078d098c68ffbc34:4d092885eeefcfea271ba047c06138ee",
-                "service_class": "ECONOMIC"
-              },
-              {
-                "price": {
-                  "amount": 124154.0,
-                  "currency": "RUB"
-                },
-                "conditions": {
-                  "baggage": {
-                    "kg": 32,
-                    "pieces": 1
-                  },
-                  "exchange": {
-                    "available": true,
-                    "deadline_hours": 1
-                  },
-                  "changeable": true,
-                  "refundable": false,
-                  "fare_family": "Бизнес Базовый",
-                  "cabin_baggage": {
-                    "kg": 15,
-                    "pieces": 1,
-                    "dimensions": "55 × 40 × 25"
-                  },
-                  "seat_selection": "available_free",
-                  "boarding_privileges": "free",
-                  "business_hall_allowed": true
-                },
-                "offer_hash": "{\"Price\":124154,\"OriginalHash\":\"[{\\\"offerVariantHash\\\":\\\"93f2cc41d558cf468555684f1690d79a\\\",\\\"variantConditionsHash\\\":\\\"8fe5bcb8e99eac11e42a6d9521915daf:71ac8e907bd67cd6dcdbf26f298bfc43\\\",\\\"pricingVariantHash\\\":\\\"f5c0844b83b4bfeac7b3ec346e4fb0a4\\\"}]\"}",
-                "variant_id": "daca3fd611dd01ea078d098c68ffbc34:3816b3b0bc66756051ce27437191e540",
-                "service_class": "BUSINESS"
-              },
-              {
-                "price": {
-                  "amount": 142202.0,
-                  "currency": "RUB"
-                },
-                "conditions": {
-                  "baggage": {
-                    "kg": 32,
-                    "pieces": 2
-                  },
-                  "exchange": {
-                    "available": true,
-                    "deadline_hours": 1
-                  },
-                  "changeable": true,
-                  "refundable": true,
-                  "fare_family": "Бизнес Оптимум",
-                  "cabin_baggage": {
-                    "kg": 15,
-                    "pieces": 1,
-                    "dimensions": "55 × 40 × 25"
-                  },
-                  "seat_selection": "available_free",
-                  "boarding_privileges": "free",
-                  "business_hall_allowed": true
-                },
-                "offer_hash": "{\"Price\":142202,\"OriginalHash\":\"[{\\\"offerVariantHash\\\":\\\"719a50d30bd9dd854315d535ca77a9d6\\\",\\\"variantConditionsHash\\\":\\\"8fe5bcb8e99eac11e42a6d9521915daf:8f2a245a2a2a76b399b0cd6268977c2f\\\",\\\"pricingVariantHash\\\":\\\"08e2f2d0edfec4e311891c32500e133b\\\"}]\"}",
-                "variant_id": "daca3fd611dd01ea078d098c68ffbc34:46f9e51481197e3f8f65e1d51d167338",
-                "service_class": "BUSINESS"
-              }
-            ],
-            "transport": "avia",
-            "arrival_at": "2026-07-16T00:25:00+03:00",
-            "checkout_ref": {
-              "transport": "avia",
-              "offer_hash": "{\"Price\":31204,\"OriginalHash\":\"[{\\\"offerVariantHash\\\":\\\"dfd23925c4d640be718baf4ea015e64d\\\",\\\"variantConditionsHash\\\":\\\"8fe5bcb8e99eac11e42a6d9521915daf:4a15ebaf82f14491e2bac3a776e17da0\\\",\\\"pricingVariantHash\\\":\\\"d687d4443e45266cebaa4d9ca3037036\\\"}]\"}",
-              "departure_at": "2026-07-15T20:30:00+03:00",
-              "is_round_trip": false,
-              "service_class": "ECONOMIC",
-              "passengers_full": 2,
-              "passengers_child": 0,
-              "passengers_infant": 0,
-              "search_results_url": "https://avia.tutu.ru/f/Moskva/Sochi/?class=Y&travelers=2&route[0]=491-15072026-78",
-              "arrival_geo_city_id": 2656918,
-              "departure_geo_city_id": 2657260
-            },
-            "departure_at": "2026-07-15T20:30:00+03:00",
-            "duration_min": 235,
-            "review_summary": {
-              "label": "⭐ 9.12/10 · 22 709 отзывов",
-              "scale": 10,
-              "scope": "carrier",
-              "rating": 9.12,
-              "source": "offers-api.feedback",
-              "aspects": null,
-              "subject": "Аэрофлот",
-              "feedback_key": "1062",
-              "review_count": 22709
-            },
-            "segments_count": 1,
-            "search_results_url": "https://avia.tutu.ru/f/Moskva/Sochi/?class=Y&travelers=2&route[0]=491-15072026-78"
-          },
-          {
-            "legs": [
-              {
-                "to": "Сочи, AER",
-                "from": "Москва — Шереметьево (SVO), терм. B",
-                "label": "outbound",
-                "segments": [
-                  {
-                    "to": "Сочи, AER",
-                    "from": "Москва — Шереметьево (SVO), терм. B",
-                    "carrier": "Аэрофлот",
-                    "voyage_no": null,
-                    "arrival_at": "2026-07-15T21:10:00+03:00",
-                    "departure_at": "2026-07-15T17:45:00+03:00",
-                    "duration_min": 205,
-                    "review_summary": {
-                      "label": "⭐ 9.12/10 · 22 709 отзывов",
-                      "scale": 10,
-                      "scope": "carrier",
-                      "rating": 9.12,
-                      "source": "offers-api.feedback",
-                      "aspects": null,
-                      "subject": "Аэрофлот",
-                      "feedback_key": "1062",
-                      "review_count": 22709
-                    },
-                    "to_geo_point_id": 2718761,
-                    "from_geo_point_id": 2719726
-                  }
-                ],
-                "arrival_at": "2026-07-15T21:10:00+03:00",
-                "departure_at": "2026-07-15T17:45:00+03:00",
-                "duration_min": 205
-              }
-            ],
-            "price": {
-              "amount": 31204.0,
-              "currency": "RUB"
-            },
-            "carriers": [
-              "Аэрофлот"
-            ],
-            "offer_id": "f49ae12bfafa020a602a519256f77c92",
-            "variants": [
-              {
-                "price": {
-                  "amount": 31204.0,
-                  "currency": "RUB"
-                },
-                "conditions": {
-                  "baggage": {
-                    "kg": 0,
-                    "pieces": 0
-                  },
-                  "exchange": {
-                    "available": true,
-                    "deadline_hours": 1
-                  },
-                  "changeable": true,
-                  "refundable": false,
-                  "fare_family": "Эконом Базовый",
-                  "cabin_baggage": {
-                    "kg": 10,
-                    "pieces": 1,
-                    "dimensions": "55 × 40 × 25"
-                  },
-                  "seat_selection": "available_paid",
-                  "boarding_privileges": "unavailable"
-                },
-                "offer_hash": "{\"Price\":31204,\"OriginalHash\":\"[{\\\"offerVariantHash\\\":\\\"1a323e8b25af58862dd263d76742b6c8\\\",\\\"variantConditionsHash\\\":\\\"f49ae12bfafa020a602a519256f77c92:4a15ebaf82f14491e2bac3a776e17da0\\\",\\\"pricingVariantHash\\\":\\\"c7821345323d35dd39701e824f4d2986\\\"}]\"}",
-                "variant_id": "af2470e63e982e49e049959eb047e590:06dd44ad3a22ddcce66412f835719a8b",
-                "service_class": "ECONOMIC"
-              },
-              {
-                "price": {
-                  "amount": 38678.0,
-                  "currency": "RUB"
-                },
-                "conditions": {
-                  "baggage": {
-                    "kg": 23,
-                    "pieces": 1
-                  },
-                  "exchange": {
-                    "available": true,
-                    "deadline_hours": 1
-                  },
-                  "changeable": true,
-                  "refundable": true,
-                  "fare_family": "Эконом Оптимум",
-                  "cabin_baggage": {
-                    "kg": 10,
-                    "pieces": 1,
-                    "dimensions": "55 × 40 × 25"
-                  },
-                  "seat_selection": "available_paid",
-                  "boarding_privileges": "unavailable"
-                },
-                "offer_hash": "{\"Price\":38678,\"OriginalHash\":\"[{\\\"offerVariantHash\\\":\\\"bf8391ef19bb39d45d3267fa2daac6a5\\\",\\\"variantConditionsHash\\\":\\\"f49ae12bfafa020a602a519256f77c92:3512777c0927777baf7233034bcadd1e\\\",\\\"pricingVariantHash\\\":\\\"e15c4f15cc7cd92d2e648156f2ec2bf7\\\"}]\"}",
-                "variant_id": "af2470e63e982e49e049959eb047e590:e17195945116eee5cc4360dcb82da5f9",
-                "service_class": "ECONOMIC"
-              },
-              {
-                "price": {
-                  "amount": 53306.0,
-                  "currency": "RUB"
-                },
-                "conditions": {
-                  "baggage": {
-                    "kg": 23,
-                    "pieces": 2
-                  },
-                  "exchange": {
-                    "available": true,
-                    "deadline_hours": 1
-                  },
-                  "changeable": true,
-                  "refundable": true,
-                  "fare_family": "Эконом Максимум",
-                  "cabin_baggage": {
-                    "kg": 10,
-                    "pieces": 1,
-                    "dimensions": "55 × 40 × 25"
-                  },
-                  "seat_selection": "available_free",
-                  "boarding_privileges": "free"
-                },
-                "offer_hash": "{\"Price\":53306,\"OriginalHash\":\"[{\\\"offerVariantHash\\\":\\\"3b96d24f2cf3d01715465cfb31ae7907\\\",\\\"variantConditionsHash\\\":\\\"f49ae12bfafa020a602a519256f77c92:82e1de26d80c0447c4375b0fe9df31c8\\\",\\\"pricingVariantHash\\\":\\\"99e7afb12a9b2f186231ac3f86fba8ce\\\"}]\"}",
-                "variant_id": "af2470e63e982e49e049959eb047e590:4d092885eeefcfea271ba047c06138ee",
-                "service_class": "ECONOMIC"
-              },
-              {
-                "price": {
-                  "amount": 124154.0,
-                  "currency": "RUB"
-                },
-                "conditions": {
-                  "baggage": {
-                    "kg": 32,
-                    "pieces": 1
-                  },
-                  "exchange": {
-                    "available": true,
-                    "deadline_hours": 1
-                  },
-                  "changeable": true,
-                  "refundable": false,
-                  "fare_family": "Бизнес Базовый",
-                  "cabin_baggage": {
-                    "kg": 15,
-                    "pieces": 1,
-                    "dimensions": "55 × 40 × 25"
-                  },
-                  "seat_selection": "available_free",
-                  "boarding_privileges": "free",
-                  "business_hall_allowed": true
-                },
-                "offer_hash": "{\"Price\":124154,\"OriginalHash\":\"[{\\\"offerVariantHash\\\":\\\"1639bfa1f2ec608c59e325d7f1682d74\\\",\\\"variantConditionsHash\\\":\\\"f49ae12bfafa020a602a519256f77c92:71ac8e907bd67cd6dcdbf26f298bfc43\\\",\\\"pricingVariantHash\\\":\\\"fc44ad7929750f8b32822a164489352d\\\"}]\"}",
-                "variant_id": "af2470e63e982e49e049959eb047e590:3816b3b0bc66756051ce27437191e540",
-                "service_class": "BUSINESS"
-              },
-              {
-                "price": {
-                  "amount": 142202.0,
-                  "currency": "RUB"
-                },
-                "conditions": {
-                  "baggage": {
-                    "kg": 32,
-                    "pieces": 2
-                  },
-                  "exchange": {
-                    "available": true,
-                    "deadline_hours": 1
-                  },
-                  "changeable": true,
-                  "refundable": true,
-                  "fare_family": "Бизнес Оптимум",
-                  "cabin_baggage": {
-                    "kg": 15,
-                    "pieces": 1,
-                    "dimensions": "55 × 40 × 25"
-                  },
-                  "seat_selection": "available_free",
-                  "boarding_privileges": "free",
-                  "business_hall_allowed": true
-                },
-                "offer_hash": "{\"Price\":142202,\"OriginalHash\":\"[{\\\"offerVariantHash\\\":\\\"be173603dcde6e18335131b309a1abb4\\\",\\\"variantConditionsHash\\\":\\\"f49ae12bfafa020a602a519256f77c92:8f2a245a2a2a76b399b0cd6268977c2f\\\",\\\"pricingVariantHash\\\":\\\"f8511cad3e2d99aa8eff1a000ee48086\\\"}]\"}",
-                "variant_id": "af2470e63e982e49e049959eb047e590:46f9e51481197e3f8f65e1d51d167338",
-                "service_class": "BUSINESS"
-              }
-            ],
-            "transport": "avia",
-            "arrival_at": "2026-07-15T21:10:00+03:00",
-            "checkout_ref": {
-              "transport": "avia",
-              "offer_hash": "{\"Price\":31204,\"OriginalHash\":\"[{\\\"offerVariantHash\\\":\\\"1a323e8b25af58862dd263d76742b6c8\\\",\\\"variantConditionsHash\\\":\\\"f49ae12bfafa020a602a519256f77c92:4a15ebaf82f14491e2bac3a776e17da0\\\",\\\"pricingVariantHash\\\":\\\"c7821345323d35dd39701e824f4d2986\\\"}]\"}",
-              "departure_at": "2026-07-15T17:45:00+03:00",
-              "is_round_trip": false,
-              "service_class": "ECONOMIC",
-              "passengers_full": 2,
-              "passengers_child": 0,
-              "passengers_infant": 0,
-              "search_results_url": "https://avia.tutu.ru/f/Moskva/Sochi/?class=Y&travelers=2&route[0]=491-15072026-78",
-              "arrival_geo_city_id": 2656918,
-              "departure_geo_city_id": 2657260
-            },
-            "departure_at": "2026-07-15T17:45:00+03:00",
-            "duration_min": 205,
-            "review_summary": {
-              "label": "⭐ 9.12/10 · 22 709 отзывов",
-              "scale": 10,
-              "scope": "carrier",
-              "rating": 9.12,
-              "source": "offers-api.feedback",
-              "aspects": null,
-              "subject": "Аэрофлот",
-              "feedback_key": "1062",
-              "review_count": 22709
-            },
-            "segments_count": 1,
-            "search_results_url": "https://avia.tutu.ru/f/Moskva/Sochi/?class=Y&travelers=2&route[0]=491-15072026-78"
-          },
-          {
-            "legs": [
-              {
-                "to": "Сочи, AER",
-                "from": "Москва — Шереметьево (SVO), терм. D",
-                "label": "outbound",
-                "segments": [
-                  {
-                    "to": "Сочи, AER",
-                    "from": "Москва — Шереметьево (SVO), терм. D",
-                    "carrier": "Победа",
-                    "voyage_no": null,
-                    "arrival_at": "2026-07-15T14:45:00+03:00",
-                    "departure_at": "2026-07-15T11:10:00+03:00",
-                    "duration_min": 215,
-                    "review_summary": {
-                      "label": "⭐ 6.57/10 · 14 155 отзывов",
-                      "scale": 10,
-                      "scope": "carrier",
-                      "rating": 6.57,
-                      "source": "offers-api.feedback",
-                      "aspects": null,
-                      "subject": "Победа",
-                      "feedback_key": "2227",
-                      "review_count": 14155
-                    },
-                    "to_geo_point_id": 2718761,
-                    "from_geo_point_id": 2719726
-                  }
-                ],
-                "arrival_at": "2026-07-15T14:45:00+03:00",
-                "departure_at": "2026-07-15T11:10:00+03:00",
-                "duration_min": 215
-              }
-            ],
-            "price": {
-              "amount": 32250.0,
-              "currency": "RUB"
-            },
-            "carriers": [
-              "Победа"
-            ],
-            "offer_id": "d573d5ab1a515fc5d15d39af9618da25",
-            "variants": [
-              {
-                "price": {
-                  "amount": 32250.0,
-                  "currency": "RUB"
-                },
-                "conditions": {
-                  "baggage": {
-                    "kg": 0,
-                    "pieces": 0
-                  },
-                  "changeable": false,
-                  "refundable": false,
-                  "fare_family": "Базовый",
-                  "cabin_baggage": {
-                    "kg": null,
-                    "pieces": 1,
-                    "dimensions": "36 × 30 × 27"
-                  }
-                },
-                "offer_hash": "{\"Price\":32250,\"OriginalHash\":\"[{\\\"offerVariantHash\\\":\\\"34c31f6e7db0b98eb746d53eb7fb0389\\\",\\\"variantConditionsHash\\\":\\\"d573d5ab1a515fc5d15d39af9618da25:f4b7bd50b88d2aef62aa0ef78689dd61\\\",\\\"pricingVariantHash\\\":\\\"f95040ec10542ca36a67672596aae9cb\\\"}]\"}",
-                "variant_id": "0e964d01052692f29be01f341828f104:671018c27b97d70aa92a2c65120e84ac",
-                "service_class": "ECONOMIC"
-              },
-              {
-                "price": {
-                  "amount": 39330.0,
-                  "currency": "RUB"
-                },
-                "conditions": {
-                  "baggage": {
-                    "kg": 10,
-                    "pieces": 1
-                  },
-                  "exchange": {
-                    "available": true,
-                    "deadline_hours": 48
-                  },
-                  "changeable": true,
-                  "refundable": false,
-                  "fare_family": "Выгодный",
-                  "cabin_baggage": {
-                    "kg": null,
-                    "pieces": 1,
-                    "dimensions": "36 × 30 × 27"
-                  }
-                },
-                "offer_hash": "{\"Price\":39330,\"OriginalHash\":\"[{\\\"offerVariantHash\\\":\\\"8cec00229826fe746761475d504d77a1\\\",\\\"variantConditionsHash\\\":\\\"d573d5ab1a515fc5d15d39af9618da25:7bdef7201719c823a5aaf6841db6231e\\\",\\\"pricingVariantHash\\\":\\\"b5e81cf6da56926779fac40117a6250c\\\"}]\"}",
-                "variant_id": "0e964d01052692f29be01f341828f104:6216f4b2c5b065a73a13b6ce8448635a",
-                "service_class": "ECONOMIC"
-              },
-              {
-                "price": {
-                  "amount": 46820.0,
-                  "currency": "RUB"
-                },
-                "conditions": {
-                  "baggage": {
-                    "kg": 20,
-                    "pieces": 1
-                  },
-                  "exchange": {
-                    "available": true,
-                    "deadline_hours": 48
-                  },
-                  "changeable": true,
-                  "refundable": true,
-                  "fare_family": "Максимум",
-                  "cabin_baggage": {
-                    "kg": null,
-                    "pieces": 1,
-                    "dimensions": "36 × 30 × 27"
-                  }
-                },
-                "offer_hash": "{\"Price\":46820,\"OriginalHash\":\"[{\\\"offerVariantHash\\\":\\\"c5bdccc8fe9a9978f403abe5e76acc9e\\\",\\\"variantConditionsHash\\\":\\\"d573d5ab1a515fc5d15d39af9618da25:81e223a99b8ce32d2cd1059cbdcab4ab\\\",\\\"pricingVariantHash\\\":\\\"abb72e4a03391eb40cf45a63d58fbcfd\\\"}]\"}",
-                "variant_id": "0e964d01052692f29be01f341828f104:66fcf35c9562f0614bb9617bbea50c84",
-                "service_class": "ECONOMIC"
-              }
-            ],
-            "transport": "avia",
-            "arrival_at": "2026-07-15T14:45:00+03:00",
-            "checkout_ref": {
-              "transport": "avia",
-              "offer_hash": "{\"Price\":32250,\"OriginalHash\":\"[{\\\"offerVariantHash\\\":\\\"34c31f6e7db0b98eb746d53eb7fb0389\\\",\\\"variantConditionsHash\\\":\\\"d573d5ab1a515fc5d15d39af9618da25:f4b7bd50b88d2aef62aa0ef78689dd61\\\",\\\"pricingVariantHash\\\":\\\"f95040ec10542ca36a67672596aae9cb\\\"}]\"}",
-              "departure_at": "2026-07-15T11:10:00+03:00",
-              "is_round_trip": false,
-              "service_class": "ECONOMIC",
-              "passengers_full": 2,
-              "passengers_child": 0,
-              "passengers_infant": 0,
-              "search_results_url": "https://avia.tutu.ru/f/Moskva/Sochi/?class=Y&travelers=2&route[0]=491-15072026-78",
-              "arrival_geo_city_id": 2656918,
-              "departure_geo_city_id": 2657260
-            },
-            "departure_at": "2026-07-15T11:10:00+03:00",
-            "duration_min": 215,
-            "review_summary": {
-              "label": "⭐ 6.57/10 · 14 155 отзывов",
-              "scale": 10,
-              "scope": "carrier",
-              "rating": 6.57,
-              "source": "offers-api.feedback",
-              "aspects": null,
-              "subject": "Победа",
-              "feedback_key": "2227",
-              "review_count": 14155
-            },
-            "segments_count": 1,
-            "search_results_url": "https://avia.tutu.ru/f/Moskva/Sochi/?class=Y&travelers=2&route[0]=491-15072026-78"
-          }
-        ]
-      }
+{
+  "content": {
+    "meta": {
+      "to": {
+        "iata": "KRR",
+        "name": "Краснодар",
+        "geo_id": "2656879",
+        "region": "городской округ Краснодар, Краснодарский край"
+      },
+      "from": {
+        "iata": "MOW",
+        "name": "Москва",
+        "geo_id": "2657260",
+        "region": "Москва город федерального значения"
+      },
+      "page": 1,
+      "sort": "price_asc",
+      "has_more": true,
+      "page_size": 5,
+      "transport": "avia",
+      "round_trip": false,
+      "total_returned": 5
     },
-    "created_at": "2026-07-05 09:01:49.400998 +00:00"
+    "offers": [
+      {
+        "legs": [
+          {
+            "to": "Краснодар — Пашковский (KRR)",
+            "from": "Москва — Внуково (VKO)",
+            "label": "outbound",
+            "segments": [
+              {
+                "to": "Краснодар — Пашковский (KRR)",
+                "from": "Москва — Внуково (VKO)",
+                "carrier": "Победа",
+                "arrival_at": "2026-07-06T11:35:00+03:00",
+                "departure_at": "2026-07-06T07:35:00+03:00",
+                "duration_min": 240,
+                "review_summary": {
+                  "label": "⭐ 6.57/10 · 14 155 отзывов",
+                  "scale": 10,
+                  "scope": "carrier",
+                  "rating": 6.57,
+                  "subject": "Победа",
+                  "review_count": 14155
+                }
+              }
+            ],
+            "arrival_at": "2026-07-06T11:35:00+03:00",
+            "departure_at": "2026-07-06T07:35:00+03:00",
+            "duration_min": 240
+          }
+        ],
+        "price": {
+          "amount": 14476.0,
+          "currency": "RUB"
+        },
+        "route": {
+          "to": "Краснодар — Пашковский (KRR)",
+          "from": "Москва — Внуково (VKO)",
+          "arrival_at": "2026-07-06T11:35:00+03:00",
+          "departure_at": "2026-07-06T07:35:00+03:00"
+        },
+        "carriers": [
+          "Победа"
+        ],
+        "transport": "avia",
+        "arrival_at": "2026-07-06T11:35:00+03:00",
+        "departure_at": "2026-07-06T07:35:00+03:00",
+        "duration_min": 240,
+        "fare_options": [
+          {
+            "price": {
+              "amount": 14476.0,
+              "currency": "RUB"
+            },
+            "baggage": {
+              "kg": 0,
+              "pieces": 0
+            },
+            "changeable": false,
+            "refundable": false,
+            "fare_family": "Базовый",
+            "cabin_baggage": {
+              "pieces": 1,
+              "dimensions": "36 × 30 × 27"
+            },
+            "service_class": "ECONOMIC"
+          },
+          {
+            "price": {
+              "amount": 17889.0,
+              "currency": "RUB"
+            },
+            "baggage": {
+              "kg": 10,
+              "pieces": 1
+            },
+            "changeable": true,
+            "refundable": false,
+            "fare_family": "Выгодный",
+            "cabin_baggage": {
+              "pieces": 1,
+              "dimensions": "36 × 30 × 27"
+            },
+            "service_class": "ECONOMIC"
+          },
+          {
+            "price": {
+              "amount": 21669.0,
+              "currency": "RUB"
+            },
+            "baggage": {
+              "kg": 20,
+              "pieces": 1
+            },
+            "changeable": true,
+            "refundable": true,
+            "fare_family": "Максимум",
+            "cabin_baggage": {
+              "pieces": 1,
+              "dimensions": "36 × 30 × 27"
+            },
+            "service_class": "ECONOMIC"
+          }
+        ],
+        "selection_id": "sel_cc99eecbc1834546",
+        "review_summary": {
+          "label": "⭐ 6.57/10 · 14 155 отзывов",
+          "scale": 10,
+          "scope": "carrier",
+          "rating": 6.57,
+          "subject": "Победа",
+          "review_count": 14155
+        },
+        "segments_count": 1
+      },
+      {
+        "legs": [
+          {
+            "to": "Краснодар — Пашковский (KRR), терм. 1",
+            "from": "Москва — Шереметьево (SVO), терм. B",
+            "label": "outbound",
+            "segments": [
+              {
+                "to": "Краснодар — Пашковский (KRR), терм. 1",
+                "from": "Москва — Шереметьево (SVO), терм. B",
+                "carrier": "Аэрофлот",
+                "arrival_at": "2026-07-06T10:05:00+03:00",
+                "departure_at": "2026-07-06T06:10:00+03:00",
+                "duration_min": 235,
+                "review_summary": {
+                  "label": "⭐ 9.12/10 · 22 709 отзывов",
+                  "scale": 10,
+                  "scope": "carrier",
+                  "rating": 9.12,
+                  "subject": "Аэрофлот",
+                  "review_count": 22709
+                }
+              }
+            ],
+            "arrival_at": "2026-07-06T10:05:00+03:00",
+            "departure_at": "2026-07-06T06:10:00+03:00",
+            "duration_min": 235
+          }
+        ],
+        "price": {
+          "amount": 20315.0,
+          "currency": "RUB"
+        },
+        "route": {
+          "to": "Краснодар — Пашковский (KRR), терм. 1",
+          "from": "Москва — Шереметьево (SVO), терм. B",
+          "arrival_at": "2026-07-06T10:05:00+03:00",
+          "departure_at": "2026-07-06T06:10:00+03:00"
+        },
+        "carriers": [
+          "Аэрофлот"
+        ],
+        "transport": "avia",
+        "arrival_at": "2026-07-06T10:05:00+03:00",
+        "departure_at": "2026-07-06T06:10:00+03:00",
+        "duration_min": 235,
+        "fare_options": [
+          {
+            "price": {
+              "amount": 20315.0,
+              "currency": "RUB"
+            },
+            "baggage": {
+              "kg": 0,
+              "pieces": 0
+            },
+            "changeable": true,
+            "refundable": false,
+            "fare_family": "Эконом Базовый",
+            "cabin_baggage": {
+              "kg": 10,
+              "pieces": 1,
+              "dimensions": "55 × 40 × 25"
+            },
+            "service_class": "ECONOMIC"
+          },
+          {
+            "price": {
+              "amount": 25149.0,
+              "currency": "RUB"
+            },
+            "baggage": {
+              "kg": 23,
+              "pieces": 1
+            },
+            "changeable": true,
+            "refundable": true,
+            "fare_family": "Эконом Оптимум",
+            "cabin_baggage": {
+              "kg": 10,
+              "pieces": 1,
+              "dimensions": "55 × 40 × 25"
+            },
+            "service_class": "ECONOMIC"
+          },
+          {
+            "price": {
+              "amount": 34676.0,
+              "currency": "RUB"
+            },
+            "baggage": {
+              "kg": 23,
+              "pieces": 2
+            },
+            "changeable": true,
+            "refundable": true,
+            "fare_family": "Эконом Максимум",
+            "cabin_baggage": {
+              "kg": 10,
+              "pieces": 1,
+              "dimensions": "55 × 40 × 25"
+            },
+            "service_class": "ECONOMIC"
+          },
+          {
+            "price": {
+              "amount": 65708.0,
+              "currency": "RUB"
+            },
+            "baggage": {
+              "kg": 32,
+              "pieces": 1
+            },
+            "changeable": true,
+            "refundable": false,
+            "fare_family": "Бизнес Базовый",
+            "cabin_baggage": {
+              "kg": 15,
+              "pieces": 1,
+              "dimensions": "55 × 40 × 25"
+            },
+            "service_class": "BUSINESS"
+          },
+          {
+            "price": {
+              "amount": 75111.0,
+              "currency": "RUB"
+            },
+            "baggage": {
+              "kg": 32,
+              "pieces": 2
+            },
+            "changeable": true,
+            "refundable": true,
+            "fare_family": "Бизнес Оптимум",
+            "cabin_baggage": {
+              "kg": 15,
+              "pieces": 1,
+              "dimensions": "55 × 40 × 25"
+            },
+            "service_class": "BUSINESS"
+          }
+        ],
+        "selection_id": "sel_20d4f99183ea45ee",
+        "review_summary": {
+          "label": "⭐ 9.12/10 · 22 709 отзывов",
+          "scale": 10,
+          "scope": "carrier",
+          "rating": 9.12,
+          "subject": "Аэрофлот",
+          "review_count": 22709
+        },
+        "segments_count": 1
+      },
+      {
+        "legs": [
+          {
+            "to": "Краснодар — Пашковский (KRR)",
+            "from": "Москва — Внуково (VKO)",
+            "label": "outbound",
+            "segments": [
+              {
+                "to": "Краснодар — Пашковский (KRR)",
+                "from": "Москва — Внуково (VKO)",
+                "carrier": "Utair",
+                "arrival_at": "2026-07-06T14:15:00+03:00",
+                "departure_at": "2026-07-06T09:50:00+03:00",
+                "duration_min": 265,
+                "review_summary": {
+                  "label": "⭐ 7.46/10 · 9 749 отзывов",
+                  "scale": 10,
+                  "scope": "carrier",
+                  "rating": 7.46,
+                  "subject": "Utair",
+                  "review_count": 9749
+                }
+              }
+            ],
+            "arrival_at": "2026-07-06T14:15:00+03:00",
+            "departure_at": "2026-07-06T09:50:00+03:00",
+            "duration_min": 265
+          }
+        ],
+        "price": {
+          "amount": 20853.0,
+          "currency": "RUB"
+        },
+        "route": {
+          "to": "Краснодар — Пашковский (KRR)",
+          "from": "Москва — Внуково (VKO)",
+          "arrival_at": "2026-07-06T14:15:00+03:00",
+          "departure_at": "2026-07-06T09:50:00+03:00"
+        },
+        "carriers": [
+          "Utair"
+        ],
+        "transport": "avia",
+        "arrival_at": "2026-07-06T14:15:00+03:00",
+        "departure_at": "2026-07-06T09:50:00+03:00",
+        "duration_min": 265,
+        "fare_options": [
+          {
+            "price": {
+              "amount": 20853.0,
+              "currency": "RUB"
+            },
+            "baggage": {
+              "kg": 0,
+              "pieces": 0
+            },
+            "changeable": true,
+            "refundable": false,
+            "fare_family": "Минимум",
+            "cabin_baggage": {
+              "kg": 5,
+              "pieces": 1,
+              "dimensions": "40 × 30 × 20"
+            },
+            "service_class": "ECONOMIC"
+          },
+          {
+            "price": {
+              "amount": 24872.0,
+              "currency": "RUB"
+            },
+            "baggage": {
+              "kg": 20,
+              "pieces": 1
+            },
+            "changeable": true,
+            "refundable": false,
+            "fare_family": "Оптимум",
+            "cabin_baggage": {
+              "kg": 5,
+              "pieces": 1,
+              "dimensions": "40 × 30 × 20"
+            },
+            "service_class": "ECONOMIC"
+          },
+          {
+            "price": {
+              "amount": 28504.0,
+              "currency": "RUB"
+            },
+            "baggage": {
+              "kg": 20,
+              "pieces": 1
+            },
+            "changeable": true,
+            "refundable": true,
+            "fare_family": "Премиум",
+            "cabin_baggage": {
+              "kg": 10,
+              "pieces": 1,
+              "dimensions": "40 × 30 × 20"
+            },
+            "service_class": "ECONOMIC"
+          }
+        ],
+        "selection_id": "sel_35ba4173e18c4d36",
+        "review_summary": {
+          "label": "⭐ 7.46/10 · 9 749 отзывов",
+          "scale": 10,
+          "scope": "carrier",
+          "rating": 7.46,
+          "subject": "Utair",
+          "review_count": 9749
+        },
+        "segments_count": 1
+      },
+      {
+        "legs": [
+          {
+            "to": "Краснодар — Пашковский (KRR), терм. 1",
+            "from": "Москва — Шереметьево (SVO), терм. B",
+            "label": "outbound",
+            "segments": [
+              {
+                "to": "Краснодар — Пашковский (KRR), терм. 1",
+                "from": "Москва — Шереметьево (SVO), терм. B",
+                "carrier": "Аэрофлот",
+                "arrival_at": "2026-07-06T15:55:00+03:00",
+                "departure_at": "2026-07-06T12:00:00+03:00",
+                "duration_min": 235,
+                "review_summary": {
+                  "label": "⭐ 9.12/10 · 22 709 отзывов",
+                  "scale": 10,
+                  "scope": "carrier",
+                  "rating": 9.12,
+                  "subject": "Аэрофлот",
+                  "review_count": 22709
+                }
+              }
+            ],
+            "arrival_at": "2026-07-06T15:55:00+03:00",
+            "departure_at": "2026-07-06T12:00:00+03:00",
+            "duration_min": 235
+          }
+        ],
+        "price": {
+          "amount": 22863.0,
+          "currency": "RUB"
+        },
+        "route": {
+          "to": "Краснодар — Пашковский (KRR), терм. 1",
+          "from": "Москва — Шереметьево (SVO), терм. B",
+          "arrival_at": "2026-07-06T15:55:00+03:00",
+          "departure_at": "2026-07-06T12:00:00+03:00"
+        },
+        "carriers": [
+          "Аэрофлот"
+        ],
+        "transport": "avia",
+        "arrival_at": "2026-07-06T15:55:00+03:00",
+        "departure_at": "2026-07-06T12:00:00+03:00",
+        "duration_min": 235,
+        "fare_options": [
+          {
+            "price": {
+              "amount": 22863.0,
+              "currency": "RUB"
+            },
+            "baggage": {
+              "kg": 0,
+              "pieces": 0
+            },
+            "changeable": true,
+            "refundable": false,
+            "fare_family": "Эконом Базовый",
+            "cabin_baggage": {
+              "kg": 10,
+              "pieces": 1,
+              "dimensions": "55 × 40 × 25"
+            },
+            "service_class": "ECONOMIC"
+          },
+          {
+            "price": {
+              "amount": 28642.0,
+              "currency": "RUB"
+            },
+            "baggage": {
+              "kg": 23,
+              "pieces": 1
+            },
+            "changeable": true,
+            "refundable": true,
+            "fare_family": "Эконом Оптимум",
+            "cabin_baggage": {
+              "kg": 10,
+              "pieces": 1,
+              "dimensions": "55 × 40 × 25"
+            },
+            "service_class": "ECONOMIC"
+          },
+          {
+            "price": {
+              "amount": 39060.0,
+              "currency": "RUB"
+            },
+            "baggage": {
+              "kg": 23,
+              "pieces": 2
+            },
+            "changeable": true,
+            "refundable": true,
+            "fare_family": "Эконом Максимум",
+            "cabin_baggage": {
+              "kg": 10,
+              "pieces": 1,
+              "dimensions": "55 × 40 × 25"
+            },
+            "service_class": "ECONOMIC"
+          },
+          {
+            "price": {
+              "amount": 85613.0,
+              "currency": "RUB"
+            },
+            "baggage": {
+              "kg": 32,
+              "pieces": 1
+            },
+            "changeable": true,
+            "refundable": false,
+            "fare_family": "Бизнес Базовый",
+            "cabin_baggage": {
+              "kg": 15,
+              "pieces": 1,
+              "dimensions": "55 × 40 × 25"
+            },
+            "service_class": "BUSINESS"
+          },
+          {
+            "price": {
+              "amount": 98019.0,
+              "currency": "RUB"
+            },
+            "baggage": {
+              "kg": 32,
+              "pieces": 2
+            },
+            "changeable": true,
+            "refundable": true,
+            "fare_family": "Бизнес Оптимум",
+            "cabin_baggage": {
+              "kg": 15,
+              "pieces": 1,
+              "dimensions": "55 × 40 × 25"
+            },
+            "service_class": "BUSINESS"
+          }
+        ],
+        "selection_id": "sel_148e94ffb117427f",
+        "review_summary": {
+          "label": "⭐ 9.12/10 · 22 709 отзывов",
+          "scale": 10,
+          "scope": "carrier",
+          "rating": 9.12,
+          "subject": "Аэрофлот",
+          "review_count": 22709
+        },
+        "segments_count": 1
+      },
+      {
+        "legs": [
+          {
+            "to": "Краснодар — Пашковский (KRR), терм. 1",
+            "from": "Москва — Шереметьево (SVO), терм. B",
+            "label": "outbound",
+            "segments": [
+              {
+                "to": "Краснодар — Пашковский (KRR), терм. 1",
+                "from": "Москва — Шереметьево (SVO), терм. B",
+                "carrier": "Аэрофлот",
+                "arrival_at": "2026-07-06T14:10:00+03:00",
+                "departure_at": "2026-07-06T10:20:00+03:00",
+                "duration_min": 230,
+                "review_summary": {
+                  "label": "⭐ 9.12/10 · 22 709 отзывов",
+                  "scale": 10,
+                  "scope": "carrier",
+                  "rating": 9.12,
+                  "subject": "Аэрофлот",
+                  "review_count": 22709
+                }
+              }
+            ],
+            "arrival_at": "2026-07-06T14:10:00+03:00",
+            "departure_at": "2026-07-06T10:20:00+03:00",
+            "duration_min": 230
+          }
+        ],
+        "price": {
+          "amount": 22863.0,
+          "currency": "RUB"
+        },
+        "route": {
+          "to": "Краснодар — Пашковский (KRR), терм. 1",
+          "from": "Москва — Шереметьево (SVO), терм. B",
+          "arrival_at": "2026-07-06T14:10:00+03:00",
+          "departure_at": "2026-07-06T10:20:00+03:00"
+        },
+        "carriers": [
+          "Аэрофлот"
+        ],
+        "transport": "avia",
+        "arrival_at": "2026-07-06T14:10:00+03:00",
+        "departure_at": "2026-07-06T10:20:00+03:00",
+        "duration_min": 230,
+        "fare_options": [
+          {
+            "price": {
+              "amount": 22863.0,
+              "currency": "RUB"
+            },
+            "baggage": {
+              "kg": 0,
+              "pieces": 0
+            },
+            "changeable": true,
+            "refundable": false,
+            "fare_family": "Эконом Базовый",
+            "cabin_baggage": {
+              "kg": 10,
+              "pieces": 1,
+              "dimensions": "55 × 40 × 25"
+            },
+            "service_class": "ECONOMIC"
+          },
+          {
+            "price": {
+              "amount": 28642.0,
+              "currency": "RUB"
+            },
+            "baggage": {
+              "kg": 23,
+              "pieces": 1
+            },
+            "changeable": true,
+            "refundable": true,
+            "fare_family": "Эконом Оптимум",
+            "cabin_baggage": {
+              "kg": 10,
+              "pieces": 1,
+              "dimensions": "55 × 40 × 25"
+            },
+            "service_class": "ECONOMIC"
+          },
+          {
+            "price": {
+              "amount": 39060.0,
+              "currency": "RUB"
+            },
+            "baggage": {
+              "kg": 23,
+              "pieces": 2
+            },
+            "changeable": true,
+            "refundable": true,
+            "fare_family": "Эконом Максимум",
+            "cabin_baggage": {
+              "kg": 10,
+              "pieces": 1,
+              "dimensions": "55 × 40 × 25"
+            },
+            "service_class": "ECONOMIC"
+          },
+          {
+            "price": {
+              "amount": 67239.0,
+              "currency": "RUB"
+            },
+            "baggage": {
+              "kg": 32,
+              "pieces": 1
+            },
+            "changeable": true,
+            "refundable": false,
+            "fare_family": "Бизнес Базовый",
+            "cabin_baggage": {
+              "kg": 15,
+              "pieces": 1,
+              "dimensions": "55 × 40 × 25"
+            },
+            "service_class": "BUSINESS"
+          },
+          {
+            "price": {
+              "amount": 76847.0,
+              "currency": "RUB"
+            },
+            "baggage": {
+              "kg": 32,
+              "pieces": 2
+            },
+            "changeable": true,
+            "refundable": true,
+            "fare_family": "Бизнес Оптимум",
+            "cabin_baggage": {
+              "kg": 15,
+              "pieces": 1,
+              "dimensions": "55 × 40 × 25"
+            },
+            "service_class": "BUSINESS"
+          }
+        ],
+        "selection_id": "sel_2fab4b5266e84163",
+        "review_summary": {
+          "label": "⭐ 9.12/10 · 22 709 отзывов",
+          "scale": 10,
+          "scope": "carrier",
+          "rating": 9.12,
+          "subject": "Аэрофлот",
+          "review_count": 22709
+        },
+        "segments_count": 1
+      }
+    ]
   }
-]
+}

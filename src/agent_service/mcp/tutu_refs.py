@@ -288,9 +288,7 @@ def _compact_transport_item(
         "departure_at": item.get("departure_at"),
         "arrival_at": item.get("arrival_at"),
         "duration_min": item.get("duration_min"),
-        "segments_count": item.get("segments_count"),
-        "carriers": item.get("carriers"),
-        "route": _route_summary(legs),
+        "direct": _direct_route(legs),
         "legs": legs,
         "fares": _compact_fares(item.get("fares")),
         "fare_options": _compact_fare_options(item.get("variants")),
@@ -315,11 +313,8 @@ def _compact_hotel_item(
         "rating": item.get("rating"),
         "review_count": item.get("review_count"),
         "address": item.get("address"),
-        "location": item.get("location"),
         "hotel_id": item.get("hotel_id"),
-        "hotel_geo_id": item.get("hotel_geo_id"),
         "alias": item.get("alias"),
-        "photos_total": item.get("photos_total"),
         "review_summary": _compact_review_summary(item.get("review_summary")),
         "best_offer": _compact_best_hotel_offer(best_offer),
     }
@@ -343,20 +338,14 @@ def _compact_meta(value: Any) -> dict[str, Any] | None:
                 "to": _compact_geo(meta.get("to")),
                 "round_trip": meta.get("round_trip"),
                 "return_date": meta.get("return_date"),
-                "page": meta.get("page"),
-                "page_size": meta.get("page_size"),
                 "has_more": meta.get("has_more"),
                 "total_returned": meta.get("total_returned"),
                 "sort": meta.get("sort"),
-                "geo_id": meta.get("geo_id"),
-                "search_id": meta.get("search_id"),
                 "resolved_geo": {
                     "name": resolved_geo.get("name"),
-                    "geo_id": resolved_geo.get("geo_id"),
                     "region": resolved_geo.get("region"),
                     "country": resolved_geo.get("country"),
                     "geo_type": resolved_geo.get("geo_type"),
-                    "hotels_count": resolved_geo.get("hotels_count"),
                 },
                 "unavailable": meta.get("unavailable"),
             }
@@ -374,7 +363,6 @@ def _compact_geo(value: Any) -> dict[str, Any] | None:
             {
                 "name": geo.get("name"),
                 "iata": geo.get("iata"),
-                "geo_id": geo.get("geo_id"),
                 "region": geo.get("region"),
             }
         ),
@@ -452,6 +440,19 @@ def _route_summary(legs: Sequence[Mapping[str, Any]]) -> dict[str, Any] | None:
             }
         ),
     )
+
+
+def _direct_route(legs: Sequence[Mapping[str, Any]]) -> bool | None:
+    if not legs:
+        return None
+    for leg in legs:
+        segments = leg.get("segments")
+        if isinstance(segments, list):
+            if len(segments) != 1:
+                return False
+            continue
+        return None
+    return True
 
 
 def _compact_fares(value: Any) -> dict[str, Any] | None:

@@ -1,0 +1,124 @@
+{
+  "content": {
+    "meta": {
+      "to": {
+        "name": "Краснодар",
+        "geo_id": "2656879",
+        "region": "Краснодарский край"
+      },
+      "from": {
+        "name": "Ростов-на-Дону",
+        "geo_id": "2656912",
+        "region": "Ростовская область"
+      },
+      "page": 1,
+      "sort": "departure_asc",
+      "has_more": false,
+      "page_size": 5,
+      "transport": "etrain",
+      "total_returned": 2
+    },
+    "offers": [
+      {
+        "legs": [
+          {
+            "to": "Краснодар — Краснодар-1 (2064800)",
+            "from": "Ростов-на-Дону — Ростов-Главный (2064001)",
+            "label": "outbound",
+            "segments": [
+              {
+                "to": "Краснодар — Краснодар-1 (2064800)",
+                "from": "Ростов-на-Дону — Ростов-Главный (2064001)",
+                "voyage_no": "6264/6263/6265/6267",
+                "arrival_at": "2026-07-06T12:29:00+03:00",
+                "departure_at": "2026-07-06T07:36:00+03:00",
+                "duration_min": 293,
+                "vehicle_meta": {
+                  "code": "simple",
+                  "name": "Электричка"
+                }
+              }
+            ],
+            "arrival_at": "2026-07-06T12:29:00+03:00",
+            "departure_at": "2026-07-06T07:36:00+03:00",
+            "duration_min": 293
+          }
+        ],
+        "price": {
+          "amount": 0.0,
+          "currency": "RUB"
+        },
+        "route": {
+          "to": "Краснодар — Краснодар-1 (2064800)",
+          "from": "Ростов-на-Дону — Ростов-Главный (2064001)",
+          "arrival_at": "2026-07-06T12:29:00+03:00",
+          "departure_at": "2026-07-06T07:36:00+03:00"
+        },
+        "transport": "etrain",
+        "arrival_at": "2026-07-06T12:29:00+03:00",
+        "departure_at": "2026-07-06T07:36:00+03:00",
+        "duration_min": 293,
+        "fare_options": [
+          {
+            "price": {
+              "amount": 0.0,
+              "currency": "RUB"
+            }
+          }
+        ],
+        "selection_id": "sel_b67436c381f14bda",
+        "segments_count": 1
+      },
+      {
+        "legs": [
+          {
+            "to": "Краснодар — Краснодар-1 (2064800)",
+            "from": "Ростов-на-Дону — Ростов-Главный (2064001)",
+            "label": "outbound",
+            "segments": [
+              {
+                "to": "Краснодар — Краснодар-1 (2064800)",
+                "from": "Ростов-на-Дону — Ростов-Главный (2064001)",
+                "voyage_no": "6298/6297/6295/6293",
+                "arrival_at": "2026-07-06T21:10:00+03:00",
+                "departure_at": "2026-07-06T16:17:00+03:00",
+                "duration_min": 293,
+                "vehicle_meta": {
+                  "code": "simple",
+                  "name": "Электричка"
+                }
+              }
+            ],
+            "arrival_at": "2026-07-06T21:10:00+03:00",
+            "departure_at": "2026-07-06T16:17:00+03:00",
+            "duration_min": 293
+          }
+        ],
+        "price": {
+          "amount": 0.0,
+          "currency": "RUB"
+        },
+        "route": {
+          "to": "Краснодар — Краснодар-1 (2064800)",
+          "from": "Ростов-на-Дону — Ростов-Главный (2064001)",
+          "arrival_at": "2026-07-06T21:10:00+03:00",
+          "departure_at": "2026-07-06T16:17:00+03:00"
+        },
+        "transport": "etrain",
+        "arrival_at": "2026-07-06T21:10:00+03:00",
+        "departure_at": "2026-07-06T16:17:00+03:00",
+        "duration_min": 293,
+        "fare_options": [
+          {
+            "price": {
+              "amount": 0.0,
+              "currency": "RUB"
+            }
+          }
+        ],
+        "selection_id": "sel_2c0cbbe3bfb8443d",
+        "segments_count": 1
+      }
+    ]
+  }
+}
