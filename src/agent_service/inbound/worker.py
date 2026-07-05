@@ -130,6 +130,7 @@ class InboundWorker:
     outbound_publish_timeout_seconds: float = 5.0
     thinking_indicator_sender: ThinkingIndicatorSender | None = None
     thinking_indicator_timeout_seconds: float = 1.0
+    thinking_indicator_refresh_seconds: float = 8.0
     content_preprocessor: InboundContentPreprocessor | None = None
     compaction_queue: CompactionQueue | None = None
     compaction_policy: ConversationCompactionPolicyProtocol | None = None
@@ -143,6 +144,8 @@ class InboundWorker:
             raise ValueError("Outbound publish timeout must be greater than or equal to zero")
         if self.thinking_indicator_timeout_seconds <= 0:
             raise ValueError("Thinking indicator timeout must be greater than zero")
+        if self.thinking_indicator_refresh_seconds <= 0:
+            raise ValueError("Thinking indicator refresh interval must be greater than zero")
         if self.compaction_publish_timeout_seconds < 0:
             raise ValueError("Compaction publish timeout must be greater than or equal to zero")
         if not self.quota_exceeded_text.strip():
@@ -343,48 +346,51 @@ class InboundWorker:
                     snapshot_source=prepared_context.metadata.get("snapshot_source"),
                     snapshot_version=prepared_context.metadata.get("snapshot_version"),
                 )
-            await self._send_thinking_indicator(event)
+            thinking_indicator_task = await self._start_thinking_indicator_refresh(event)
             try:
-                response = await self._run_agent_with_retry(
-                    request=self._agent_request(
-                        event=event,
-                        conversation_id=conversation.id,
-                        conversation_type=conversation.type.value,
-                        prepared_context=prepared_context,
+                try:
+                    response = await self._run_agent_with_retry(
+                        request=self._agent_request(
+                            event=event,
+                            conversation_id=conversation.id,
+                            conversation_type=conversation.type.value,
+                            prepared_context=prepared_context,
+                        )
                     )
-                )
-            except Exception as exc:
-                logger.exception(
-                    "Agent call failed after retries",
-                    extra={
-                        "event": "inbound_agent_dead_letter",
-                        "inbound_event_id": str(event.event_id),
-                        "conversation_id": str(conversation.id),
-                        "user_id": str(event.user_id),
-                        **_agent_error_log_fields(exc),
-                    },
-                )
-                await self._publish_fallback_event(event, conversation_id=conversation.id)
-                event.status = InboundEventStatus.FALLBACK_SENT
-                await self._mark_idempotency_status(
-                    event,
-                    failure_reason="agent call failed after retries",
-                )
-                return
+                except Exception as exc:
+                    logger.exception(
+                        "Agent call failed after retries",
+                        extra={
+                            "event": "inbound_agent_dead_letter",
+                            "inbound_event_id": str(event.event_id),
+                            "conversation_id": str(conversation.id),
+                            "user_id": str(event.user_id),
+                            **_agent_error_log_fields(exc),
+                        },
+                    )
+                    await self._publish_fallback_event(event, conversation_id=conversation.id)
+                    event.status = InboundEventStatus.FALLBACK_SENT
+                    await self._mark_idempotency_status(
+                        event,
+                        failure_reason="agent call failed after retries",
+                    )
+                    return
 
-            outbound_event = self._outbound_event(
-                event=event,
-                conversation_id=conversation.id,
-                response=response,
-            )
-            # Publish before persisting the assistant message: if the outbound
-            # queue is saturated and the publish times out, no "delivered"
-            # message is left in memory, keeping a retry safe and idempotent.
-            await self._publish_outbound(
-                outbound_event,
-                inbound_event=event,
-                conversation_id=conversation.id,
-            )
+                outbound_event = self._outbound_event(
+                    event=event,
+                    conversation_id=conversation.id,
+                    response=response,
+                )
+                # Publish before persisting the assistant message: if the outbound
+                # queue is saturated and the publish times out, no "delivered"
+                # message is left in memory, keeping a retry safe and idempotent.
+                await self._publish_outbound(
+                    outbound_event,
+                    inbound_event=event,
+                    conversation_id=conversation.id,
+                )
+            finally:
+                await self._stop_thinking_indicator_refresh(thinking_indicator_task)
             with business_span(
                 "Record assistant message",
                 event="memory_assistant_message_recording",
@@ -531,6 +537,33 @@ class InboundWorker:
                     )
                     await self.sleep(delay_seconds)
         raise RuntimeError("Agent retry loop exited without a response")
+
+    async def _start_thinking_indicator_refresh(
+        self,
+        event: InboundEvent,
+    ) -> asyncio.Task[None] | None:
+        if self.thinking_indicator_sender is None:
+            return None
+        await self._send_thinking_indicator(event)
+        return asyncio.create_task(
+            self._refresh_thinking_indicator(event),
+            name=f"thinking-indicator-refresh:{event.event_id}",
+        )
+
+    async def _refresh_thinking_indicator(self, event: InboundEvent) -> None:
+        while True:
+            await asyncio.sleep(self.thinking_indicator_refresh_seconds)
+            await self._send_thinking_indicator(event)
+
+    async def _stop_thinking_indicator_refresh(
+        self,
+        task: asyncio.Task[None] | None,
+    ) -> None:
+        if task is None:
+            return
+        task.cancel()
+        with suppress(asyncio.CancelledError):
+            await task
 
     async def _send_thinking_indicator(self, event: InboundEvent) -> None:
         if self.thinking_indicator_sender is None:

@@ -740,6 +740,9 @@ class AppContainer:
                 thinking_indicator_timeout_seconds=(
                     self.settings.telegram_thinking_draft_timeout_seconds
                 ),
+                thinking_indicator_refresh_seconds=(
+                    self.settings.telegram_thinking_draft_refresh_seconds
+                ),
                 content_preprocessor=self.content_preprocessor,
                 compaction_queue=(
                     self.compaction_queue if self._compaction_processing_enabled() else None

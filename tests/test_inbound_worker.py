@@ -3,7 +3,7 @@ import logging
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
-from typing import cast
+from typing import Any, cast
 from uuid import UUID, uuid4
 
 import pytest
@@ -403,31 +403,35 @@ def worker(
     feedback_state_store: FeedbackStateStore | None = None,
     retry_policy: AgentRetryPolicy | None = None,
     thinking_indicator_sender: FakeThinkingIndicatorSender | None = None,
+    thinking_indicator_refresh_seconds: float | None = None,
     content_preprocessor: FakeContentPreprocessor | None = None,
     sleep: Callable[[float], Awaitable[None]] | None = None,
 ) -> tuple[InboundWorker, AsyncioInboundQueue, AsyncioOutboundQueue, FakeMemoryService]:
     inbound_queue = AsyncioInboundQueue()
     outbound_queue = AsyncioOutboundQueue()
     memory = memory_service or FakeMemoryService()
+    worker_kwargs: dict[str, Any] = {
+        "inbound_queue": inbound_queue,
+        "outbound_queue": outbound_queue,
+        "conversation_resolver": FakeConversationResolver(conversations_by_chat_id),
+        "memory_service": memory,
+        "agent_boundary": agent_boundary,
+        "lock_manager": AsyncioConversationLockManager(),
+        "idempotency_store": idempotency_store,
+        "quota_service": quota_service,
+        "feedback_store": feedback_store,
+        "feedback_state_store": feedback_state_store,
+        "retry_policy": retry_policy or AgentRetryPolicy(max_attempts=1),
+        "thinking_indicator_sender": thinking_indicator_sender,
+        "content_preprocessor": cast(InboundContentPreprocessor | None, content_preprocessor),
+        "compaction_queue": compaction_queue,
+        "compaction_policy": compaction_policy,
+        "sleep": sleep or asyncio.sleep,
+    }
+    if thinking_indicator_refresh_seconds is not None:
+        worker_kwargs["thinking_indicator_refresh_seconds"] = thinking_indicator_refresh_seconds
     return (
-        InboundWorker(
-            inbound_queue=inbound_queue,
-            outbound_queue=outbound_queue,
-            conversation_resolver=FakeConversationResolver(conversations_by_chat_id),
-            memory_service=memory,
-            agent_boundary=agent_boundary,
-            lock_manager=AsyncioConversationLockManager(),
-            idempotency_store=idempotency_store,
-            quota_service=quota_service,
-            feedback_store=feedback_store,
-            feedback_state_store=feedback_state_store,
-            retry_policy=retry_policy or AgentRetryPolicy(max_attempts=1),
-            thinking_indicator_sender=thinking_indicator_sender,
-            content_preprocessor=cast(InboundContentPreprocessor | None, content_preprocessor),
-            compaction_queue=compaction_queue,
-            compaction_policy=compaction_policy,
-            sleep=sleep or asyncio.sleep,
-        ),
+        InboundWorker(**worker_kwargs),
         inbound_queue,
         outbound_queue,
         memory,
@@ -941,6 +945,50 @@ async def test_inbound_worker_sends_best_effort_thinking_indicator() -> None:
     assert thinking_sender.events == [event]
     assert outbound.text == "answer"
     assert event.status is InboundEventStatus.COMPLETED
+
+
+async def test_inbound_worker_refreshes_thinking_indicator_until_answer_is_published() -> None:
+    user_id = uuid4()
+    resolved_conversation = conversation(user_id=user_id)
+    entered = asyncio.Event()
+    release = asyncio.Event()
+    thinking_sender = FakeThinkingIndicatorSender()
+    agent = TrackingAgentBoundary(entered=entered, release=release)
+    inbound_worker, _inbound_queue, outbound_queue, _memory = worker(
+        conversations_by_chat_id={"12345": resolved_conversation},
+        agent_boundary=agent,
+        thinking_indicator_sender=thinking_sender,
+        thinking_indicator_refresh_seconds=0.01,
+    )
+    event = inbound_event(user_id=user_id)
+    task = asyncio.create_task(inbound_worker.process_event(event))
+
+    try:
+        await asyncio.wait_for(entered.wait(), timeout=0.2)
+        for _ in range(50):
+            if len(thinking_sender.events) >= 2:
+                break
+            await asyncio.sleep(0.005)
+        assert len(thinking_sender.events) >= 2
+
+        release.set()
+        await asyncio.wait_for(task, timeout=0.5)
+    finally:
+        release.set()
+        if not task.done():
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+
+    outbound = await outbound_queue.consume()
+    assert outbound.text == "answer: hello"
+    assert event.status is InboundEventStatus.COMPLETED
+
+    refresh_count_after_completion = len(thinking_sender.events)
+    await asyncio.sleep(0.03)
+    assert len(thinking_sender.events) == refresh_count_after_completion
 
 
 async def test_inbound_worker_preprocesses_voice_before_memory_and_agent() -> None:

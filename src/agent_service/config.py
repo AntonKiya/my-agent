@@ -158,6 +158,7 @@ class AppSettings(BaseSettings):
     telegram_rich_messages_enabled: bool = False
     telegram_thinking_draft_enabled: bool = False
     telegram_thinking_draft_timeout_seconds: float = Field(default=1.0, gt=0)
+    telegram_thinking_draft_refresh_seconds: float = Field(default=8.0, gt=0)
     telegram_media_group_debounce_seconds: float = Field(default=2.0, gt=0)
     telegram_media_group_ttl_seconds: int = Field(default=60, gt=0)
     telegram_media_group_flush_interval_seconds: float = Field(default=0.5, gt=0)

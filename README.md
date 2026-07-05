@@ -370,6 +370,7 @@ AGENT_SERVICE_TELEGRAM_RENDER_MARKDOWN=false
 AGENT_SERVICE_TELEGRAM_RICH_MESSAGES_ENABLED=false
 AGENT_SERVICE_TELEGRAM_THINKING_DRAFT_ENABLED=false
 AGENT_SERVICE_TELEGRAM_THINKING_DRAFT_TIMEOUT_SECONDS=1.0
+AGENT_SERVICE_TELEGRAM_THINKING_DRAFT_REFRESH_SECONDS=8.0
 AGENT_SERVICE_TELEGRAM_HTTP_CONNECT_TIMEOUT_SECONDS=10.0
 AGENT_SERVICE_TELEGRAM_HTTP_READ_TIMEOUT_SECONDS=15.0
 AGENT_SERVICE_TELEGRAM_HTTP_WRITE_TIMEOUT_SECONDS=10.0
@@ -480,8 +481,9 @@ acknowledged without publishing another queue event.
 The inbound worker does not send final Telegram messages or call delivery adapters. It only creates
 an `OutboundEvent` and publishes it to the outbound queue. Delivery is intentionally a separate
 worker boundary. When `AGENT_SERVICE_TELEGRAM_THINKING_DRAFT_ENABLED=true`, it may also make a
-best-effort Telegram `sendMessageDraft` call before the agent run; draft failures are logged and do
-not affect retries, memory, idempotency, or final delivery.
+best-effort Telegram `sendMessageDraft` call before the agent run and refresh it until the worker
+publishes a final or fallback outbound event; draft failures are logged and do not affect retries,
+memory, idempotency, or final delivery.
 
 `InboundWorker` uses a lock keyed by internal `conversation.id`. Messages in one conversation are
 processed sequentially; different conversations may be processed concurrently by separate worker

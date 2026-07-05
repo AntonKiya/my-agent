@@ -280,6 +280,7 @@ async def test_container_wires_telegram_thinking_draft_sender_when_enabled(
         telegram_bot_token=SecretStr("token"),
         telegram_thinking_draft_enabled=True,
         telegram_thinking_draft_timeout_seconds=0.25,
+        telegram_thinking_draft_refresh_seconds=6.5,
         inbound_worker_count=1,
     )
     container = AppContainer(settings=settings)
@@ -292,6 +293,7 @@ async def test_container_wires_telegram_thinking_draft_sender_when_enabled(
     assert len(captured_workers) == 1
     assert captured_workers[0]["thinking_indicator_sender"] is container.telegram_adapter
     assert captured_workers[0]["thinking_indicator_timeout_seconds"] == 0.25
+    assert captured_workers[0]["thinking_indicator_refresh_seconds"] == 6.5
 
     await container.stop()
 
