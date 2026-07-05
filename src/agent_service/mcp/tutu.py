@@ -355,18 +355,13 @@ def _preflight_error_result(
 ) -> dict[str, Any]:
     return {
         "ok": False,
-        "error": {
-            "tool_name": tool_name,
+        "message": user_message,
+        "instruction": "Ask the user this question now. Do not call tools again.",
+        "missing_fields": invalid_fields,
+        "diagnostic": {
             "code": code,
             "message": message,
-            "user_message": user_message,
-            "hint": (
-                "Show error.user_message to the user and ask for the smallest useful "
-                "correction. Do not retry the same parameters."
-            ),
-            "retryable": False,
-            "next_action": "ask_user",
-            "invalid_fields": invalid_fields,
+            "tool_name": tool_name,
         },
     }
 

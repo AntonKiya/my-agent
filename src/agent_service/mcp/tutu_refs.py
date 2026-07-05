@@ -629,18 +629,16 @@ def _uuid_from_context_value(value: object) -> UUID | None:
 def _selection_error_result(tool_name: str, *, code: str, message: str) -> dict[str, Any]:
     return {
         "ok": False,
-        "error": {
-            "tool_name": tool_name,
+        "message": (
+            "Не получилось создать ссылку: выбранный вариант устарел. "
+            "Повторите поиск и выберите вариант снова."
+        ),
+        "instruction": "Tell the user this message now. Do not retry this selection_id.",
+        "missing_fields": ["selection_id"],
+        "diagnostic": {
             "code": code,
             "message": message,
-            "user_message": (
-                "Не получилось создать ссылку: выбранный вариант устарел. "
-                "Повторите поиск и выберите вариант снова."
-            ),
-            "hint": "Show error.user_message to the user. Do not retry this selection_id.",
-            "retryable": False,
-            "next_action": "rerun_search",
-            "invalid_fields": ["selection_id"],
+            "tool_name": tool_name,
         },
     }
 

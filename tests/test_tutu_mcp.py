@@ -178,12 +178,12 @@ def test_tutu_hotel_preflight_requires_core_search_fields() -> None:
     )
 
     assert result is not None
-    assert result["error"]["code"] == "missing_hotel_search_fields"
-    assert result["error"]["next_action"] == "ask_user"
-    assert result["error"]["retryable"] is False
-    assert "город или локацию" in result["error"]["user_message"]
-    assert "даты заезда и выезда" in result["error"]["user_message"]
-    assert "количество гостей" in result["error"]["user_message"]
+    assert result["diagnostic"]["code"] == "missing_hotel_search_fields"
+    assert result["instruction"] == "Ask the user this question now. Do not call tools again."
+    assert result["missing_fields"] == ["city_name", "geo_id", "check_in", "check_out", "adults"]
+    assert "город или локацию" in result["message"]
+    assert "даты заезда и выезда" in result["message"]
+    assert "количество гостей" in result["message"]
 
 
 def test_tutu_hotel_preflight_rejects_past_dates() -> None:
@@ -199,8 +199,8 @@ def test_tutu_hotel_preflight_rejects_past_dates() -> None:
     )
 
     assert result is not None
-    assert result["error"]["code"] == "hotel_date_in_past"
-    assert "2026-06-10 — 2026-06-17" in result["error"]["user_message"]
+    assert result["diagnostic"]["code"] == "hotel_date_in_past"
+    assert "2026-06-10 — 2026-06-17" in result["message"]
 
 
 def test_tutu_hotel_preflight_accepts_valid_future_dates() -> None:
@@ -227,10 +227,11 @@ def test_tutu_transport_preflight_requires_route_and_date() -> None:
     )
 
     assert result is not None
-    assert result["error"]["code"] == "missing_transport_search_fields"
-    assert "пункт отправления" in result["error"]["user_message"]
-    assert "пункт назначения" in result["error"]["user_message"]
-    assert "дату поездки" in result["error"]["user_message"]
+    assert result["diagnostic"]["code"] == "missing_transport_search_fields"
+    assert result["missing_fields"] == ["origin", "destination", "departure_date"]
+    assert "пункт отправления" in result["message"]
+    assert "пункт назначения" in result["message"]
+    assert "дату поездки" in result["message"]
 
 
 async def test_tutu_toolset_preflight_returns_error_without_remote_mcp_call() -> None:
@@ -252,7 +253,7 @@ async def test_tutu_toolset_preflight_returns_error_without_remote_mcp_call() ->
         cast(Any, object()),
     )
 
-    assert result["error"]["code"] == "missing_hotel_search_fields"
+    assert result["diagnostic"]["code"] == "missing_hotel_search_fields"
 
 
 async def test_tutu_search_result_masking_persists_checkout_ref_and_removes_raw_handles() -> None:
@@ -451,4 +452,4 @@ async def test_tutu_checkout_link_transformer_rejects_expired_selection_id() -> 
     )
 
     assert wrapped.calls == 0
-    assert result["error"]["code"] == "selection_not_found_or_expired"
+    assert result["diagnostic"]["code"] == "selection_not_found_or_expired"

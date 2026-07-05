@@ -16,6 +16,8 @@ Use Tutu MCP as the only source for Tutu tickets, lodging, prices, availability,
 5. Call details tools only for selected or shortlisted options.
 6. Create a checkout link only after a concrete user choice.
 
+If any Tutu tool returns `ok: false`, read `message` and `instruction`, then stop tool calls for that turn.
+
 ## Tools
 
 Use only these Tutu MCP tools for Tutu tasks:
@@ -180,9 +182,7 @@ Do not relax hard constraints without user consent: direct only, specific transp
 
 ## Errors
 
-If a Tutu tool returns `error.user_message`, show that message and ask for the smallest useful correction. Do not reinterpret it as an upstream outage.
-
-If a Tutu tool returns an error result, do not retry the same parameters.
+If a Tutu tool returns `ok: false`, follow `instruction` and use `message` for the user.
 
 If no results are returned, say Tutu did not return suitable options and suggest one next step: nearby date, relaxed filter, another transport type, another area, or another budget.
 
