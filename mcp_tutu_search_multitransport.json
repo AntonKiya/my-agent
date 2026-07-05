@@ -1,0 +1,1676 @@
+[
+  {
+    "id": "e419162a-1166-45a3-922e-a329b55d9b94",
+    "conversation_id": "162431f6-0ad1-40df-94c4-643cbdd8bad2",
+    "user_id": "c3305efc-4350-4c1b-a6c7-bfeaa31bccb7",
+    "sequence": 1141,
+    "role": "tool_result",
+    "text": null,
+    "attachments": [],
+    "tool_name": "mcp_tutu_search_multitransport",
+    "tool_call_id": "call_52a1ff6b32554410bc815385",
+    "inbound_event_id": null,
+    "outbound_event_id": null,
+    "trace_id": "1c90e7124faa4f02bf29d0e003747a23",
+    "metadata": {
+      "content": {
+        "meta": {
+          "to": {
+            "iata": "AER",
+            "name": "Сочи",
+            "geo_id": "2656918",
+            "region": "городской округ Сочи, Краснодарский край"
+          },
+          "from": {
+            "iata": "MOW",
+            "name": "Москва",
+            "geo_id": "2657260",
+            "region": "Москва город федерального значения"
+          },
+          "page": 1,
+          "has_more": true,
+          "page_size": 10,
+          "unavailable": [],
+          "optimize_for": "price",
+          "modes_summary": {
+            "bus": {
+              "count": 5,
+              "min_price": 5775.0,
+              "min_duration_min": 1315
+            },
+            "avia": {
+              "count": 12,
+              "min_price": 13070.0,
+              "min_duration_min": 205
+            },
+            "etrain": {
+              "count": 0,
+              "min_price": null,
+              "min_duration_min": null
+            },
+            "railway": {
+              "count": 3,
+              "min_price": 7812.43,
+              "min_duration_min": 1857
+            }
+          },
+          "total_returned": 10,
+          "modes_requested": [
+            "avia",
+            "railway",
+            "bus",
+            "etrain"
+          ]
+        },
+        "variants": [
+          {
+            "legs": [
+              {
+                "to": "Автовокзал",
+                "from": "ост. Аэропорт Домодедово",
+                "label": "outbound",
+                "segments": [
+                  {
+                    "to": "Автовокзал",
+                    "from": "ост. Аэропорт Домодедово",
+                    "carrier": "Горизон-Тур",
+                    "voyage_no": null,
+                    "arrival_at": "2026-07-16T16:40:00+03:00",
+                    "departure_at": "2026-07-15T17:30:00+03:00",
+                    "duration_min": 1390,
+                    "to_geo_point_id": 2924183,
+                    "from_geo_point_id": 10188462
+                  }
+                ],
+                "arrival_at": "2026-07-16T16:40:00+03:00",
+                "departure_at": "2026-07-15T17:30:00+03:00",
+                "duration_min": 1390
+              }
+            ],
+            "price": {
+              "amount": 5775.0,
+              "currency": "RUB"
+            },
+            "carriers": [
+              "Горизон-Тур"
+            ],
+            "cashback": {
+              "amount": 173.25,
+              "currency": "RUB"
+            },
+            "offer_id": "b0d0ac24f8a65cfd161ba87895bab586",
+            "variants": [
+              {
+                "price": {
+                  "amount": 5775.0,
+                  "currency": "RUB"
+                },
+                "cashback": {
+                  "amount": 173.25,
+                  "currency": "RUB"
+                },
+                "offer_hash": "A1o1BY1WJpNE7MeoinWHeRVT4%2F9WahzrEn7DWIW5KzMloPB%2F0HvfIm1PEjHmNh9KusEWWgMURHielAE095UFPEMDTOAAG6xU%2F8EcASS4s6AXPtUzkopMo84NiRp7l%2BEsRvbI6t2tWABojBlrbLAGrldd%2FNe4HBxWp%2F27iRP%2FOxMIUIuKICDqQHFH",
+                "variant_id": "6d47146cff7e07d4ebd184c6e31bb2ab"
+              }
+            ],
+            "transport": "bus",
+            "arrival_at": "2026-07-16T16:40:00+03:00",
+            "details_ref": {
+              "price": {
+                "amount": 5775.0,
+                "currency": "RUB"
+              },
+              "title": null,
+              "source": "api-bus.search.detail",
+              "carriers": [
+                "Горизон-Тур"
+              ],
+              "transport": "bus",
+              "arrival_at": "2026-07-16T16:40:00+03:00",
+              "arrival_id": "1447978",
+              "offer_hash": "A1o1BY1WJpNE7MeoinWHeRVT4%2F9WahzrEn7DWIW5KzMloPB%2F0HvfIm1PEjHmNh9KusEWWgMURHielAE095UFPEMDTOAAG6xU%2F8EcASS4s6AXPtUzkopMo84NiRp7l%2BEsRvbI6t2tWABojBlrbLAGrldd%2FNe4HBxWp%2F27iRP%2FOxMIUIuKICDqQHFH",
+              "seat_count": 1,
+              "departure_at": "2026-07-15T17:30:00+03:00",
+              "departure_id": "1447874",
+              "duration_min": 1390,
+              "departure_date": "2026-07-15",
+              "review_summary": {
+                "label": "⭐ 8.5/10 · 3 679 отзывов",
+                "scale": 10,
+                "scope": "carrier",
+                "rating": 8.5,
+                "source": "offers-api.feedback",
+                "aspects": [
+                  {
+                    "text": "Автобус",
+                    "label": "⭐ 8.6/10 · Автобус",
+                    "scale": 10,
+                    "scope": "bus_aspect",
+                    "rating": 8.6,
+                    "source": "offers-api.feedback",
+                    "subject": "Горизон-Тур"
+                  },
+                  {
+                    "text": "Водитель",
+                    "label": "⭐ 9.1/10 · Водитель",
+                    "scale": 10,
+                    "scope": "bus_aspect",
+                    "rating": 9.1,
+                    "source": "offers-api.feedback",
+                    "subject": "Горизон-Тур"
+                  },
+                  {
+                    "text": "Общее впечатление",
+                    "label": "⭐ 7.8/10 · Общее впечатление",
+                    "scale": 10,
+                    "scope": "bus_aspect",
+                    "rating": 7.8,
+                    "source": "offers-api.feedback",
+                    "subject": "Горизон-Тур"
+                  }
+                ],
+                "subject": "Горизон-Тур",
+                "feedback_key": "1129",
+                "review_count": 3679
+              },
+              "arrival_stop_id": 2924183,
+              "arrival_stop_name": "Автовокзал",
+              "departure_stop_id": 10188462,
+              "departure_stop_name": "ост. Аэропорт Домодедово"
+            },
+            "checkout_ref": {
+              "city_to": "Сочи",
+              "city_from": "Москва",
+              "search_id": "BBA45C7D-87FE-45EE-A9F5-1A644154452C",
+              "transport": "bus",
+              "arrival_id": "1447978",
+              "offer_hash": "A1o1BY1WJpNE7MeoinWHeRVT4%2F9WahzrEn7DWIW5KzMloPB%2F0HvfIm1PEjHmNh9KusEWWgMURHielAE095UFPEMDTOAAG6xU%2F8EcASS4s6AXPtUzkopMo84NiRp7l%2BEsRvbI6t2tWABojBlrbLAGrldd%2FNe4HBxWp%2F27iRP%2FOxMIUIuKICDqQHFH",
+              "passengers": 1,
+              "departure_at": "2026-07-15T17:30:00+03:00",
+              "departure_id": "1447874",
+              "arrival_stop_id": 2924183,
+              "arrival_stop_name": "Автовокзал",
+              "departure_stop_id": 10188462,
+              "arrival_geo_city_id": 2656918,
+              "departure_stop_name": "ост. Аэропорт Домодедово",
+              "departure_geo_city_id": 2657260
+            },
+            "checkout_url": "https://mtp-deeplink.tutu.ru/api/v1/deeplink/explicit/bus?geo_mode=original&departure_time=2026-07-15T17:30:00%2B03:00&departure_geo_city_id=1447874&arrival_geo_city_id=1447978&hash=A1o1BY1WJpNE7MeoinWHeRVT4%252F9WahzrEn7DWIW5KzMloPB%252F0HvfIm1PEjHmNh9KusEWWgMURHielAE095UFPEMDTOAAG6xU%252F8EcASS4s6AXPtUzkopMo84NiRp7l%252BEsRvbI6t2tWABojBlrbLAGrldd%252FNe4HBxWp%252F27iRP%252FOxMIUIuKICDqQHFH&fallback_to_vid=true&source=mcp",
+            "departure_at": "2026-07-15T17:30:00+03:00",
+            "duration_min": 1390,
+            "review_summary": {
+              "label": "⭐ 8.5/10 · 3 679 отзывов",
+              "scale": 10,
+              "scope": "carrier",
+              "rating": 8.5,
+              "source": "offers-api.feedback",
+              "aspects": [
+                {
+                  "text": "Автобус",
+                  "label": "⭐ 8.6/10 · Автобус",
+                  "scale": 10,
+                  "scope": "bus_aspect",
+                  "rating": 8.6,
+                  "source": "offers-api.feedback",
+                  "subject": "Горизон-Тур"
+                },
+                {
+                  "text": "Водитель",
+                  "label": "⭐ 9.1/10 · Водитель",
+                  "scale": 10,
+                  "scope": "bus_aspect",
+                  "rating": 9.1,
+                  "source": "offers-api.feedback",
+                  "subject": "Горизон-Тур"
+                },
+                {
+                  "text": "Общее впечатление",
+                  "label": "⭐ 7.8/10 · Общее впечатление",
+                  "scale": 10,
+                  "scope": "bus_aspect",
+                  "rating": 7.8,
+                  "source": "offers-api.feedback",
+                  "subject": "Горизон-Тур"
+                }
+              ],
+              "subject": "Горизон-Тур",
+              "feedback_key": "1129",
+              "review_count": 3679
+            },
+            "segments_count": 1,
+            "search_results_url": "https://bus.tutu.ru/bilety_na_avtobus/Moskva/Sochi/"
+          },
+          {
+            "legs": [
+              {
+                "to": "Автовокзал",
+                "from": "Автовокзал Центральный (Щёлковский)",
+                "label": "outbound",
+                "segments": [
+                  {
+                    "to": "Автовокзал",
+                    "from": "Автовокзал Центральный (Щёлковский)",
+                    "carrier": "Горизон-Тур",
+                    "voyage_no": null,
+                    "arrival_at": "2026-07-16T20:00:00+03:00",
+                    "departure_at": "2026-07-15T16:30:00+03:00",
+                    "duration_min": 1650,
+                    "to_geo_point_id": 2924183,
+                    "from_geo_point_id": 2858231
+                  }
+                ],
+                "arrival_at": "2026-07-16T20:00:00+03:00",
+                "departure_at": "2026-07-15T16:30:00+03:00",
+                "duration_min": 1650
+              }
+            ],
+            "price": {
+              "amount": 6325.0,
+              "currency": "RUB"
+            },
+            "carriers": [
+              "Горизон-Тур"
+            ],
+            "cashback": {
+              "amount": 189.75,
+              "currency": "RUB"
+            },
+            "offer_id": "7630ff5e0207cfea1733714f36ad1451",
+            "variants": [
+              {
+                "price": {
+                  "amount": 6325.0,
+                  "currency": "RUB"
+                },
+                "cashback": {
+                  "amount": 189.75,
+                  "currency": "RUB"
+                },
+                "offer_hash": "I1w1hc0mJpNE7DAQDTu22U%2BhOiGzl%2BnCM0OseVOY5y3U8dLia9IDINhWID0THKYjgW1JrF6wJsKiNJ6LhrXADilanUU6GSM2MLZ6FOCgK6T8FJ3fibnZkfX65RRncAYCXlG3MVnMP%2BR8Mv%2FFFaV2M5bDQCCh0Xj03VRxzZFZ3G5ryA%3D%3D",
+                "variant_id": "a828c5c9432ec7dea9658b5f1f2434c4"
+              }
+            ],
+            "transport": "bus",
+            "arrival_at": "2026-07-16T20:00:00+03:00",
+            "details_ref": {
+              "price": {
+                "amount": 6325.0,
+                "currency": "RUB"
+              },
+              "title": null,
+              "source": "api-bus.search.detail",
+              "carriers": [
+                "Горизон-Тур"
+              ],
+              "transport": "bus",
+              "arrival_at": "2026-07-16T20:00:00+03:00",
+              "arrival_id": "1447978",
+              "offer_hash": "I1w1hc0mJpNE7DAQDTu22U%2BhOiGzl%2BnCM0OseVOY5y3U8dLia9IDINhWID0THKYjgW1JrF6wJsKiNJ6LhrXADilanUU6GSM2MLZ6FOCgK6T8FJ3fibnZkfX65RRncAYCXlG3MVnMP%2BR8Mv%2FFFaV2M5bDQCCh0Xj03VRxzZFZ3G5ryA%3D%3D",
+              "seat_count": 1,
+              "departure_at": "2026-07-15T16:30:00+03:00",
+              "departure_id": "1447874",
+              "duration_min": 1650,
+              "departure_date": "2026-07-15",
+              "review_summary": {
+                "label": "⭐ 8.5/10 · 3 679 отзывов",
+                "scale": 10,
+                "scope": "carrier",
+                "rating": 8.5,
+                "source": "offers-api.feedback",
+                "aspects": [
+                  {
+                    "text": "Автобус",
+                    "label": "⭐ 8.6/10 · Автобус",
+                    "scale": 10,
+                    "scope": "bus_aspect",
+                    "rating": 8.6,
+                    "source": "offers-api.feedback",
+                    "subject": "Горизон-Тур"
+                  },
+                  {
+                    "text": "Водитель",
+                    "label": "⭐ 9.1/10 · Водитель",
+                    "scale": 10,
+                    "scope": "bus_aspect",
+                    "rating": 9.1,
+                    "source": "offers-api.feedback",
+                    "subject": "Горизон-Тур"
+                  },
+                  {
+                    "text": "Общее впечатление",
+                    "label": "⭐ 7.8/10 · Общее впечатление",
+                    "scale": 10,
+                    "scope": "bus_aspect",
+                    "rating": 7.8,
+                    "source": "offers-api.feedback",
+                    "subject": "Горизон-Тур"
+                  }
+                ],
+                "subject": "Горизон-Тур",
+                "feedback_key": "1129",
+                "review_count": 3679
+              },
+              "arrival_stop_id": 2924183,
+              "arrival_stop_name": "Автовокзал",
+              "departure_stop_id": 2858231,
+              "departure_stop_name": "Автовокзал Центральный (Щёлковский)"
+            },
+            "checkout_ref": {
+              "city_to": "Сочи",
+              "city_from": "Москва",
+              "search_id": "BBA45C7D-87FE-45EE-A9F5-1A644154452C",
+              "transport": "bus",
+              "arrival_id": "1447978",
+              "offer_hash": "I1w1hc0mJpNE7DAQDTu22U%2BhOiGzl%2BnCM0OseVOY5y3U8dLia9IDINhWID0THKYjgW1JrF6wJsKiNJ6LhrXADilanUU6GSM2MLZ6FOCgK6T8FJ3fibnZkfX65RRncAYCXlG3MVnMP%2BR8Mv%2FFFaV2M5bDQCCh0Xj03VRxzZFZ3G5ryA%3D%3D",
+              "passengers": 1,
+              "departure_at": "2026-07-15T16:30:00+03:00",
+              "departure_id": "1447874",
+              "arrival_stop_id": 2924183,
+              "arrival_stop_name": "Автовокзал",
+              "departure_stop_id": 2858231,
+              "arrival_geo_city_id": 2656918,
+              "departure_stop_name": "Автовокзал Центральный (Щёлковский)",
+              "departure_geo_city_id": 2657260
+            },
+            "checkout_url": "https://mtp-deeplink.tutu.ru/api/v1/deeplink/explicit/bus?geo_mode=original&departure_time=2026-07-15T16:30:00%2B03:00&departure_geo_city_id=1447874&arrival_geo_city_id=1447978&hash=I1w1hc0mJpNE7DAQDTu22U%252BhOiGzl%252BnCM0OseVOY5y3U8dLia9IDINhWID0THKYjgW1JrF6wJsKiNJ6LhrXADilanUU6GSM2MLZ6FOCgK6T8FJ3fibnZkfX65RRncAYCXlG3MVnMP%252BR8Mv%252FFFaV2M5bDQCCh0Xj03VRxzZFZ3G5ryA%253D%253D&fallback_to_vid=true&source=mcp",
+            "departure_at": "2026-07-15T16:30:00+03:00",
+            "duration_min": 1650,
+            "review_summary": {
+              "label": "⭐ 8.5/10 · 3 679 отзывов",
+              "scale": 10,
+              "scope": "carrier",
+              "rating": 8.5,
+              "source": "offers-api.feedback",
+              "aspects": [
+                {
+                  "text": "Автобус",
+                  "label": "⭐ 8.6/10 · Автобус",
+                  "scale": 10,
+                  "scope": "bus_aspect",
+                  "rating": 8.6,
+                  "source": "offers-api.feedback",
+                  "subject": "Горизон-Тур"
+                },
+                {
+                  "text": "Водитель",
+                  "label": "⭐ 9.1/10 · Водитель",
+                  "scale": 10,
+                  "scope": "bus_aspect",
+                  "rating": 9.1,
+                  "source": "offers-api.feedback",
+                  "subject": "Горизон-Тур"
+                },
+                {
+                  "text": "Общее впечатление",
+                  "label": "⭐ 7.8/10 · Общее впечатление",
+                  "scale": 10,
+                  "scope": "bus_aspect",
+                  "rating": 7.8,
+                  "source": "offers-api.feedback",
+                  "subject": "Горизон-Тур"
+                }
+              ],
+              "subject": "Горизон-Тур",
+              "feedback_key": "1129",
+              "review_count": 3679
+            },
+            "segments_count": 1,
+            "search_results_url": "https://bus.tutu.ru/bilety_na_avtobus/Moskva/Sochi/"
+          },
+          {
+            "legs": [
+              {
+                "to": "Сочи",
+                "from": "Автовокзал Котельники",
+                "label": "outbound",
+                "segments": [
+                  {
+                    "to": "Сочи",
+                    "from": "Автовокзал Котельники",
+                    "carrier": "Автобусный Туризм",
+                    "voyage_no": null,
+                    "arrival_at": "2026-07-16T05:55:00+03:00",
+                    "departure_at": "2026-07-15T08:00:00+03:00",
+                    "duration_min": 1315,
+                    "to_geo_point_id": 9065161,
+                    "from_geo_point_id": 2754359
+                  }
+                ],
+                "arrival_at": "2026-07-16T05:55:00+03:00",
+                "departure_at": "2026-07-15T08:00:00+03:00",
+                "duration_min": 1315
+              }
+            ],
+            "price": {
+              "amount": 7705.0,
+              "currency": "RUB"
+            },
+            "carriers": [
+              "Автобусный Туризм"
+            ],
+            "cashback": {
+              "amount": 231.15,
+              "currency": "RUB"
+            },
+            "offer_id": "663d5af3b113b631adc7846bfa2e85f1",
+            "variants": [
+              {
+                "price": {
+                  "amount": 7705.0,
+                  "currency": "RUB"
+                },
+                "cashback": {
+                  "amount": 231.15,
+                  "currency": "RUB"
+                },
+                "offer_hash": "Ixw1hc0mJlPaktT2V4N0rLZj5z6g7Y%2Bggb38uHJvRrVEIsgElMMQCXQbqtImf%2Fcn6%2F9eG%2BeM7xiPLoh4W%2BjC6eRLaCE2a0xs8R2vvBhE%2FPEdXsWOmkposSbgxrK0g%2B38XRlwjZFXAgQm7Kf1WhLCWqtzHjKqAQy7cZkUds6mIw%3D%3D",
+                "variant_id": "318da91b45f3c79419e65a5eda4c2d8f"
+              }
+            ],
+            "transport": "bus",
+            "arrival_at": "2026-07-16T05:55:00+03:00",
+            "details_ref": {
+              "price": {
+                "amount": 7705.0,
+                "currency": "RUB"
+              },
+              "title": null,
+              "source": "api-bus.search.detail",
+              "carriers": [
+                "Автобусный Туризм"
+              ],
+              "transport": "bus",
+              "arrival_at": "2026-07-16T05:55:00+03:00",
+              "arrival_id": "1447978",
+              "offer_hash": "Ixw1hc0mJlPaktT2V4N0rLZj5z6g7Y%2Bggb38uHJvRrVEIsgElMMQCXQbqtImf%2Fcn6%2F9eG%2BeM7xiPLoh4W%2BjC6eRLaCE2a0xs8R2vvBhE%2FPEdXsWOmkposSbgxrK0g%2B38XRlwjZFXAgQm7Kf1WhLCWqtzHjKqAQy7cZkUds6mIw%3D%3D",
+              "seat_count": 1,
+              "departure_at": "2026-07-15T08:00:00+03:00",
+              "departure_id": "1447874",
+              "duration_min": 1315,
+              "departure_date": "2026-07-15",
+              "review_summary": {
+                "label": "⭐ 8.5/10 · 154 отзыва",
+                "scale": 10,
+                "scope": "carrier",
+                "rating": 8.5,
+                "source": "offers-api.feedback",
+                "aspects": [
+                  {
+                    "text": "Автобус",
+                    "label": "⭐ 8.8/10 · Автобус",
+                    "scale": 10,
+                    "scope": "bus_aspect",
+                    "rating": 8.8,
+                    "source": "offers-api.feedback",
+                    "subject": "Автобусный Туризм"
+                  },
+                  {
+                    "text": "Водитель",
+                    "label": "⭐ 9.1/10 · Водитель",
+                    "scale": 10,
+                    "scope": "bus_aspect",
+                    "rating": 9.1,
+                    "source": "offers-api.feedback",
+                    "subject": "Автобусный Туризм"
+                  },
+                  {
+                    "text": "Общее впечатление",
+                    "label": "⭐ 7.6/10 · Общее впечатление",
+                    "scale": 10,
+                    "scope": "bus_aspect",
+                    "rating": 7.6,
+                    "source": "offers-api.feedback",
+                    "subject": "Автобусный Туризм"
+                  }
+                ],
+                "subject": "Автобусный Туризм",
+                "feedback_key": "8349",
+                "review_count": 154
+              },
+              "arrival_stop_id": 9065161,
+              "arrival_stop_name": "Сочи",
+              "departure_stop_id": 2754359,
+              "departure_stop_name": "Автовокзал Котельники"
+            },
+            "checkout_ref": {
+              "city_to": "Сочи",
+              "city_from": "Москва",
+              "search_id": "BBA45C7D-87FE-45EE-A9F5-1A644154452C",
+              "transport": "bus",
+              "arrival_id": "1447978",
+              "offer_hash": "Ixw1hc0mJlPaktT2V4N0rLZj5z6g7Y%2Bggb38uHJvRrVEIsgElMMQCXQbqtImf%2Fcn6%2F9eG%2BeM7xiPLoh4W%2BjC6eRLaCE2a0xs8R2vvBhE%2FPEdXsWOmkposSbgxrK0g%2B38XRlwjZFXAgQm7Kf1WhLCWqtzHjKqAQy7cZkUds6mIw%3D%3D",
+              "passengers": 1,
+              "departure_at": "2026-07-15T08:00:00+03:00",
+              "departure_id": "1447874",
+              "arrival_stop_id": 9065161,
+              "arrival_stop_name": "Сочи",
+              "departure_stop_id": 2754359,
+              "arrival_geo_city_id": 2656918,
+              "departure_stop_name": "Автовокзал Котельники",
+              "departure_geo_city_id": 2657260
+            },
+            "checkout_url": "https://mtp-deeplink.tutu.ru/api/v1/deeplink/explicit/bus?geo_mode=original&departure_time=2026-07-15T08:00:00%2B03:00&departure_geo_city_id=1447874&arrival_geo_city_id=1447978&hash=Ixw1hc0mJlPaktT2V4N0rLZj5z6g7Y%252Bggb38uHJvRrVEIsgElMMQCXQbqtImf%252Fcn6%252F9eG%252BeM7xiPLoh4W%252BjC6eRLaCE2a0xs8R2vvBhE%252FPEdXsWOmkposSbgxrK0g%252B38XRlwjZFXAgQm7Kf1WhLCWqtzHjKqAQy7cZkUds6mIw%253D%253D&fallback_to_vid=true&source=mcp",
+            "departure_at": "2026-07-15T08:00:00+03:00",
+            "duration_min": 1315,
+            "review_summary": {
+              "label": "⭐ 8.5/10 · 154 отзыва",
+              "scale": 10,
+              "scope": "carrier",
+              "rating": 8.5,
+              "source": "offers-api.feedback",
+              "aspects": [
+                {
+                  "text": "Автобус",
+                  "label": "⭐ 8.8/10 · Автобус",
+                  "scale": 10,
+                  "scope": "bus_aspect",
+                  "rating": 8.8,
+                  "source": "offers-api.feedback",
+                  "subject": "Автобусный Туризм"
+                },
+                {
+                  "text": "Водитель",
+                  "label": "⭐ 9.1/10 · Водитель",
+                  "scale": 10,
+                  "scope": "bus_aspect",
+                  "rating": 9.1,
+                  "source": "offers-api.feedback",
+                  "subject": "Автобусный Туризм"
+                },
+                {
+                  "text": "Общее впечатление",
+                  "label": "⭐ 7.6/10 · Общее впечатление",
+                  "scale": 10,
+                  "scope": "bus_aspect",
+                  "rating": 7.6,
+                  "source": "offers-api.feedback",
+                  "subject": "Автобусный Туризм"
+                }
+              ],
+              "subject": "Автобусный Туризм",
+              "feedback_key": "8349",
+              "review_count": 154
+            },
+            "segments_count": 1,
+            "search_results_url": "https://bus.tutu.ru/bilety_na_avtobus/Moskva/Sochi/"
+          },
+          {
+            "legs": [
+              {
+                "to": "Сочи, 2064130",
+                "from": "Москва — Киевский вокзал (2000007)",
+                "label": "outbound",
+                "segments": [
+                  {
+                    "to": "Сочи, 2064130",
+                    "from": "Москва — Киевский вокзал (2000007)",
+                    "carrier": "ФПК",
+                    "voyage_no": "083М",
+                    "arrival_at": "2026-07-17T10:23:00+03:00",
+                    "departure_at": "2026-07-15T19:45:00+03:00",
+                    "duration_min": 2318,
+                    "to_geo_point_id": 2961597,
+                    "from_geo_point_id": 2957768
+                  }
+                ],
+                "arrival_at": "2026-07-17T10:23:00+03:00",
+                "departure_at": "2026-07-15T19:45:00+03:00",
+                "duration_min": 2318
+              }
+            ],
+            "fares": {
+              "count": 2,
+              "currency": "RUB",
+              "price_to": 8075.73,
+              "price_from": 7812.43,
+              "changeable_count": 0,
+              "refundable_count": 2
+            },
+            "price": {
+              "amount": 7812.43,
+              "currency": "RUB"
+            },
+            "carriers": [
+              "ФПК"
+            ],
+            "cashback": {
+              "amount": 234.37,
+              "currency": "RUB"
+            },
+            "offer_id": "0850e0e153c2b97eceffdec89f46bbee",
+            "transport": "railway",
+            "arrival_at": "2026-07-17T10:23:00+03:00",
+            "details_ref": {
+              "price": {
+                "amount": 7812.43,
+                "currency": "RUB"
+              },
+              "title": "Поезд 083М",
+              "source": "seats-gateway.seats-by-params",
+              "carriers": [
+                "ФПК"
+              ],
+              "transport": "railway",
+              "arrival_at": "2026-07-17T10:23:00+03:00",
+              "departure_at": "2026-07-15T19:45:00+03:00",
+              "duration_min": 2318,
+              "train_number": "083М",
+              "review_summary": {
+                "label": "⭐ 8.4/10 · 1 143 отзыва",
+                "scale": 10,
+                "scope": "train",
+                "rating": 8.4,
+                "source": "offers-api.feedback",
+                "aspects": null,
+                "subject": "083М",
+                "feedback_key": "083М",
+                "review_count": 1143
+              },
+              "arrival_station_code": "2064130",
+              "departure_station_code": "2000007"
+            },
+            "checkout_ref": {
+              "card_id": "2fd32adf22e05b84e5191eff3782b9aa",
+              "result_id": "f3d60a42-b40b-5a60-826e-98c4f2d67f16",
+              "search_id": "A0278BFD-9484-4A92-8D8B-7E4D19A3D4F9",
+              "transport": "railway",
+              "offer_hash": "0850e0e153c2b97eceffdec89f46bbee",
+              "departure_at": "2026-07-15T19:45:00+03:00",
+              "segment_hash": "f93b9e21463ca87c4fbfc1a3ebb3ddd2",
+              "train_number": "083М",
+              "arrival_city_id": 2656918,
+              "departure_city_id": 2657260,
+              "arrival_geo_point_id": 2961597,
+              "arrival_station_code": "2064130",
+              "departure_geo_point_id": 2957768,
+              "departure_station_code": "2000007"
+            },
+            "checkout_url": "https://www.tutu.ru/poezda/order/?departure_st=2657260&arrival_st=2656918&dep_st=2000007&arr_st=2064130&tn=083%D0%9C&date=15.07.2026+19:45:00",
+            "departure_at": "2026-07-15T19:45:00+03:00",
+            "duration_min": 2318,
+            "review_summary": {
+              "label": "⭐ 8.4/10 · 1 143 отзыва",
+              "scale": 10,
+              "scope": "train",
+              "rating": 8.4,
+              "source": "offers-api.feedback",
+              "aspects": null,
+              "subject": "083М",
+              "feedback_key": "083М",
+              "review_count": 1143
+            },
+            "segments_count": 1,
+            "search_results_url": "https://www.tutu.ru/poezda/rasp_d.php?date=15.07.2026&nnst1=2000000&nnst2=2064130"
+          },
+          {
+            "legs": [
+              {
+                "to": "Сочи",
+                "from": "Автовокзал Красногвардейский",
+                "label": "outbound",
+                "segments": [
+                  {
+                    "to": "Сочи",
+                    "from": "Автовокзал Красногвардейский",
+                    "carrier": "Блэк Си Бас",
+                    "voyage_no": null,
+                    "arrival_at": "2026-07-16T16:30:00+03:00",
+                    "departure_at": "2026-07-15T16:30:00+03:00",
+                    "duration_min": 1440,
+                    "to_geo_point_id": 9065161,
+                    "from_geo_point_id": 2727855
+                  }
+                ],
+                "arrival_at": "2026-07-16T16:30:00+03:00",
+                "departure_at": "2026-07-15T16:30:00+03:00",
+                "duration_min": 1440
+              }
+            ],
+            "price": {
+              "amount": 8050.0,
+              "currency": "RUB"
+            },
+            "carriers": [
+              "Блэк Си Бас"
+            ],
+            "cashback": {
+              "amount": 241.5,
+              "currency": "RUB"
+            },
+            "offer_id": "1e77682e400eef9a116587ff33407a92",
+            "variants": [
+              {
+                "price": {
+                  "amount": 8050.0,
+                  "currency": "RUB"
+                },
+                "cashback": {
+                  "amount": 241.5,
+                  "currency": "RUB"
+                },
+                "offer_hash": "Kxs5Rc02JlTKnpTgN0fPq0nfFz2QLTjFInU%2FZUW8osWfl6tPK%2Bxe4IyCzcamT8CkxHqF2zuU7H%2FH9g2KgnBHsEXDdCNhcvIOHERzCl2fFmmN9aG84qzDNmtGKYKyIOR0I2f9F1XTvj%2BAxDLM0OYJJcRm87pQWNr42cThPrBY3G5ryA%3D%3D",
+                "variant_id": "5497e26ae3fb6aaaa11183d069ca3d2f"
+              }
+            ],
+            "transport": "bus",
+            "arrival_at": "2026-07-16T16:30:00+03:00",
+            "details_ref": {
+              "price": {
+                "amount": 8050.0,
+                "currency": "RUB"
+              },
+              "title": null,
+              "source": "api-bus.search.detail",
+              "carriers": [
+                "Блэк Си Бас"
+              ],
+              "transport": "bus",
+              "arrival_at": "2026-07-16T16:30:00+03:00",
+              "arrival_id": "1447978",
+              "offer_hash": "Kxs5Rc02JlTKnpTgN0fPq0nfFz2QLTjFInU%2FZUW8osWfl6tPK%2Bxe4IyCzcamT8CkxHqF2zuU7H%2FH9g2KgnBHsEXDdCNhcvIOHERzCl2fFmmN9aG84qzDNmtGKYKyIOR0I2f9F1XTvj%2BAxDLM0OYJJcRm87pQWNr42cThPrBY3G5ryA%3D%3D",
+              "seat_count": 1,
+              "departure_at": "2026-07-15T16:30:00+03:00",
+              "departure_id": "1447874",
+              "duration_min": 1440,
+              "departure_date": "2026-07-15",
+              "review_summary": {
+                "label": "⭐ 9.6/10 · 112 отзывов",
+                "scale": 10,
+                "scope": "carrier",
+                "rating": 9.6,
+                "source": "offers-api.feedback",
+                "aspects": [
+                  {
+                    "text": "Автобус",
+                    "label": "⭐ 9.8/10 · Автобус",
+                    "scale": 10,
+                    "scope": "bus_aspect",
+                    "rating": 9.8,
+                    "source": "offers-api.feedback",
+                    "subject": "Блэк Си Бас"
+                  },
+                  {
+                    "text": "Водитель",
+                    "label": "⭐ 10/10 · Водитель",
+                    "scale": 10,
+                    "scope": "bus_aspect",
+                    "rating": 10.0,
+                    "source": "offers-api.feedback",
+                    "subject": "Блэк Си Бас"
+                  },
+                  {
+                    "text": "Общее впечатление",
+                    "label": "⭐ 9.2/10 · Общее впечатление",
+                    "scale": 10,
+                    "scope": "bus_aspect",
+                    "rating": 9.2,
+                    "source": "offers-api.feedback",
+                    "subject": "Блэк Си Бас"
+                  }
+                ],
+                "subject": "Блэк Си Бас",
+                "feedback_key": "6737",
+                "review_count": 112
+              },
+              "arrival_stop_id": 9065161,
+              "arrival_stop_name": "Сочи",
+              "departure_stop_id": 2727855,
+              "departure_stop_name": "Автовокзал Красногвардейский"
+            },
+            "checkout_ref": {
+              "city_to": "Сочи",
+              "city_from": "Москва",
+              "search_id": "BBA45C7D-87FE-45EE-A9F5-1A644154452C",
+              "transport": "bus",
+              "arrival_id": "1447978",
+              "offer_hash": "Kxs5Rc02JlTKnpTgN0fPq0nfFz2QLTjFInU%2FZUW8osWfl6tPK%2Bxe4IyCzcamT8CkxHqF2zuU7H%2FH9g2KgnBHsEXDdCNhcvIOHERzCl2fFmmN9aG84qzDNmtGKYKyIOR0I2f9F1XTvj%2BAxDLM0OYJJcRm87pQWNr42cThPrBY3G5ryA%3D%3D",
+              "passengers": 1,
+              "departure_at": "2026-07-15T16:30:00+03:00",
+              "departure_id": "1447874",
+              "arrival_stop_id": 9065161,
+              "arrival_stop_name": "Сочи",
+              "departure_stop_id": 2727855,
+              "arrival_geo_city_id": 2656918,
+              "departure_stop_name": "Автовокзал Красногвардейский",
+              "departure_geo_city_id": 2657260
+            },
+            "checkout_url": "https://mtp-deeplink.tutu.ru/api/v1/deeplink/explicit/bus?geo_mode=original&departure_time=2026-07-15T16:30:00%2B03:00&departure_geo_city_id=1447874&arrival_geo_city_id=1447978&hash=Kxs5Rc02JlTKnpTgN0fPq0nfFz2QLTjFInU%252FZUW8osWfl6tPK%252Bxe4IyCzcamT8CkxHqF2zuU7H%252FH9g2KgnBHsEXDdCNhcvIOHERzCl2fFmmN9aG84qzDNmtGKYKyIOR0I2f9F1XTvj%252BAxDLM0OYJJcRm87pQWNr42cThPrBY3G5ryA%253D%253D&fallback_to_vid=true&source=mcp",
+            "departure_at": "2026-07-15T16:30:00+03:00",
+            "duration_min": 1440,
+            "review_summary": {
+              "label": "⭐ 9.6/10 · 112 отзывов",
+              "scale": 10,
+              "scope": "carrier",
+              "rating": 9.6,
+              "source": "offers-api.feedback",
+              "aspects": [
+                {
+                  "text": "Автобус",
+                  "label": "⭐ 9.8/10 · Автобус",
+                  "scale": 10,
+                  "scope": "bus_aspect",
+                  "rating": 9.8,
+                  "source": "offers-api.feedback",
+                  "subject": "Блэк Си Бас"
+                },
+                {
+                  "text": "Водитель",
+                  "label": "⭐ 10/10 · Водитель",
+                  "scale": 10,
+                  "scope": "bus_aspect",
+                  "rating": 10.0,
+                  "source": "offers-api.feedback",
+                  "subject": "Блэк Си Бас"
+                },
+                {
+                  "text": "Общее впечатление",
+                  "label": "⭐ 9.2/10 · Общее впечатление",
+                  "scale": 10,
+                  "scope": "bus_aspect",
+                  "rating": 9.2,
+                  "source": "offers-api.feedback",
+                  "subject": "Блэк Си Бас"
+                }
+              ],
+              "subject": "Блэк Си Бас",
+              "feedback_key": "6737",
+              "review_count": 112
+            },
+            "segments_count": 1,
+            "search_results_url": "https://bus.tutu.ru/bilety_na_avtobus/Moskva/Sochi/"
+          },
+          {
+            "legs": [
+              {
+                "to": "Сочи",
+                "from": "Международный автовокзал Южные Ворота",
+                "label": "outbound",
+                "segments": [
+                  {
+                    "to": "Сочи",
+                    "from": "Международный автовокзал Южные Ворота",
+                    "carrier": "Блэк Си Бас",
+                    "voyage_no": null,
+                    "arrival_at": "2026-07-16T16:00:00+03:00",
+                    "departure_at": "2026-07-15T16:00:00+03:00",
+                    "duration_min": 1440,
+                    "to_geo_point_id": 9065161,
+                    "from_geo_point_id": 2858242
+                  }
+                ],
+                "arrival_at": "2026-07-16T16:00:00+03:00",
+                "departure_at": "2026-07-15T16:00:00+03:00",
+                "duration_min": 1440
+              }
+            ],
+            "price": {
+              "amount": 8050.0,
+              "currency": "RUB"
+            },
+            "carriers": [
+              "Блэк Си Бас"
+            ],
+            "cashback": {
+              "amount": 241.5,
+              "currency": "RUB"
+            },
+            "offer_id": "90f9dd8087371335a294a890637191f0",
+            "variants": [
+              {
+                "price": {
+                  "amount": 8050.0,
+                  "currency": "RUB"
+                },
+                "cashback": {
+                  "amount": 241.5,
+                  "currency": "RUB"
+                },
+                "offer_hash": "GxtFhcxWJlPakizQnxGURlnUUTxm2sL5gL82jLnmxSBUQ4AfqM%2BQx%2FmyxzGo4ecF2kw%2BvImV99CKt3im%2FpsRenjGam2gxUsJQmubphg8lWkWG%2Fe9k%2BBkrY8p7cDq4uf2S8HQp4S17810LxYoUTPTHbfZQnx7T1BKZjuVzTdc3G5ryA%3D%3D",
+                "variant_id": "e066ada82dd9516adadeb797e18a3e61"
+              }
+            ],
+            "transport": "bus",
+            "arrival_at": "2026-07-16T16:00:00+03:00",
+            "details_ref": {
+              "price": {
+                "amount": 8050.0,
+                "currency": "RUB"
+              },
+              "title": null,
+              "source": "api-bus.search.detail",
+              "carriers": [
+                "Блэк Си Бас"
+              ],
+              "transport": "bus",
+              "arrival_at": "2026-07-16T16:00:00+03:00",
+              "arrival_id": "1447978",
+              "offer_hash": "GxtFhcxWJlPakizQnxGURlnUUTxm2sL5gL82jLnmxSBUQ4AfqM%2BQx%2FmyxzGo4ecF2kw%2BvImV99CKt3im%2FpsRenjGam2gxUsJQmubphg8lWkWG%2Fe9k%2BBkrY8p7cDq4uf2S8HQp4S17810LxYoUTPTHbfZQnx7T1BKZjuVzTdc3G5ryA%3D%3D",
+              "seat_count": 1,
+              "departure_at": "2026-07-15T16:00:00+03:00",
+              "departure_id": "1447874",
+              "duration_min": 1440,
+              "departure_date": "2026-07-15",
+              "review_summary": {
+                "label": "⭐ 9.6/10 · 112 отзывов",
+                "scale": 10,
+                "scope": "carrier",
+                "rating": 9.6,
+                "source": "offers-api.feedback",
+                "aspects": [
+                  {
+                    "text": "Автобус",
+                    "label": "⭐ 9.8/10 · Автобус",
+                    "scale": 10,
+                    "scope": "bus_aspect",
+                    "rating": 9.8,
+                    "source": "offers-api.feedback",
+                    "subject": "Блэк Си Бас"
+                  },
+                  {
+                    "text": "Водитель",
+                    "label": "⭐ 10/10 · Водитель",
+                    "scale": 10,
+                    "scope": "bus_aspect",
+                    "rating": 10.0,
+                    "source": "offers-api.feedback",
+                    "subject": "Блэк Си Бас"
+                  },
+                  {
+                    "text": "Общее впечатление",
+                    "label": "⭐ 9.2/10 · Общее впечатление",
+                    "scale": 10,
+                    "scope": "bus_aspect",
+                    "rating": 9.2,
+                    "source": "offers-api.feedback",
+                    "subject": "Блэк Си Бас"
+                  }
+                ],
+                "subject": "Блэк Си Бас",
+                "feedback_key": "6737",
+                "review_count": 112
+              },
+              "arrival_stop_id": 9065161,
+              "arrival_stop_name": "Сочи",
+              "departure_stop_id": 2858242,
+              "departure_stop_name": "Международный автовокзал Южные Ворота"
+            },
+            "checkout_ref": {
+              "city_to": "Сочи",
+              "city_from": "Москва",
+              "search_id": "BBA45C7D-87FE-45EE-A9F5-1A644154452C",
+              "transport": "bus",
+              "arrival_id": "1447978",
+              "offer_hash": "GxtFhcxWJlPakizQnxGURlnUUTxm2sL5gL82jLnmxSBUQ4AfqM%2BQx%2FmyxzGo4ecF2kw%2BvImV99CKt3im%2FpsRenjGam2gxUsJQmubphg8lWkWG%2Fe9k%2BBkrY8p7cDq4uf2S8HQp4S17810LxYoUTPTHbfZQnx7T1BKZjuVzTdc3G5ryA%3D%3D",
+              "passengers": 1,
+              "departure_at": "2026-07-15T16:00:00+03:00",
+              "departure_id": "1447874",
+              "arrival_stop_id": 9065161,
+              "arrival_stop_name": "Сочи",
+              "departure_stop_id": 2858242,
+              "arrival_geo_city_id": 2656918,
+              "departure_stop_name": "Международный автовокзал Южные Ворота",
+              "departure_geo_city_id": 2657260
+            },
+            "checkout_url": "https://mtp-deeplink.tutu.ru/api/v1/deeplink/explicit/bus?geo_mode=original&departure_time=2026-07-15T16:00:00%2B03:00&departure_geo_city_id=1447874&arrival_geo_city_id=1447978&hash=GxtFhcxWJlPakizQnxGURlnUUTxm2sL5gL82jLnmxSBUQ4AfqM%252BQx%252FmyxzGo4ecF2kw%252BvImV99CKt3im%252FpsRenjGam2gxUsJQmubphg8lWkWG%252Fe9k%252BBkrY8p7cDq4uf2S8HQp4S17810LxYoUTPTHbfZQnx7T1BKZjuVzTdc3G5ryA%253D%253D&fallback_to_vid=true&source=mcp",
+            "departure_at": "2026-07-15T16:00:00+03:00",
+            "duration_min": 1440,
+            "review_summary": {
+              "label": "⭐ 9.6/10 · 112 отзывов",
+              "scale": 10,
+              "scope": "carrier",
+              "rating": 9.6,
+              "source": "offers-api.feedback",
+              "aspects": [
+                {
+                  "text": "Автобус",
+                  "label": "⭐ 9.8/10 · Автобус",
+                  "scale": 10,
+                  "scope": "bus_aspect",
+                  "rating": 9.8,
+                  "source": "offers-api.feedback",
+                  "subject": "Блэк Си Бас"
+                },
+                {
+                  "text": "Водитель",
+                  "label": "⭐ 10/10 · Водитель",
+                  "scale": 10,
+                  "scope": "bus_aspect",
+                  "rating": 10.0,
+                  "source": "offers-api.feedback",
+                  "subject": "Блэк Си Бас"
+                },
+                {
+                  "text": "Общее впечатление",
+                  "label": "⭐ 9.2/10 · Общее впечатление",
+                  "scale": 10,
+                  "scope": "bus_aspect",
+                  "rating": 9.2,
+                  "source": "offers-api.feedback",
+                  "subject": "Блэк Си Бас"
+                }
+              ],
+              "subject": "Блэк Си Бас",
+              "feedback_key": "6737",
+              "review_count": 112
+            },
+            "segments_count": 1,
+            "search_results_url": "https://bus.tutu.ru/bilety_na_avtobus/Moskva/Sochi/"
+          },
+          {
+            "legs": [
+              {
+                "to": "Сочи, AER",
+                "from": "Москва — Шереметьево (SVO)",
+                "label": "outbound",
+                "segments": [
+                  {
+                    "to": "Сочи, AER",
+                    "from": "Москва — Шереметьево (SVO)",
+                    "carrier": "Победа",
+                    "voyage_no": null,
+                    "arrival_at": "2026-07-15T21:40:00+03:00",
+                    "departure_at": "2026-07-15T18:10:00+03:00",
+                    "duration_min": 210,
+                    "review_summary": {
+                      "label": "⭐ 6.57/10 · 14 155 отзывов",
+                      "scale": 10,
+                      "scope": "carrier",
+                      "rating": 6.57,
+                      "source": "offers-api.feedback",
+                      "aspects": null,
+                      "subject": "Победа",
+                      "feedback_key": "2227",
+                      "review_count": 14155
+                    },
+                    "to_geo_point_id": 2718761,
+                    "from_geo_point_id": 2719726
+                  }
+                ],
+                "arrival_at": "2026-07-15T21:40:00+03:00",
+                "departure_at": "2026-07-15T18:10:00+03:00",
+                "duration_min": 210
+              }
+            ],
+            "price": {
+              "amount": 13070.0,
+              "currency": "RUB"
+            },
+            "carriers": [
+              "Победа"
+            ],
+            "offer_id": "7113409517faba8c8fe92f471534eb5e",
+            "variants": [
+              {
+                "price": {
+                  "amount": 13070.0,
+                  "currency": "RUB"
+                },
+                "conditions": {
+                  "baggage": {
+                    "kg": 0,
+                    "pieces": 0
+                  },
+                  "changeable": false,
+                  "refundable": false,
+                  "fare_family": "Базовый",
+                  "cabin_baggage": {
+                    "kg": null,
+                    "pieces": 1,
+                    "dimensions": "36 × 30 × 27"
+                  }
+                },
+                "offer_hash": "{\"Price\":13070,\"OriginalHash\":\"[{\\\"offerVariantHash\\\":\\\"c15be697ad77f32ffefaac97f017c688\\\",\\\"variantConditionsHash\\\":\\\"7113409517faba8c8fe92f471534eb5e:f4b7bd50b88d2aef62aa0ef78689dd61\\\",\\\"pricingVariantHash\\\":\\\"69bb166d26b1d8dd6f559ae782b51ce5\\\"}]\"}",
+                "variant_id": "a11f41144945fb7c7c1e7a37a4ac2bd6:671018c27b97d70aa92a2c65120e84ac",
+                "service_class": "ECONOMIC"
+              },
+              {
+                "price": {
+                  "amount": 16357.0,
+                  "currency": "RUB"
+                },
+                "conditions": {
+                  "baggage": {
+                    "kg": 10,
+                    "pieces": 1
+                  },
+                  "exchange": {
+                    "available": true,
+                    "deadline_hours": 48
+                  },
+                  "changeable": true,
+                  "refundable": false,
+                  "fare_family": "Выгодный",
+                  "cabin_baggage": {
+                    "kg": null,
+                    "pieces": 1,
+                    "dimensions": "36 × 30 × 27"
+                  }
+                },
+                "offer_hash": "{\"Price\":16357,\"OriginalHash\":\"[{\\\"offerVariantHash\\\":\\\"e7df9807ec855efb65d7bfb8747e97fd\\\",\\\"variantConditionsHash\\\":\\\"7113409517faba8c8fe92f471534eb5e:7bdef7201719c823a5aaf6841db6231e\\\",\\\"pricingVariantHash\\\":\\\"bf37cafaf27dcada8830b330adb5a54d\\\"}]\"}",
+                "variant_id": "a11f41144945fb7c7c1e7a37a4ac2bd6:6216f4b2c5b065a73a13b6ce8448635a",
+                "service_class": "ECONOMIC"
+              },
+              {
+                "price": {
+                  "amount": 19908.0,
+                  "currency": "RUB"
+                },
+                "conditions": {
+                  "baggage": {
+                    "kg": 20,
+                    "pieces": 1
+                  },
+                  "exchange": {
+                    "available": true,
+                    "deadline_hours": 48
+                  },
+                  "changeable": true,
+                  "refundable": true,
+                  "fare_family": "Максимум",
+                  "cabin_baggage": {
+                    "kg": null,
+                    "pieces": 1,
+                    "dimensions": "36 × 30 × 27"
+                  }
+                },
+                "offer_hash": "{\"Price\":19908,\"OriginalHash\":\"[{\\\"offerVariantHash\\\":\\\"cd6a3943ca124e87c05fc6f9b45dc3e7\\\",\\\"variantConditionsHash\\\":\\\"7113409517faba8c8fe92f471534eb5e:81e223a99b8ce32d2cd1059cbdcab4ab\\\",\\\"pricingVariantHash\\\":\\\"651e8decb99af44f62dbc4c3334cbd39\\\"}]\"}",
+                "variant_id": "a11f41144945fb7c7c1e7a37a4ac2bd6:66fcf35c9562f0614bb9617bbea50c84",
+                "service_class": "ECONOMIC"
+              }
+            ],
+            "transport": "avia",
+            "arrival_at": "2026-07-15T21:40:00+03:00",
+            "checkout_ref": {
+              "transport": "avia",
+              "offer_hash": "{\"Price\":13070,\"OriginalHash\":\"[{\\\"offerVariantHash\\\":\\\"c15be697ad77f32ffefaac97f017c688\\\",\\\"variantConditionsHash\\\":\\\"7113409517faba8c8fe92f471534eb5e:f4b7bd50b88d2aef62aa0ef78689dd61\\\",\\\"pricingVariantHash\\\":\\\"69bb166d26b1d8dd6f559ae782b51ce5\\\"}]\"}",
+              "departure_at": "2026-07-15T18:10:00+03:00",
+              "is_round_trip": false,
+              "service_class": "ECONOMIC",
+              "passengers_full": 1,
+              "passengers_child": 0,
+              "passengers_infant": 0,
+              "search_results_url": "https://avia.tutu.ru/f/Moskva/Sochi/?class=Y&travelers=1&route[0]=491-15072026-78",
+              "arrival_geo_city_id": 2656918,
+              "departure_geo_city_id": 2657260
+            },
+            "departure_at": "2026-07-15T18:10:00+03:00",
+            "duration_min": 210,
+            "review_summary": {
+              "label": "⭐ 6.57/10 · 14 155 отзывов",
+              "scale": 10,
+              "scope": "carrier",
+              "rating": 6.57,
+              "source": "offers-api.feedback",
+              "aspects": null,
+              "subject": "Победа",
+              "feedback_key": "2227",
+              "review_count": 14155
+            },
+            "segments_count": 1,
+            "search_results_url": "https://avia.tutu.ru/f/Moskva/Sochi/?class=Y&travelers=1&route[0]=491-15072026-78"
+          },
+          {
+            "legs": [
+              {
+                "to": "Сочи, AER",
+                "from": "Москва — Шереметьево (SVO)",
+                "label": "outbound",
+                "segments": [
+                  {
+                    "to": "Сочи, AER",
+                    "from": "Москва — Шереметьево (SVO)",
+                    "carrier": "Победа",
+                    "voyage_no": null,
+                    "arrival_at": "2026-07-15T23:10:00+03:00",
+                    "departure_at": "2026-07-15T19:30:00+03:00",
+                    "duration_min": 220,
+                    "review_summary": {
+                      "label": "⭐ 6.57/10 · 14 155 отзывов",
+                      "scale": 10,
+                      "scope": "carrier",
+                      "rating": 6.57,
+                      "source": "offers-api.feedback",
+                      "aspects": null,
+                      "subject": "Победа",
+                      "feedback_key": "2227",
+                      "review_count": 14155
+                    },
+                    "to_geo_point_id": 2718761,
+                    "from_geo_point_id": 2719726
+                  }
+                ],
+                "arrival_at": "2026-07-15T23:10:00+03:00",
+                "departure_at": "2026-07-15T19:30:00+03:00",
+                "duration_min": 220
+              }
+            ],
+            "price": {
+              "amount": 13070.0,
+              "currency": "RUB"
+            },
+            "carriers": [
+              "Победа"
+            ],
+            "offer_id": "5cf8a12adb138f7c00c8e20801e10d58",
+            "variants": [
+              {
+                "price": {
+                  "amount": 13070.0,
+                  "currency": "RUB"
+                },
+                "conditions": {
+                  "baggage": {
+                    "kg": 0,
+                    "pieces": 0
+                  },
+                  "changeable": false,
+                  "refundable": false,
+                  "fare_family": "Базовый",
+                  "cabin_baggage": {
+                    "kg": null,
+                    "pieces": 1,
+                    "dimensions": "36 × 30 × 27"
+                  }
+                },
+                "offer_hash": "{\"Price\":13070,\"OriginalHash\":\"[{\\\"offerVariantHash\\\":\\\"91c8743c19ced0f5b700e963b593b4bf\\\",\\\"variantConditionsHash\\\":\\\"5cf8a12adb138f7c00c8e20801e10d58:f4b7bd50b88d2aef62aa0ef78689dd61\\\",\\\"pricingVariantHash\\\":\\\"600e9329d7f9ea62b5ecbdda19c95550\\\"}]\"}",
+                "variant_id": "1ebf87819119cf083fd4d11186dd542b:671018c27b97d70aa92a2c65120e84ac",
+                "service_class": "ECONOMIC"
+              },
+              {
+                "price": {
+                  "amount": 16357.0,
+                  "currency": "RUB"
+                },
+                "conditions": {
+                  "baggage": {
+                    "kg": 10,
+                    "pieces": 1
+                  },
+                  "exchange": {
+                    "available": true,
+                    "deadline_hours": 48
+                  },
+                  "changeable": true,
+                  "refundable": false,
+                  "fare_family": "Выгодный",
+                  "cabin_baggage": {
+                    "kg": null,
+                    "pieces": 1,
+                    "dimensions": "36 × 30 × 27"
+                  }
+                },
+                "offer_hash": "{\"Price\":16357,\"OriginalHash\":\"[{\\\"offerVariantHash\\\":\\\"d7d57790528bffb73e7380c70c17d973\\\",\\\"variantConditionsHash\\\":\\\"5cf8a12adb138f7c00c8e20801e10d58:7bdef7201719c823a5aaf6841db6231e\\\",\\\"pricingVariantHash\\\":\\\"faa66b3676e44932d7ba486b81503741\\\"}]\"}",
+                "variant_id": "1ebf87819119cf083fd4d11186dd542b:6216f4b2c5b065a73a13b6ce8448635a",
+                "service_class": "ECONOMIC"
+              },
+              {
+                "price": {
+                  "amount": 19908.0,
+                  "currency": "RUB"
+                },
+                "conditions": {
+                  "baggage": {
+                    "kg": 20,
+                    "pieces": 1
+                  },
+                  "exchange": {
+                    "available": true,
+                    "deadline_hours": 48
+                  },
+                  "changeable": true,
+                  "refundable": true,
+                  "fare_family": "Максимум",
+                  "cabin_baggage": {
+                    "kg": null,
+                    "pieces": 1,
+                    "dimensions": "36 × 30 × 27"
+                  }
+                },
+                "offer_hash": "{\"Price\":19908,\"OriginalHash\":\"[{\\\"offerVariantHash\\\":\\\"9d1d3b5d6b834bfb18fcfd6d0ff04789\\\",\\\"variantConditionsHash\\\":\\\"5cf8a12adb138f7c00c8e20801e10d58:81e223a99b8ce32d2cd1059cbdcab4ab\\\",\\\"pricingVariantHash\\\":\\\"1eb93246a5dc306d55a8cd3d9cd3b6ef\\\"}]\"}",
+                "variant_id": "1ebf87819119cf083fd4d11186dd542b:66fcf35c9562f0614bb9617bbea50c84",
+                "service_class": "ECONOMIC"
+              }
+            ],
+            "transport": "avia",
+            "arrival_at": "2026-07-15T23:10:00+03:00",
+            "checkout_ref": {
+              "transport": "avia",
+              "offer_hash": "{\"Price\":13070,\"OriginalHash\":\"[{\\\"offerVariantHash\\\":\\\"91c8743c19ced0f5b700e963b593b4bf\\\",\\\"variantConditionsHash\\\":\\\"5cf8a12adb138f7c00c8e20801e10d58:f4b7bd50b88d2aef62aa0ef78689dd61\\\",\\\"pricingVariantHash\\\":\\\"600e9329d7f9ea62b5ecbdda19c95550\\\"}]\"}",
+              "departure_at": "2026-07-15T19:30:00+03:00",
+              "is_round_trip": false,
+              "service_class": "ECONOMIC",
+              "passengers_full": 1,
+              "passengers_child": 0,
+              "passengers_infant": 0,
+              "search_results_url": "https://avia.tutu.ru/f/Moskva/Sochi/?class=Y&travelers=1&route[0]=491-15072026-78",
+              "arrival_geo_city_id": 2656918,
+              "departure_geo_city_id": 2657260
+            },
+            "departure_at": "2026-07-15T19:30:00+03:00",
+            "duration_min": 220,
+            "review_summary": {
+              "label": "⭐ 6.57/10 · 14 155 отзывов",
+              "scale": 10,
+              "scope": "carrier",
+              "rating": 6.57,
+              "source": "offers-api.feedback",
+              "aspects": null,
+              "subject": "Победа",
+              "feedback_key": "2227",
+              "review_count": 14155
+            },
+            "segments_count": 1,
+            "search_results_url": "https://avia.tutu.ru/f/Moskva/Sochi/?class=Y&travelers=1&route[0]=491-15072026-78"
+          },
+          {
+            "legs": [
+              {
+                "to": "Сочи, AER",
+                "from": "Москва — Внуково (VKO)",
+                "label": "outbound",
+                "segments": [
+                  {
+                    "to": "Сочи, AER",
+                    "from": "Москва — Внуково (VKO)",
+                    "carrier": "Победа",
+                    "voyage_no": null,
+                    "arrival_at": "2026-07-15T19:45:00+03:00",
+                    "departure_at": "2026-07-15T16:15:00+03:00",
+                    "duration_min": 210,
+                    "review_summary": {
+                      "label": "⭐ 6.57/10 · 14 155 отзывов",
+                      "scale": 10,
+                      "scope": "carrier",
+                      "rating": 6.57,
+                      "source": "offers-api.feedback",
+                      "aspects": null,
+                      "subject": "Победа",
+                      "feedback_key": "2227",
+                      "review_count": 14155
+                    },
+                    "to_geo_point_id": 2718761,
+                    "from_geo_point_id": 2718687
+                  }
+                ],
+                "arrival_at": "2026-07-15T19:45:00+03:00",
+                "departure_at": "2026-07-15T16:15:00+03:00",
+                "duration_min": 210
+              }
+            ],
+            "price": {
+              "amount": 14560.0,
+              "currency": "RUB"
+            },
+            "carriers": [
+              "Победа"
+            ],
+            "offer_id": "751e4f59ca193232dd5a7ced87da8586",
+            "variants": [
+              {
+                "price": {
+                  "amount": 14560.0,
+                  "currency": "RUB"
+                },
+                "conditions": {
+                  "baggage": {
+                    "kg": 0,
+                    "pieces": 0
+                  },
+                  "changeable": false,
+                  "refundable": false,
+                  "fare_family": "Базовый",
+                  "cabin_baggage": {
+                    "kg": null,
+                    "pieces": 1,
+                    "dimensions": "36 × 30 × 27"
+                  }
+                },
+                "offer_hash": "{\"Price\":14560,\"OriginalHash\":\"[{\\\"offerVariantHash\\\":\\\"fd7225eaf88973499bdd5d622c859ec7\\\",\\\"variantConditionsHash\\\":\\\"751e4f59ca193232dd5a7ced87da8586:f4b7bd50b88d2aef62aa0ef78689dd61\\\",\\\"pricingVariantHash\\\":\\\"ef74701620a859446a5b0fadee9092f3\\\"}]\"}",
+                "variant_id": "887088ac3e3291377e47067d37e30b1d:671018c27b97d70aa92a2c65120e84ac",
+                "service_class": "ECONOMIC"
+              },
+              {
+                "price": {
+                  "amount": 17978.0,
+                  "currency": "RUB"
+                },
+                "conditions": {
+                  "baggage": {
+                    "kg": 10,
+                    "pieces": 1
+                  },
+                  "exchange": {
+                    "available": true,
+                    "deadline_hours": 48
+                  },
+                  "changeable": true,
+                  "refundable": false,
+                  "fare_family": "Выгодный",
+                  "cabin_baggage": {
+                    "kg": null,
+                    "pieces": 1,
+                    "dimensions": "36 × 30 × 27"
+                  }
+                },
+                "offer_hash": "{\"Price\":17978,\"OriginalHash\":\"[{\\\"offerVariantHash\\\":\\\"85b51973211205bdd0556f552ffa07e8\\\",\\\"variantConditionsHash\\\":\\\"751e4f59ca193232dd5a7ced87da8586:7bdef7201719c823a5aaf6841db6231e\\\",\\\"pricingVariantHash\\\":\\\"38fe4d41053fe02a14b991e37225ab41\\\"}]\"}",
+                "variant_id": "887088ac3e3291377e47067d37e30b1d:6216f4b2c5b065a73a13b6ce8448635a",
+                "service_class": "ECONOMIC"
+              },
+              {
+                "price": {
+                  "amount": 21588.0,
+                  "currency": "RUB"
+                },
+                "conditions": {
+                  "baggage": {
+                    "kg": 20,
+                    "pieces": 1
+                  },
+                  "exchange": {
+                    "available": true,
+                    "deadline_hours": 48
+                  },
+                  "changeable": true,
+                  "refundable": true,
+                  "fare_family": "Максимум",
+                  "cabin_baggage": {
+                    "kg": null,
+                    "pieces": 1,
+                    "dimensions": "36 × 30 × 27"
+                  }
+                },
+                "offer_hash": "{\"Price\":21588,\"OriginalHash\":\"[{\\\"offerVariantHash\\\":\\\"e8bbe016f9a0f20ff49cf55993bb14d6\\\",\\\"variantConditionsHash\\\":\\\"751e4f59ca193232dd5a7ced87da8586:81e223a99b8ce32d2cd1059cbdcab4ab\\\",\\\"pricingVariantHash\\\":\\\"87794091546f7bdf76efd203686aca77\\\"}]\"}",
+                "variant_id": "887088ac3e3291377e47067d37e30b1d:66fcf35c9562f0614bb9617bbea50c84",
+                "service_class": "ECONOMIC"
+              }
+            ],
+            "transport": "avia",
+            "arrival_at": "2026-07-15T19:45:00+03:00",
+            "checkout_ref": {
+              "transport": "avia",
+              "offer_hash": "{\"Price\":14560,\"OriginalHash\":\"[{\\\"offerVariantHash\\\":\\\"fd7225eaf88973499bdd5d622c859ec7\\\",\\\"variantConditionsHash\\\":\\\"751e4f59ca193232dd5a7ced87da8586:f4b7bd50b88d2aef62aa0ef78689dd61\\\",\\\"pricingVariantHash\\\":\\\"ef74701620a859446a5b0fadee9092f3\\\"}]\"}",
+              "departure_at": "2026-07-15T16:15:00+03:00",
+              "is_round_trip": false,
+              "service_class": "ECONOMIC",
+              "passengers_full": 1,
+              "passengers_child": 0,
+              "passengers_infant": 0,
+              "search_results_url": "https://avia.tutu.ru/f/Moskva/Sochi/?class=Y&travelers=1&route[0]=491-15072026-78",
+              "arrival_geo_city_id": 2656918,
+              "departure_geo_city_id": 2657260
+            },
+            "departure_at": "2026-07-15T16:15:00+03:00",
+            "duration_min": 210,
+            "review_summary": {
+              "label": "⭐ 6.57/10 · 14 155 отзывов",
+              "scale": 10,
+              "scope": "carrier",
+              "rating": 6.57,
+              "source": "offers-api.feedback",
+              "aspects": null,
+              "subject": "Победа",
+              "feedback_key": "2227",
+              "review_count": 14155
+            },
+            "segments_count": 1,
+            "search_results_url": "https://avia.tutu.ru/f/Moskva/Sochi/?class=Y&travelers=1&route[0]=491-15072026-78"
+          },
+          {
+            "legs": [
+              {
+                "to": "Сочи, AER",
+                "from": "Москва — Внуково (VKO)",
+                "label": "outbound",
+                "segments": [
+                  {
+                    "to": "Сочи, AER",
+                    "from": "Москва — Внуково (VKO)",
+                    "carrier": "Победа",
+                    "voyage_no": null,
+                    "arrival_at": "2026-07-15T17:40:00+03:00",
+                    "departure_at": "2026-07-15T14:05:00+03:00",
+                    "duration_min": 215,
+                    "review_summary": {
+                      "label": "⭐ 6.57/10 · 14 155 отзывов",
+                      "scale": 10,
+                      "scope": "carrier",
+                      "rating": 6.57,
+                      "source": "offers-api.feedback",
+                      "aspects": null,
+                      "subject": "Победа",
+                      "feedback_key": "2227",
+                      "review_count": 14155
+                    },
+                    "to_geo_point_id": 2718761,
+                    "from_geo_point_id": 2718687
+                  }
+                ],
+                "arrival_at": "2026-07-15T17:40:00+03:00",
+                "departure_at": "2026-07-15T14:05:00+03:00",
+                "duration_min": 215
+              }
+            ],
+            "price": {
+              "amount": 14560.0,
+              "currency": "RUB"
+            },
+            "carriers": [
+              "Победа"
+            ],
+            "offer_id": "9e7f24e1dcdbda09eb1660323f07a387",
+            "variants": [
+              {
+                "price": {
+                  "amount": 14560.0,
+                  "currency": "RUB"
+                },
+                "conditions": {
+                  "baggage": {
+                    "kg": 0,
+                    "pieces": 0
+                  },
+                  "changeable": false,
+                  "refundable": false,
+                  "fare_family": "Базовый",
+                  "cabin_baggage": {
+                    "kg": null,
+                    "pieces": 1,
+                    "dimensions": "36 × 30 × 27"
+                  }
+                },
+                "offer_hash": "{\"Price\":14560,\"OriginalHash\":\"[{\\\"offerVariantHash\\\":\\\"9edf46e69936dc305ecbd2194cc423eb\\\",\\\"variantConditionsHash\\\":\\\"9e7f24e1dcdbda09eb1660323f07a387:f4b7bd50b88d2aef62aa0ef78689dd61\\\",\\\"pricingVariantHash\\\":\\\"a9702d23ff08ee57a45a04ba5739c78a\\\"}]\"}",
+                "variant_id": "b6dc38f3e89ca392188e2b8410131f24:671018c27b97d70aa92a2c65120e84ac",
+                "service_class": "ECONOMIC"
+              },
+              {
+                "price": {
+                  "amount": 17978.0,
+                  "currency": "RUB"
+                },
+                "conditions": {
+                  "baggage": {
+                    "kg": 10,
+                    "pieces": 1
+                  },
+                  "exchange": {
+                    "available": true,
+                    "deadline_hours": 48
+                  },
+                  "changeable": true,
+                  "refundable": false,
+                  "fare_family": "Выгодный",
+                  "cabin_baggage": {
+                    "kg": null,
+                    "pieces": 1,
+                    "dimensions": "36 × 30 × 27"
+                  }
+                },
+                "offer_hash": "{\"Price\":17978,\"OriginalHash\":\"[{\\\"offerVariantHash\\\":\\\"bac9cfff372c845e3be47abad51862be\\\",\\\"variantConditionsHash\\\":\\\"9e7f24e1dcdbda09eb1660323f07a387:7bdef7201719c823a5aaf6841db6231e\\\",\\\"pricingVariantHash\\\":\\\"b2fb3047498f60fa6f4976c3271a9f62\\\"}]\"}",
+                "variant_id": "b6dc38f3e89ca392188e2b8410131f24:6216f4b2c5b065a73a13b6ce8448635a",
+                "service_class": "ECONOMIC"
+              },
+              {
+                "price": {
+                  "amount": 21588.0,
+                  "currency": "RUB"
+                },
+                "conditions": {
+                  "baggage": {
+                    "kg": 20,
+                    "pieces": 1
+                  },
+                  "exchange": {
+                    "available": true,
+                    "deadline_hours": 48
+                  },
+                  "changeable": true,
+                  "refundable": true,
+                  "fare_family": "Максимум",
+                  "cabin_baggage": {
+                    "kg": null,
+                    "pieces": 1,
+                    "dimensions": "36 × 30 × 27"
+                  }
+                },
+                "offer_hash": "{\"Price\":21588,\"OriginalHash\":\"[{\\\"offerVariantHash\\\":\\\"095e188c0e8a596a92a8844f902b857c\\\",\\\"variantConditionsHash\\\":\\\"9e7f24e1dcdbda09eb1660323f07a387:81e223a99b8ce32d2cd1059cbdcab4ab\\\",\\\"pricingVariantHash\\\":\\\"d4bc29edcf5870474ea376b61eeeb5c2\\\"}]\"}",
+                "variant_id": "b6dc38f3e89ca392188e2b8410131f24:66fcf35c9562f0614bb9617bbea50c84",
+                "service_class": "ECONOMIC"
+              }
+            ],
+            "transport": "avia",
+            "arrival_at": "2026-07-15T17:40:00+03:00",
+            "checkout_ref": {
+              "transport": "avia",
+              "offer_hash": "{\"Price\":14560,\"OriginalHash\":\"[{\\\"offerVariantHash\\\":\\\"9edf46e69936dc305ecbd2194cc423eb\\\",\\\"variantConditionsHash\\\":\\\"9e7f24e1dcdbda09eb1660323f07a387:f4b7bd50b88d2aef62aa0ef78689dd61\\\",\\\"pricingVariantHash\\\":\\\"a9702d23ff08ee57a45a04ba5739c78a\\\"}]\"}",
+              "departure_at": "2026-07-15T14:05:00+03:00",
+              "is_round_trip": false,
+              "service_class": "ECONOMIC",
+              "passengers_full": 1,
+              "passengers_child": 0,
+              "passengers_infant": 0,
+              "search_results_url": "https://avia.tutu.ru/f/Moskva/Sochi/?class=Y&travelers=1&route[0]=491-15072026-78",
+              "arrival_geo_city_id": 2656918,
+              "departure_geo_city_id": 2657260
+            },
+            "departure_at": "2026-07-15T14:05:00+03:00",
+            "duration_min": 215,
+            "review_summary": {
+              "label": "⭐ 6.57/10 · 14 155 отзывов",
+              "scale": 10,
+              "scope": "carrier",
+              "rating": 6.57,
+              "source": "offers-api.feedback",
+              "aspects": null,
+              "subject": "Победа",
+              "feedback_key": "2227",
+              "review_count": 14155
+            },
+            "segments_count": 1,
+            "search_results_url": "https://avia.tutu.ru/f/Moskva/Sochi/?class=Y&travelers=1&route[0]=491-15072026-78"
+          }
+        ]
+      }
+    },
+    "created_at": "2026-07-05 09:24:43.746388 +00:00"
+  }
+]
