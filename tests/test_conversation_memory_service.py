@@ -822,6 +822,7 @@ async def test_memory_service_records_assistant_message_with_usage_and_tool_info
     assert stored.metadata["context_usage"]["output_tokens"] == 5
     assert stored.metadata["run_usage"]["total_tokens"] == 15
     assert stored.metadata["model_response_usages"][0]["usage"]["total_tokens"] == 15
+    assert "replayable_context_usage" not in stored.metadata
     assert stored.metadata["tool_info"][0]["tool_name"] == "search"
 
 
@@ -916,7 +917,95 @@ async def test_memory_service_records_pydantic_ai_tool_messages_before_assistant
     assert memory_store.append_calls[3].metadata["content"] == {"items": [{"xml_id": "123"}]}
 
 
-async def test_memory_service_uses_latest_assistant_context_usage_for_snapshot_tokens() -> None:
+async def test_memory_service_uses_first_model_response_input_for_snapshot_tokens() -> None:
+    resolved_conversation = conversation()
+    latest_user = memory_message(
+        resolved_conversation=resolved_conversation,
+        role=ConversationMemoryRole.USER,
+        sequence=1,
+        text="latest",
+    )
+    memory_store = FakeMemoryStore(messages={resolved_conversation.id: [latest_user]})
+    snapshot_store = FakeSnapshotStore(
+        snapshots={
+            resolved_conversation.id: ConversationContextSnapshot(
+                conversation_id=resolved_conversation.id,
+                user_id=resolved_conversation.user_id,
+                recent_messages=[latest_user],
+                last_seen_message_id=latest_user.id,
+                last_seen_sequence=1,
+                token_count=estimate_message_tokens(latest_user),
+            )
+        }
+    )
+    service = DefaultConversationMemoryService(memory_store, snapshot_store)
+
+    stored = await service.record_assistant_message(
+        conversation=resolved_conversation,
+        response=AgentResponse(
+            text="answer",
+            context_usage=AgentUsage(input_tokens=36_425, output_tokens=546, total_tokens=36_971),
+            run_usage=AgentUsage(input_tokens=100, output_tokens=20, total_tokens=120),
+            model_response_usages=[
+                AgentModelResponseUsage(
+                    message_index=1,
+                    model_response_index=0,
+                    part_types=["ThinkingPart", "LoadCapabilityCallPart"],
+                    usage=AgentUsage(input_tokens=6_332, output_tokens=67, total_tokens=6_399),
+                ),
+                AgentModelResponseUsage(
+                    message_index=5,
+                    model_response_index=2,
+                    part_types=["ThinkingPart", "ToolCallPart"],
+                    usage=AgentUsage(
+                        input_tokens=32_333,
+                        output_tokens=116,
+                        total_tokens=32_449,
+                    ),
+                ),
+                AgentModelResponseUsage(
+                    message_index=7,
+                    model_response_index=3,
+                    part_types=["ThinkingPart", "TextPart"],
+                    usage=AgentUsage(
+                        input_tokens=36_425,
+                        output_tokens=546,
+                        total_tokens=36_971,
+                    ),
+                ),
+            ],
+            pydantic_ai_new_messages=[
+                ModelRequest(parts=[UserPromptPart(content="find docs")]),
+                ModelResponse(
+                    parts=[
+                        ToolCallPart(
+                            tool_name="search",
+                            args={"query": "large output"},
+                            tool_call_id="call-1",
+                        )
+                    ]
+                ),
+                ModelRequest(
+                    parts=[
+                        ToolReturnPart(
+                            tool_name="search",
+                            content={"content": "tool output " * 500},
+                            tool_call_id="call-1",
+                        )
+                    ]
+                ),
+                ModelResponse(parts=[TextPart(content="answer")]),
+            ],
+        ),
+    )
+
+    saved_snapshot = snapshot_store.save_calls[-1]
+    assert saved_snapshot.recent_messages[-1] == stored
+    assert "replayable_context_usage" not in stored.metadata
+    assert saved_snapshot.token_count == 6_332 + estimate_message_tokens(stored)
+
+
+async def test_memory_service_falls_back_to_dialog_estimate_without_model_response_usages() -> None:
     resolved_conversation = conversation()
     latest_user = memory_message(
         resolved_conversation=resolved_conversation,
@@ -950,7 +1039,9 @@ async def test_memory_service_uses_latest_assistant_context_usage_for_snapshot_t
 
     saved_snapshot = snapshot_store.save_calls[-1]
     assert saved_snapshot.recent_messages == [latest_user, stored]
-    assert saved_snapshot.token_count == 50
+    assert saved_snapshot.token_count == estimate_message_tokens(
+        latest_user
+    ) + estimate_message_tokens(stored)
 
 
 async def test_memory_service_prepares_compaction_request_from_memory_state() -> None:

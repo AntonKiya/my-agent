@@ -37,10 +37,10 @@ from agent_service.memory.pydantic_ai import (
     pydantic_ai_tool_messages_to_memory,
 )
 from agent_service.memory.tokens import (
+    estimate_message_tokens,
     estimate_messages_tokens,
     estimate_text_tokens,
     usage_token_count,
-    usage_total_token_count,
 )
 from agent_service.memory.tool_history import (
     is_tool_message,
@@ -879,17 +879,23 @@ def _snapshot_context_token_count(
     summary_created_at: datetime | None = None,
     fallback_reason: str,
 ) -> int:
-    latest_usage = _latest_assistant_usage(messages, summary_created_at=summary_created_at)
+    latest_usage = _latest_assistant_replayable_context_token_count(
+        messages,
+        summary_created_at=summary_created_at,
+    )
     if latest_usage is not None:
         message_index, usage_token_count_value = latest_usage
-        return usage_token_count_value + estimate_messages_tokens(messages[message_index + 1 :])
+        return usage_token_count_value + estimate_messages_tokens(
+            _dialog_memory_messages(messages[message_index + 1 :])
+        )
 
-    estimated_messages_token_count = estimate_messages_tokens(messages)
+    dialog_messages = _dialog_memory_messages(messages)
+    estimated_messages_token_count = estimate_messages_tokens(dialog_messages)
     if any(message.role is ConversationMemoryRole.ASSISTANT for message in messages):
         log_event(
             logger,
             logging.WARNING,
-            "Conversation context token count fell back to local estimate",
+            "Conversation replayable context token count fell back to local estimate",
             event="conversation_context_token_usage_fallback",
             conversation_id=str(conversation_id),
             user_id=str(user_id),
@@ -897,6 +903,7 @@ def _snapshot_context_token_count(
             summary_token_count=summary_token_count,
             estimated_messages_token_count=estimated_messages_token_count,
             message_count=len(messages),
+            dialog_message_count=len(dialog_messages),
         )
     return summary_token_count + estimated_messages_token_count
 
@@ -929,7 +936,7 @@ def _snapshot_summary_created_at(snapshot: ConversationContextSnapshot) -> datet
         return None
 
 
-def _latest_assistant_usage(
+def _latest_assistant_replayable_context_token_count(
     messages: list[ConversationMemoryMessage],
     *,
     summary_created_at: datetime | None,
@@ -940,12 +947,35 @@ def _latest_assistant_usage(
             continue
         if summary_created_at is not None and message.created_at <= summary_created_at:
             continue
-        usage = message.metadata.get("context_usage")
-        if not isinstance(usage, dict):
-            continue
-        total_tokens = usage_total_token_count(usage)
+        total_tokens = _replayable_context_usage_token_count(message)
         if total_tokens is not None:
             return index, total_tokens
+    return None
+
+
+def _replayable_context_usage_token_count(
+    message: ConversationMemoryMessage,
+) -> int | None:
+    first_input_tokens = _first_model_response_input_tokens_from_metadata(
+        message.metadata.get("model_response_usages")
+    )
+    if first_input_tokens is None:
+        return None
+    return first_input_tokens + estimate_message_tokens(message)
+
+
+def _first_model_response_input_tokens_from_metadata(value: object) -> int | None:
+    if not isinstance(value, list):
+        return None
+    for item in value:
+        if not isinstance(item, dict):
+            continue
+        usage = item.get("usage")
+        if not isinstance(usage, dict):
+            continue
+        input_tokens = usage_token_count(usage, "input_tokens")
+        if input_tokens is not None:
+            return input_tokens
     return None
 
 

@@ -259,7 +259,7 @@ def test_compaction_policy_uses_token_trigger_and_retains_recent_tail_by_tokens(
     assert decision.retained_tail_token_count == estimate_messages_tokens(messages[3:])
 
 
-def test_compaction_policy_extends_recent_tail_to_tool_run_start() -> None:
+def test_compaction_policy_uses_dialog_messages_for_recent_tail() -> None:
     conversation_id = uuid4()
     user_id = uuid4()
     messages = [
@@ -270,24 +270,24 @@ def test_compaction_policy_extends_recent_tail_to_tool_run_start() -> None:
             sequence=1,
         ),
         memory_message(
-            role=ConversationMemoryRole.ASSISTANT,
-            conversation_id=conversation_id,
-            user_id=user_id,
-            sequence=2,
-        ),
-        memory_message(
             role=ConversationMemoryRole.TOOL_CALL,
             conversation_id=conversation_id,
             user_id=user_id,
-            sequence=3,
+            sequence=2,
             text=None,
         ),
         memory_message(
             role=ConversationMemoryRole.TOOL_RESULT,
             conversation_id=conversation_id,
             user_id=user_id,
+            sequence=3,
+            text="tool result " * 100,
+        ),
+        memory_message(
+            role=ConversationMemoryRole.ASSISTANT,
+            conversation_id=conversation_id,
+            user_id=user_id,
             sequence=4,
-            text="tool result",
         ),
     ]
     snapshot = ConversationContextSnapshot(
@@ -309,9 +309,9 @@ def test_compaction_policy_extends_recent_tail_to_tool_run_start() -> None:
     decision = policy.decide(snapshot=snapshot)
 
     assert decision.should_compact
-    assert decision.compact_through_sequence == 2
-    assert decision.keep_from_sequence == 3
-    assert decision.retained_tail_token_count == estimate_messages_tokens(messages[2:])
+    assert decision.compact_through_sequence == 1
+    assert decision.keep_from_sequence == 4
+    assert decision.retained_tail_token_count == estimate_messages_tokens([messages[3]])
 
 
 def test_compaction_policy_does_not_trigger_below_token_threshold() -> None:
