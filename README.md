@@ -558,6 +558,13 @@ as the source of truth.
 Tool calls and tool results are included in active context and Pydantic AI message history, but are
 modeled as separate roles so future summarization can exclude them from compacted summaries.
 
+Some tool results contain large provider-native handles that the model must not edit, such as
+checkout hashes, opaque offer refs, and detail refs. The service stores those handles in
+`tool_result_references` and returns a compact `selection_id` in the visible tool result. Follow-up
+tools can accept that `selection_id`; the wrapper resolves it inside the same `(user_id,
+conversation_id)` and calls the upstream provider with the original payload. This keeps active
+context small while preserving exact provider data for checkout and other selected-item actions.
+
 Compaction currently exists as an interface and stub, not as a real summarization implementation.
 `ConversationCompactionRequest` accepts only `user` and `assistant` messages; `tool_call` and
 `tool_result` messages are intentionally rejected from compaction input. `NoopConversationCompactor`
@@ -574,6 +581,7 @@ Current tables:
 - `channel_identities`
 - `conversations`
 - `conversation_messages`
+- `tool_result_references`
 
 The schema enforces `UNIQUE(channel, external_user_id)` for stable external identity separation.
 The conversations schema enforces `UNIQUE(conversation_key)` for idempotent conversation creation.
@@ -590,6 +598,11 @@ Message history is stored in `conversation_messages`. Ordering is represented by
 `conversation_messages.sequence`, which is unique per conversation. Tool calls and tool results are
 stored as message roles so they can be passed into active context while future summarization can
 exclude them from compacted summaries.
+
+Tool result references are stored in `tool_result_references`. Rows are scoped by user and
+conversation, expire via `expires_at`, and contain both a compact display snapshot and backend-only
+`ref_payload`. The model should see only `selection_id`; provider-specific wrappers decide how to
+resolve it for their follow-up tools.
 
 Redis working context snapshots use keys shaped as `conversation_context:{conversation_id}` with a
 24-hour default TTL. Redis is a hot cache only; Postgres remains the source of truth.
@@ -716,6 +729,7 @@ src/agent_service/
   memory/              conversation memory service contracts and context models
   delivery/            delivery lifecycle models shared by outbound workers and adapters
   messaging/           shared queue primitives and in-memory queue backend
+  tool_refs/           provider-agnostic masked tool result reference storage
   database/            bundled SQL migrations and database helpers
   runtime/             lifecycle helpers for background tasks
   app.py               FastAPI app factory and lifespan

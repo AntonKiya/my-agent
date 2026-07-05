@@ -9,9 +9,19 @@ from agent_service.config import AppSettings
 from agent_service.mcp.toolsets import (
     PrefixedMCPToolsetConfig,
     ToolCallValidator,
+    ToolResultTransformer,
     TransformingToolset,
     build_prefixed_mcp_toolset,
     prefixed_tool_names,
+)
+from agent_service.mcp.tutu_refs import (
+    build_tutu_checkout_link_call_transformer,
+    build_tutu_search_result_transformer,
+    tutu_checkout_link_definition_transformers,
+)
+from agent_service.tool_refs import (
+    InMemoryToolResultReferenceStore,
+    ToolResultReferenceStore,
 )
 
 TUTU_MCP_SERVER_ID = "tutu"
@@ -34,10 +44,11 @@ TUTU_MCP_TOOL_NAMES = prefixed_tool_names(
     TUTU_MCP_TOOL_PREFIX,
     TUTU_MCP_RAW_TOOL_NAMES,
 )
-TUTU_MCP_RESULT_TRANSFORMERS = {}
+TUTU_MCP_RESULT_TRANSFORMERS: dict[str, ToolResultTransformer] = {}
 DateProvider = Callable[[], date]
 
 TUTU_SEARCH_HOTELS_TOOL_NAME = f"{TUTU_MCP_TOOL_PREFIX}_search_hotels"
+TUTU_CREATE_CHECKOUT_LINK_TOOL_NAME = f"{TUTU_MCP_TOOL_PREFIX}_create_checkout_link"
 TUTU_TRANSPORT_SEARCH_TOOL_NAMES = frozenset(
     {
         f"{TUTU_MCP_TOOL_PREFIX}_search_avia",
@@ -47,16 +58,20 @@ TUTU_TRANSPORT_SEARCH_TOOL_NAMES = frozenset(
         f"{TUTU_MCP_TOOL_PREFIX}_search_multitransport",
     }
 )
+TUTU_SEARCH_RESULT_TOOL_NAMES = TUTU_TRANSPORT_SEARCH_TOOL_NAMES | {TUTU_SEARCH_HOTELS_TOOL_NAME}
 
 
 def build_tutu_mcp_toolsets(
     settings: AppSettings,
     *,
     today_provider: DateProvider | None = None,
+    tool_result_reference_store: ToolResultReferenceStore | None = None,
 ) -> tuple[AbstractToolset[Any], ...]:
     if settings.tutu_mcp_command is None and settings.tutu_mcp_url is None:
         return ()
 
+    reference_store = tool_result_reference_store or InMemoryToolResultReferenceStore()
+    search_result_transformer = build_tutu_search_result_transformer(reference_store)
     toolset = build_prefixed_mcp_toolset(
         PrefixedMCPToolsetConfig(
             server_id=TUTU_MCP_SERVER_ID,
@@ -75,11 +90,20 @@ def build_tutu_mcp_toolsets(
         TransformingToolset(
             toolset,
             TUTU_MCP_RESULT_TRANSFORMERS,
+            contextual_result_transformers={
+                name: search_result_transformer for name in TUTU_SEARCH_RESULT_TOOL_NAMES
+            },
+            call_transformers={
+                TUTU_CREATE_CHECKOUT_LINK_TOOL_NAME: (
+                    build_tutu_checkout_link_call_transformer(reference_store)
+                ),
+            },
+            tool_definition_transformers=tutu_checkout_link_definition_transformers(
+                TUTU_CREATE_CHECKOUT_LINK_TOOL_NAME
+            ),
             return_error_results_for_tool_names=TUTU_MCP_TOOL_NAMES,
             log_error_args_for_tool_names=TUTU_MCP_TOOL_NAMES,
-            pre_call_validators=(
-                build_tutu_mcp_pre_call_validator(today_provider=today_provider),
-            ),
+            pre_call_validators=(build_tutu_mcp_pre_call_validator(today_provider=today_provider),),
         ),
     )
 
@@ -152,9 +176,7 @@ def _validate_hotel_search_tool_call(
 
     if check_in_arg.invalid or check_out_arg.invalid:
         invalid_fields = [
-            field
-            for field in (check_in_arg.field, check_out_arg.field)
-            if field is not None
+            field for field in (check_in_arg.field, check_out_arg.field) if field is not None
         ]
         return _preflight_error_result(
             name,

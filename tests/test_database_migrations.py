@@ -16,6 +16,7 @@ def test_users_migration_defines_identity_tables_and_constraints() -> None:
         "0009_usage_quotas.sql",
         "0010_feedback.sql",
         "0011_image_generation_quota.sql",
+        "0012_tool_result_references.sql",
     ]
 
     sql = migrations[0].sql
@@ -55,6 +56,7 @@ def test_migrations_are_loaded_in_version_order() -> None:
         "0009",
         "0010",
         "0011",
+        "0012",
     )
 
 
@@ -210,3 +212,21 @@ def test_image_generation_quota_migration_defines_daily_limit_policy() -> None:
     assert "'image_generation'" in sql
     assert "'day'" in sql
     assert "    3," in sql
+
+
+def test_tool_result_references_migration_defines_masked_reference_table() -> None:
+    migrations = load_sql_migrations()
+
+    sql = migrations[11].sql
+    assert "CREATE TABLE IF NOT EXISTS tool_result_references" in sql
+    assert "selection_id text PRIMARY KEY" in sql
+    assert "provider text NOT NULL" in sql
+    assert "source_tool_name text NOT NULL" in sql
+    assert "user_id uuid NOT NULL REFERENCES users(id) ON DELETE RESTRICT" in sql
+    assert "conversation_id uuid NOT NULL REFERENCES conversations(id) ON DELETE RESTRICT" in sql
+    assert "display_snapshot jsonb NOT NULL DEFAULT '{}'::jsonb" in sql
+    assert "ref_payload jsonb NOT NULL" in sql
+    assert "expires_at timestamptz NOT NULL" in sql
+    assert "FOREIGN KEY (conversation_id, user_id)" in sql
+    assert "REFERENCES conversations(id, user_id)" in sql
+    assert "tool_result_references_expires_at_idx" in sql

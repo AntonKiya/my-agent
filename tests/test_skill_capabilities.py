@@ -60,8 +60,9 @@ def test_builtin_skills_include_tutu_travel_as_deferred_capability() -> None:
     capability = capability_by_id["tutu-travel"]
     assert capability.defer_loading is True
     description = cast(str, capability.get_description())
-    assert "Plan trips through Tutu.ru" in description
-    assert "TRIGGER when: the user wants tickets" in description
+    assert "Use Tutu.ru MCP" in description
+    assert "checkout links" in description
+    assert "Use this instead of web tools" in description
     instructions = cast(list[str], capability.get_instructions())
     assert len(instructions) == 1
     assert instructions[0].startswith("# Tutu Travel Skill")

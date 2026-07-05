@@ -109,6 +109,14 @@ from agent_service.reminders import (
 from agent_service.reminders.postgres import PostgresPool as ReminderPostgresPool
 from agent_service.runtime.lifecycle import TaskSupervisor
 from agent_service.time_tools import build_time_toolsets
+from agent_service.tool_refs import (
+    InMemoryToolResultReferenceStore,
+    PostgresToolResultReferenceStore,
+    ToolResultReferenceStore,
+)
+from agent_service.tool_refs import (
+    PostgresPool as ToolResultReferencePostgresPool,
+)
 from agent_service.transcription import GroqWhisperTranscriber
 from agent_service.users import PostgresPool, PostgresUserStore, UserResolver
 from agent_service.weather import (
@@ -184,6 +192,7 @@ class AppContainer:
     memory_service: ConversationMemoryService | None = field(init=False)
     media_asset_store: MediaAssetStore | None = field(init=False)
     media_group_aggregator: RedisInboundMediaGroupAggregator | None = field(init=False)
+    tool_result_reference_store: ToolResultReferenceStore = field(init=False)
     feedback_store: FeedbackStore | None = field(init=False)
     feedback_state_store: FeedbackStateStore = field(init=False)
     reminder_store: ReminderStore | None = field(init=False)
@@ -253,6 +262,7 @@ class AppContainer:
         self.memory_service = None
         self.media_asset_store = None
         self.media_group_aggregator = None
+        self.tool_result_reference_store = InMemoryToolResultReferenceStore()
         self.feedback_store = None
         self.feedback_state_store = InMemoryFeedbackStateStore()
         self.reminder_store = None
@@ -335,6 +345,7 @@ class AppContainer:
             self.conversation_compaction_store = None
             self.memory_service = None
             self.media_asset_store = None
+            self.tool_result_reference_store = InMemoryToolResultReferenceStore()
             if self.telegram_adapter is not None:
                 self.telegram_adapter.media_asset_store = None
             self.feedback_store = None
@@ -387,7 +398,10 @@ class AppContainer:
             enabled_skill_ids.add(VKUSVILL_SHOPPING_SKILL_ID)
             capability_toolsets[VKUSVILL_SHOPPING_SKILL_ID] = vkusvill_toolsets
 
-        tutu_toolsets = build_tutu_mcp_toolsets(self.settings)
+        tutu_toolsets = build_tutu_mcp_toolsets(
+            self.settings,
+            tool_result_reference_store=self.tool_result_reference_store,
+        )
         if tutu_toolsets:
             enabled_skill_ids.add(TUTU_TRAVEL_SKILL_ID)
             capability_toolsets[TUTU_TRAVEL_SKILL_ID] = tutu_toolsets
@@ -649,6 +663,9 @@ class AppContainer:
             cast(MemoryPostgresPool, self._postgres_pool)
         )
         self.media_asset_store = PostgresMediaAssetStore(self._postgres_pool)
+        self.tool_result_reference_store = PostgresToolResultReferenceStore(
+            cast(ToolResultReferencePostgresPool, self._postgres_pool)
+        )
         if self.telegram_adapter is not None:
             self.telegram_adapter.media_asset_store = self.media_asset_store
         self.feedback_store = PostgresFeedbackStore(self._postgres_pool)

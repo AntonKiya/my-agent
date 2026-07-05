@@ -34,7 +34,7 @@ Do not use web search, web research, or web page reading for Tutu tickets, lodgi
 
 Use external websites only when the user explicitly asks for internet search, official sites, comparison with other booking platforms, or non-Tutu sources.
 
-If a Tutu link looks broken, the user changes dates/guests/passengers/seats/rooms/fares, or the user asks for another link, rerun the relevant Tutu search if needed and call `mcp_tutu_create_checkout_link` with the selected offer's `checkout_ref`.
+If a Tutu link looks broken, the user changes dates/guests/passengers/seats/rooms/fares, or the user asks for another link, rerun the relevant Tutu search if needed and call `mcp_tutu_create_checkout_link` for the selected option.
 
 Never edit, reconstruct, validate, or replace Tutu links through external websites.
 
@@ -122,9 +122,9 @@ Do not show raw full seatmaps. Summarize relevant seats and conditions.
 
 A concrete choice includes a selected number, "cheapest direct", a specific transport option, a hotel name, a room/rate, or a follow-up selection from the latest Tutu list.
 
-Always call `mcp_tutu_create_checkout_link` with the selected offer's `checkout_ref`.
+Use the selected Tutu result's `selection_id` to create checkout links.
 
-Pass `checkout_ref`, `offer_hash`, and all checkout fields exactly as returned by Tutu search. Do not parse, retype, restructure, or change their types.
+Call `mcp_tutu_create_checkout_link` with `selection_id` after a concrete user choice. Do not build checkout links from search URLs or manually supplied fields.
 
 Never invent, template, edit, shorten, reconstruct, or reuse a checkout link from memory.
 

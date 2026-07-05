@@ -1,7 +1,8 @@
+import inspect
 import json
 import logging
-from collections.abc import Callable, Collection, Mapping, Sequence
-from dataclasses import dataclass, field
+from collections.abc import Awaitable, Callable, Collection, Mapping, Sequence
+from dataclasses import dataclass, field, replace
 from typing import Any
 
 from fastmcp.client.transports import StdioTransport
@@ -13,8 +14,34 @@ from pydantic_ai.toolsets import AbstractToolset, ToolsetTool, WrapperToolset
 from agent_service.observability.events import elapsed_ms, log_event, start_timer
 
 logger = logging.getLogger(__name__)
-ToolResultTransformer = Callable[[Any], Any]
+ToolResultTransformer = Callable[[Any], Any | Awaitable[Any]]
+
+
+@dataclass(frozen=True, slots=True)
+class ToolResultTransformContext:
+    tool_name: str
+    tool_args: Mapping[str, Any]
+    run_context: RunContext[Any]
+
+
+ContextualToolResultTransformer = Callable[
+    [ToolResultTransformContext, Any],
+    Any | Awaitable[Any],
+]
 ToolCallValidator = Callable[[str, Mapping[str, Any], RunContext[Any]], Any | None]
+
+
+@dataclass(frozen=True, slots=True)
+class ToolCallTransformResult:
+    tool_args: Mapping[str, Any] | None = None
+    preflight_result: Any | None = None
+
+
+ToolCallTransformer = Callable[
+    [str, Mapping[str, Any], RunContext[Any]],
+    ToolCallTransformResult | None | Awaitable[ToolCallTransformResult | None],
+]
+ToolDefinitionTransformer = Callable[[ToolDefinition], ToolDefinition]
 MAX_LOG_ERROR_MESSAGE_CHARS = 500
 MAX_LOG_TOOL_ARGS_CHARS = 2000
 
@@ -71,9 +98,39 @@ def build_prefixed_mcp_toolset(config: PrefixedMCPToolsetConfig) -> AbstractTool
 @dataclass(slots=True)
 class TransformingToolset(WrapperToolset[Any]):
     result_transformers: Mapping[str, ToolResultTransformer] = field(default_factory=dict)
+    contextual_result_transformers: Mapping[str, ContextualToolResultTransformer] = field(
+        default_factory=dict
+    )
+    call_transformers: Mapping[str, ToolCallTransformer] = field(default_factory=dict)
+    tool_definition_transformers: Mapping[str, ToolDefinitionTransformer] = field(
+        default_factory=dict
+    )
     return_error_results_for_tool_names: Collection[str] = field(default_factory=frozenset)
     log_error_args_for_tool_names: Collection[str] = field(default_factory=frozenset)
     pre_call_validators: Sequence[ToolCallValidator] = field(default_factory=tuple)
+
+    async def get_tools(self, ctx: RunContext[Any]) -> dict[str, ToolsetTool[Any]]:
+        tools = await self.wrapped.get_tools(ctx)
+        if not self.tool_definition_transformers:
+            return tools
+        transformed_tools = dict(tools)
+        for name, transformer in self.tool_definition_transformers.items():
+            tool = transformed_tools.get(name)
+            if tool is None:
+                continue
+            try:
+                transformed_tools[name] = replace(tool, tool_def=transformer(tool.tool_def))
+            except Exception as exc:
+                log_event(
+                    logger,
+                    logging.WARNING,
+                    "MCP tool definition transform failed",
+                    event="mcp_tool_definition_transform_failed",
+                    tool_name=name,
+                    error_type=type(exc).__name__,
+                    error_message=_safe_error_message(exc),
+                )
+        return transformed_tools
 
     async def call_tool(
         self,
@@ -109,10 +166,28 @@ class TransformingToolset(WrapperToolset[Any]):
             )
             return preflight_result
 
+        call_transform_result = await self._call_transform_result(name, tool_args, ctx)
+        if call_transform_result is not None:
+            if call_transform_result.preflight_result is not None:
+                log_event(
+                    logger,
+                    logging.INFO,
+                    "MCP tool call rejected by call transformer",
+                    event="mcp_tool_call_transformer_rejected",
+                    tool_name=name,
+                    tool_args_keys=sorted(tool_args),
+                    tool_args_size=tool_args_size,
+                    duration_ms=elapsed_ms(started_at),
+                    result_size=_payload_size(call_transform_result.preflight_result),
+                )
+                return call_transform_result.preflight_result
+            if call_transform_result.tool_args is not None:
+                tool_args = dict(call_transform_result.tool_args)
+
         try:
             result = await self.wrapped.call_tool(name, tool_args, ctx, tool)
         except Exception as exc:
-            failure_fields = {
+            failure_fields: dict[str, Any] = {
                 "event": "mcp_tool_call_failed",
                 "tool_name": name,
                 "tool_args_keys": sorted(tool_args),
@@ -143,24 +218,48 @@ class TransformingToolset(WrapperToolset[Any]):
                 return error_result
             raise
 
-        transformer = self.result_transformers.get(name)
         original_size = _payload_size(result)
-        if transformer is None:
+        transformer = self.result_transformers.get(name)
+        contextual_transformer = self.contextual_result_transformers.get(name)
+        if transformer is not None and contextual_transformer is not None:
             log_event(
                 logger,
-                logging.INFO,
-                "MCP tool call completed",
-                event="mcp_tool_call_completed",
+                logging.WARNING,
+                "MCP tool has both result transformer types configured",
+                event="mcp_tool_result_transformer_conflict",
                 tool_name=name,
-                duration_ms=elapsed_ms(started_at),
-                original_size=original_size,
-                transformed_size=original_size,
-                transformed=False,
             )
-            return result
+            contextual_transformer = None
+        if transformer is None:
+            if contextual_transformer is None:
+                log_event(
+                    logger,
+                    logging.INFO,
+                    "MCP tool call completed",
+                    event="mcp_tool_call_completed",
+                    tool_name=name,
+                    duration_ms=elapsed_ms(started_at),
+                    original_size=original_size,
+                    transformed_size=original_size,
+                    transformed=False,
+                )
+                return result
 
         try:
-            transformed = transformer(result)
+            if contextual_transformer is not None:
+                transformed = contextual_transformer(
+                    ToolResultTransformContext(
+                        tool_name=name,
+                        tool_args=tool_args,
+                        run_context=ctx,
+                    ),
+                    result,
+                )
+            else:
+                assert transformer is not None
+                transformed = transformer(result)
+            if inspect.isawaitable(transformed):
+                transformed = await transformed
         except Exception as exc:
             log_event(
                 logger,
@@ -208,6 +307,32 @@ class TransformingToolset(WrapperToolset[Any]):
             transformed=transformed != result,
         )
         return transformed
+
+    async def _call_transform_result(
+        self,
+        name: str,
+        tool_args: Mapping[str, Any],
+        ctx: RunContext[Any],
+    ) -> ToolCallTransformResult | None:
+        transformer = self.call_transformers.get(name)
+        if transformer is None:
+            return None
+        try:
+            result = transformer(name, tool_args, ctx)
+            if inspect.isawaitable(result):
+                result = await result
+        except Exception as exc:
+            log_event(
+                logger,
+                logging.WARNING,
+                "MCP tool call transformer failed",
+                event="mcp_tool_call_transformer_failed",
+                tool_name=name,
+                error_type=type(exc).__name__,
+                error_message=_safe_error_message(exc),
+            )
+            return None
+        return result
 
     def _preflight_result(
         self,
