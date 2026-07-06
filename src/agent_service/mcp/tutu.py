@@ -16,8 +16,10 @@ from agent_service.mcp.toolsets import (
 )
 from agent_service.mcp.tutu_refs import (
     build_tutu_checkout_link_call_transformer,
+    build_tutu_offer_details_call_transformer,
     build_tutu_search_result_transformer,
     tutu_checkout_link_definition_transformers,
+    tutu_offer_details_definition_transformers,
 )
 from agent_service.tool_refs import (
     InMemoryToolResultReferenceStore,
@@ -48,6 +50,7 @@ TUTU_MCP_RESULT_TRANSFORMERS: dict[str, ToolResultTransformer] = {}
 DateProvider = Callable[[], date]
 
 TUTU_SEARCH_HOTELS_TOOL_NAME = f"{TUTU_MCP_TOOL_PREFIX}_search_hotels"
+TUTU_GET_OFFER_DETAILS_TOOL_NAME = f"{TUTU_MCP_TOOL_PREFIX}_get_offer_details"
 TUTU_CREATE_CHECKOUT_LINK_TOOL_NAME = f"{TUTU_MCP_TOOL_PREFIX}_create_checkout_link"
 TUTU_TRANSPORT_SEARCH_TOOL_NAMES = frozenset(
     {
@@ -94,13 +97,17 @@ def build_tutu_mcp_toolsets(
                 name: search_result_transformer for name in TUTU_SEARCH_RESULT_TOOL_NAMES
             },
             call_transformers={
+                TUTU_GET_OFFER_DETAILS_TOOL_NAME: (
+                    build_tutu_offer_details_call_transformer(reference_store)
+                ),
                 TUTU_CREATE_CHECKOUT_LINK_TOOL_NAME: (
                     build_tutu_checkout_link_call_transformer(reference_store)
                 ),
             },
-            tool_definition_transformers=tutu_checkout_link_definition_transformers(
-                TUTU_CREATE_CHECKOUT_LINK_TOOL_NAME
-            ),
+            tool_definition_transformers={
+                **tutu_offer_details_definition_transformers(TUTU_GET_OFFER_DETAILS_TOOL_NAME),
+                **tutu_checkout_link_definition_transformers(TUTU_CREATE_CHECKOUT_LINK_TOOL_NAME),
+            },
             return_error_results_for_tool_names=TUTU_MCP_TOOL_NAMES,
             log_error_args_for_tool_names=TUTU_MCP_TOOL_NAMES,
             pre_call_validators=(build_tutu_mcp_pre_call_validator(today_provider=today_provider),),

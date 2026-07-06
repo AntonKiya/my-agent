@@ -1,6 +1,6 @@
 ---
 name: tutu-travel
-description: "Use Tutu.ru MCP for tickets, routes, flights, trains, buses, commuter trains, hotels/lodging, apartments, studios, apart-hotels, guesthouses, transport comparisons, checkout links, and follow-up requests that select, book, or ask for a link to a previously shown Tutu option. Use this instead of web tools unless the user explicitly asks for internet, official sites, comparison with other platforms, or non-Tutu sources."
+description: "TRIGGER when: the user asks for tickets, routes, flights, trains, buses, commuter trains, hotels/lodging, apartments, studios, apart-hotels, guesthouses, transport comparison, checkout links, or details of a previously shown option, including baggage, cancellation, refund/exchange, amenities, rooms/rates, fares, reviews, rules, conditions, or follow-up selections like first/second/cheapest/book/link. Use Tutu tools instead of web tools unless the user explicitly asks for internet, official sites, comparison with other platforms, or non-Tutu sources."
 ---
 
 # Tutu Travel Skill
@@ -39,17 +39,6 @@ Use external websites only when the user explicitly asks for internet search, of
 If a Tutu link looks broken, the user changes dates/guests/passengers/seats/rooms/fares, or the user asks for another link, rerun the relevant Tutu search if needed and call `mcp_tutu_create_checkout_link` for the selected option.
 
 Never edit, reconstruct, validate, or replace Tutu links through external websites.
-
-## Trigger Policy
-
-Use this skill for:
-
-- tickets, flights, trains, buses, commuter trains;
-- hotels, lodging, apartments, studios, apart-hotels, guesthouses, non-hotel stays;
-- transport comparisons and "how do I get there" requests;
-- follow-up selections from the latest Tutu list, including "first", "second", "cheapest", a hotel/transport name, "book it", "reserve it", or "give me the link".
-
-Do not use this skill for visas, entry rules, insurance, sightseeing, tours, restaurants, walking routes, car rental, or general travel advice unless the user asks for tickets or lodging.
 
 ## Required Fields
 
@@ -112,7 +101,9 @@ For hotel prices, label price as per-night or full-stay. If the tool returns per
 
 ## Details And Seatmaps
 
-Call `mcp_tutu_get_offer_details` only when details affect selection or checkout: baggage, refund/exchange, cancellation, breakfast, payment type, room type, beds, amenities, fare rules, or train/bus/hotel details.
+For details of a selected Tutu search result, call `mcp_tutu_get_offer_details` with `selection_id`. Do not use web tools for Tutu option details.
+
+Call `mcp_tutu_get_offer_details` only when details affect selection or checkout: baggage, refund/exchange, cancellation, breakfast, payment type, room type, beds, amenities, fare rules, reviews, rules, conditions, or train/bus/hotel details.
 
 Fetch details for one selected option or 2-3 shortlisted options. Do not fetch details for every result.
 
@@ -150,8 +141,6 @@ Selected: {short option description}.
 
 Use compact Markdown tables only when comparing multiple options by price, time, duration, rating, terms, or location.
 
-Do not use a table for one selected option or one link.
-
 Transport rows must include price, departure/arrival, duration, carrier/mode, route/stations/airports when returned, and a short label: Cheapest, Fastest, Balanced, Direct, Morning, or Overnight.
 
 Hotel rows must include hotel, location/address, rating, total price when calculable, breakfast/cancellation when returned, and one short reason.
@@ -161,16 +150,6 @@ Ask a narrowing question only when several shown options still match the user's 
 ## Transport Plus Lodging
 
 For trips with transport plus lodging, search transport with `mcp_tutu_search_multitransport` unless a transport type is specified, and search hotels with `mcp_tutu_search_hotels`.
-
-Do not fetch details for all results. Build 2-3 combinations and create separate checkout links for selected components.
-
-Do not present transport plus hotel as one package unless Tutu returns a single package product.
-
-## Selection From Context
-
-Resolve "first", "second", "cheapest", option numbers, hotel names, transport names, and similar references against the latest clear Tutu list.
-
-If several lists exist and the reference is ambiguous, ask which list or component the user means.
 
 ## Accuracy
 
@@ -183,7 +162,5 @@ Do not relax hard constraints without user consent: direct only, specific transp
 ## Errors
 
 If a Tutu tool returns `ok: false`, follow `instruction` and use `message` for the user.
-
-If no results are returned, say Tutu did not return suitable options and suggest one next step: nearby date, relaxed filter, another transport type, another area, or another budget.
 
 Do not use web tools as an error fallback for Tutu tasks.

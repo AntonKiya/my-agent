@@ -21,6 +21,7 @@ from agent_service.mcp import (
 )
 from agent_service.mcp.tutu import (
     TUTU_CREATE_CHECKOUT_LINK_TOOL_NAME,
+    TUTU_GET_OFFER_DETAILS_TOOL_NAME,
     TUTU_SEARCH_HOTELS_TOOL_NAME,
     TUTU_SEARCH_RESULT_TOOL_NAMES,
     TUTU_TRANSPORT_SEARCH_TOOL_NAMES,
@@ -28,6 +29,7 @@ from agent_service.mcp.tutu import (
 )
 from agent_service.mcp.tutu_refs import (
     build_tutu_checkout_link_call_transformer,
+    build_tutu_offer_details_call_transformer,
     build_tutu_search_result_transformer,
 )
 from agent_service.tool_refs import InMemoryToolResultReferenceStore, ToolResultReference
@@ -160,8 +162,14 @@ def test_tutu_search_result_transformer_scope_matches_search_tools() -> None:
 
     assert isinstance(toolset, TransformingToolset)
     assert toolset.contextual_result_transformers.keys() == TUTU_SEARCH_RESULT_TOOL_NAMES
-    assert toolset.call_transformers.keys() == {TUTU_CREATE_CHECKOUT_LINK_TOOL_NAME}
-    assert toolset.tool_definition_transformers.keys() == {TUTU_CREATE_CHECKOUT_LINK_TOOL_NAME}
+    assert toolset.call_transformers.keys() == {
+        TUTU_GET_OFFER_DETAILS_TOOL_NAME,
+        TUTU_CREATE_CHECKOUT_LINK_TOOL_NAME,
+    }
+    assert toolset.tool_definition_transformers.keys() == {
+        TUTU_GET_OFFER_DETAILS_TOOL_NAME,
+        TUTU_CREATE_CHECKOUT_LINK_TOOL_NAME,
+    }
 
 
 def test_tutu_hotel_preflight_requires_core_search_fields() -> None:
@@ -555,3 +563,150 @@ async def test_tutu_checkout_link_transformer_rejects_expired_selection_id() -> 
 
     assert wrapped.calls == 0
     assert result["diagnostic"]["code"] == "selection_not_found_or_expired"
+
+
+async def test_tutu_offer_details_transformer_resolves_selection_id_to_details_ref() -> None:
+    user_id = uuid4()
+    conversation_id = uuid4()
+    store = InMemoryToolResultReferenceStore(
+        now_provider=lambda: datetime(2026, 7, 5, 11, 0, tzinfo=UTC)
+    )
+    details_ref = {"search_id": "search", "result_id": "result"}
+    await store.create(
+        reference=ToolResultReference(
+            selection_id="sel_busdetails01",
+            provider="tutu",
+            source_tool_name="mcp_tutu_search_bus",
+            user_id=user_id,
+            conversation_id=conversation_id,
+            item_kind="bus",
+            item_index=0,
+            label="Москва -> Рязань",
+            display_snapshot={"selection_id": "sel_busdetails01"},
+            ref_payload={
+                "details_ref": details_ref,
+                "raw_item": {"transport": "bus", "price": {"amount": 1200}},
+            },
+            expires_at=datetime(2026, 7, 5, 12, 0, tzinfo=UTC),
+            created_at=datetime(2026, 7, 5, 10, 0, tzinfo=UTC),
+        )
+    )
+    wrapped = FakeToolset({"ok": True})
+    toolset = TransformingToolset(
+        wrapped,
+        call_transformers={
+            TUTU_GET_OFFER_DETAILS_TOOL_NAME: build_tutu_offer_details_call_transformer(store)
+        },
+    )
+
+    await toolset.call_tool(
+        TUTU_GET_OFFER_DETAILS_TOOL_NAME,
+        {"selection_id": "sel_busdetails01", "view": "full", "product_type": "avia"},
+        _run_context({"user_id": user_id, "conversation_id": conversation_id}),
+        cast(Any, object()),
+    )
+
+    assert wrapped.calls == 1
+    assert wrapped.last_args == {
+        "product_type": "bus",
+        "details_ref": details_ref,
+        "view": "full",
+    }
+
+
+async def test_tutu_offer_details_transformer_uses_raw_item_for_avia_details_ref() -> None:
+    user_id = uuid4()
+    conversation_id = uuid4()
+    store = InMemoryToolResultReferenceStore(
+        now_provider=lambda: datetime(2026, 7, 5, 11, 0, tzinfo=UTC)
+    )
+    raw_item = {
+        "transport": "avia",
+        "price": {"amount": 26140.0, "currency": "RUB"},
+        "legs": [{"segments": [{"carrier": "Победа"}]}],
+    }
+    await store.create(
+        reference=ToolResultReference(
+            selection_id="sel_aviadetails1",
+            provider="tutu",
+            source_tool_name="mcp_tutu_search_avia",
+            user_id=user_id,
+            conversation_id=conversation_id,
+            item_kind="avia",
+            item_index=0,
+            label="Москва -> Сочи",
+            display_snapshot={"selection_id": "sel_aviadetails1"},
+            ref_payload={"raw_item": raw_item},
+            expires_at=datetime(2026, 7, 5, 12, 0, tzinfo=UTC),
+            created_at=datetime(2026, 7, 5, 10, 0, tzinfo=UTC),
+        )
+    )
+    wrapped = FakeToolset({"ok": True})
+    toolset = TransformingToolset(
+        wrapped,
+        call_transformers={
+            TUTU_GET_OFFER_DETAILS_TOOL_NAME: build_tutu_offer_details_call_transformer(store)
+        },
+    )
+
+    await toolset.call_tool(
+        TUTU_GET_OFFER_DETAILS_TOOL_NAME,
+        {"selection_id": "sel_aviadetails1"},
+        _run_context({"user_id": user_id, "conversation_id": conversation_id}),
+        cast(Any, object()),
+    )
+
+    assert wrapped.calls == 1
+    assert wrapped.last_args == {"product_type": "avia", "details_ref": raw_item}
+
+
+async def test_tutu_offer_details_transformer_resolves_hotel_selection_id_to_hotel_ids() -> None:
+    user_id = uuid4()
+    conversation_id = uuid4()
+    store = InMemoryToolResultReferenceStore(
+        now_provider=lambda: datetime(2026, 7, 5, 11, 0, tzinfo=UTC)
+    )
+    await store.create(
+        reference=ToolResultReference(
+            selection_id="sel_hoteldetails",
+            provider="tutu",
+            source_tool_name="mcp_tutu_search_hotels",
+            user_id=user_id,
+            conversation_id=conversation_id,
+            item_kind="hotel",
+            item_index=0,
+            label="Империя",
+            display_snapshot={"selection_id": "sel_hoteldetails"},
+            ref_payload={
+                "raw_item": {
+                    "name": "Империя",
+                    "hotel_id": "8574232",
+                    "hotel_geo_id": "8574232",
+                }
+            },
+            expires_at=datetime(2026, 7, 5, 12, 0, tzinfo=UTC),
+            created_at=datetime(2026, 7, 5, 10, 0, tzinfo=UTC),
+        )
+    )
+    wrapped = FakeToolset({"ok": True})
+    toolset = TransformingToolset(
+        wrapped,
+        call_transformers={
+            TUTU_GET_OFFER_DETAILS_TOOL_NAME: build_tutu_offer_details_call_transformer(store)
+        },
+    )
+
+    await toolset.call_tool(
+        TUTU_GET_OFFER_DETAILS_TOOL_NAME,
+        {"selection_id": "sel_hoteldetails", "review_limit": 3},
+        _run_context({"user_id": user_id, "conversation_id": conversation_id}),
+        cast(Any, object()),
+    )
+
+    assert wrapped.calls == 1
+    assert wrapped.last_args == {
+        "product_type": "hotels",
+        "hotel_id": "8574232",
+        "hotel_geo_id": "8574232",
+        "review_limit": 3,
+    }

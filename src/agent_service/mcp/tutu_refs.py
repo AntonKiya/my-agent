@@ -30,6 +30,7 @@ TUTU_CHECKOUT_SELECTION_EXTRA_FIELDS = frozenset(
         "seat_numbers",
     }
 )
+TUTU_DETAILS_SELECTION_EXTRA_FIELDS = frozenset({"review_limit", "view"})
 SelectionIdProvider = Callable[[], str]
 DateTimeProvider = Callable[[], datetime]
 TutuContextualResultTransformer = Callable[
@@ -125,6 +126,78 @@ def build_tutu_checkout_link_call_transformer(
     return transform
 
 
+def build_tutu_offer_details_call_transformer(
+    reference_store: ToolResultReferenceStore,
+) -> ToolCallTransformer:
+    async def transform(
+        name: str,
+        tool_args: Mapping[str, Any],
+        ctx: RunContext[Any],
+    ) -> ToolCallTransformResult | None:
+        selection_id = tool_args.get("selection_id")
+        if not isinstance(selection_id, str) or not selection_id.strip():
+            return None
+
+        owner = _owner_from_context(ctx)
+        if owner is None:
+            return ToolCallTransformResult(
+                preflight_result=_selection_error_result(
+                    name,
+                    code="selection_context_missing",
+                    message="selection_id cannot be resolved without user_id and conversation_id",
+                    user_message=(
+                        "Не получилось получить детали: выбранный вариант недоступен. "
+                        "Повторите поиск и выберите вариант снова."
+                    ),
+                )
+            )
+
+        user_id, conversation_id = owner
+        reference = await reference_store.get(
+            selection_id=selection_id,
+            user_id=user_id,
+            conversation_id=conversation_id,
+            provider=TUTU_PROVIDER,
+        )
+        if reference is None:
+            return ToolCallTransformResult(
+                preflight_result=_selection_error_result(
+                    name,
+                    code="selection_not_found_or_expired",
+                    message="selection_id was not found for this conversation or has expired",
+                    user_message=(
+                        "Не получилось получить детали: выбранный вариант устарел. "
+                        "Повторите поиск и выберите вариант снова."
+                    ),
+                )
+            )
+
+        resolved_args = _offer_details_args_from_reference(reference)
+        if resolved_args is None:
+            return ToolCallTransformResult(
+                preflight_result=_selection_error_result(
+                    name,
+                    code="selection_missing_details_ref",
+                    message="selection_id does not contain fields required for offer details",
+                    user_message=(
+                        "У Tutu не получилось получить детали выбранного варианта. "
+                        "Повторите поиск или выберите другой вариант."
+                    ),
+                )
+            )
+
+        resolved_args.update(
+            {
+                key: value
+                for key, value in tool_args.items()
+                if key in TUTU_DETAILS_SELECTION_EXTRA_FIELDS and value is not None
+            }
+        )
+        return ToolCallTransformResult(tool_args=resolved_args)
+
+    return transform
+
+
 def add_selection_id_to_checkout_link_tool_definition(
     tool_definition: ToolDefinition,
 ) -> ToolDefinition:
@@ -159,6 +232,42 @@ def tutu_checkout_link_definition_transformers(
     tool_name: str,
 ) -> dict[str, ToolDefinitionTransformer]:
     return {tool_name: add_selection_id_to_checkout_link_tool_definition}
+
+
+def add_selection_id_to_offer_details_tool_definition(
+    tool_definition: ToolDefinition,
+) -> ToolDefinition:
+    schema = copy.deepcopy(tool_definition.parameters_json_schema)
+    properties = schema.setdefault("properties", {})
+    if isinstance(properties, dict):
+        properties.setdefault(
+            "selection_id",
+            {
+                "type": "string",
+                "description": (
+                    "Opaque id returned by Tutu search results. Use this for details "
+                    "of a selected Tutu option."
+                ),
+            },
+        )
+    description = tool_definition.description or ""
+    selection_note = (
+        "\n\nWhen a Tutu search result contains selection_id, call this tool with that "
+        "exact selection_id for offer details. Do not reconstruct details_ref or hotel ids."
+    )
+    if "selection_id" not in description:
+        description = f"{description}{selection_note}".strip()
+    return replace(
+        tool_definition,
+        parameters_json_schema=schema,
+        description=description,
+    )
+
+
+def tutu_offer_details_definition_transformers(
+    tool_name: str,
+) -> dict[str, ToolDefinitionTransformer]:
+    return {tool_name: add_selection_id_to_offer_details_tool_definition}
 
 
 async def _compact_json_like(
@@ -601,6 +710,49 @@ def _item_label(item_key: str, item: Mapping[str, Any]) -> str | None:
     return None
 
 
+def _offer_details_args_from_reference(
+    reference: ToolResultReference,
+) -> dict[str, Any] | None:
+    raw_item = _object_value(reference.ref_payload.get("raw_item"))
+    product_type = _details_product_type(reference.item_kind, raw_item)
+    if product_type is None:
+        return None
+
+    details_ref = reference.ref_payload.get("details_ref")
+    if isinstance(details_ref, dict):
+        return {"product_type": product_type, "details_ref": details_ref}
+
+    if product_type in {"avia", "etrain"} and raw_item:
+        return {"product_type": product_type, "details_ref": raw_item}
+
+    if product_type == "hotels":
+        hotel_id = raw_item.get("hotel_geo_id") or raw_item.get("hotel_id")
+        if hotel_id is None:
+            return None
+        resolved_args = {"product_type": product_type, "hotel_id": hotel_id}
+        if raw_item.get("hotel_geo_id") is not None:
+            resolved_args["hotel_geo_id"] = raw_item["hotel_geo_id"]
+        return resolved_args
+
+    return None
+
+
+def _details_product_type(item_kind: str, raw_item: Mapping[str, Any]) -> str | None:
+    raw_transport = raw_item.get("transport")
+    source = raw_transport if isinstance(raw_transport, str) and raw_transport else item_kind
+    product_type_by_kind = {
+        "avia": "avia",
+        "bus": "bus",
+        "etrain": "etrain",
+        "hotel": "hotels",
+        "hotels": "hotels",
+        "rail": "rail",
+        "railway": "rail",
+        "train": "rail",
+    }
+    return product_type_by_kind.get(source)
+
+
 def _owner_from_context(ctx: RunContext[Any]) -> tuple[UUID, UUID] | None:
     deps = getattr(ctx, "deps", None)
     user_id = _uuid_from_context_value(_context_value(deps, "user_id"))
@@ -627,10 +779,17 @@ def _uuid_from_context_value(value: object) -> UUID | None:
     return None
 
 
-def _selection_error_result(tool_name: str, *, code: str, message: str) -> dict[str, Any]:
+def _selection_error_result(
+    tool_name: str,
+    *,
+    code: str,
+    message: str,
+    user_message: str | None = None,
+) -> dict[str, Any]:
     return {
         "ok": False,
-        "message": (
+        "message": user_message
+        or (
             "Не получилось создать ссылку: выбранный вариант устарел. "
             "Повторите поиск и выберите вариант снова."
         ),

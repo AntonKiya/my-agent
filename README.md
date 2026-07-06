@@ -566,6 +566,7 @@ checkout hashes, opaque offer refs, and detail refs. The service stores those ha
 tools can accept that `selection_id`; the wrapper resolves it inside the same `(user_id,
 conversation_id)` and calls the upstream provider with the original payload. This keeps active
 context small while preserving exact provider data for checkout and other selected-item actions.
+For Tutu, `selection_id` is resolved for checkout links and selected-offer details.
 
 Compaction currently exists as an interface and stub, not as a real summarization implementation.
 `ConversationCompactionRequest` accepts only `user` and `assistant` messages; `tool_call` and
